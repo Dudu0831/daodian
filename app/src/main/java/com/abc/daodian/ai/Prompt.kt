@@ -52,13 +52,24 @@ JSON 结构：
 
     private val WEEKDAY = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
-    /** 变化的部分全放这儿 */
-    fun user(input: String, now: ZonedDateTime): String {
+    /**
+     * 变化的部分全放这儿。[history] 是反问之后的多轮对话 ——
+     * 客户端自己拼文本重放，不依赖任何供应商特有的服务端会话状态。
+     */
+    fun user(input: String, now: ZonedDateTime, history: List<ChatTurn> = emptyList()): String {
         val wd = WEEKDAY[now.dayOfWeek.value - 1]
+        val transcript = if (history.isEmpty()) "" else buildString {
+            append("\n之前的对话：\n")
+            history.forEach { turn ->
+                append(if (turn.fromUser) "用户：" else "到点：")
+                append(turn.text)
+                append('\n')
+            }
+        }
         return """
 当前时刻：${now.format(FMT)}（$wd），时区 ${now.zone}
-
-用户原话：$input
+$transcript
+用户刚说：$input
 """.trimIndent()
     }
 }

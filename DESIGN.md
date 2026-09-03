@@ -237,6 +237,15 @@ data class FireLog(
 
 整层可以被一个手动编辑页完全替代 —— 这是设计它的前提，不是妥协。
 
+> **已修订（真机测试后）**：下面 §6.2-6.3 描述的是「让模型输出 JSON」这条路，实际写代码时验证下来
+> 走了**工具调用**（`create_reminder` 函数）而不是 `response_format`。原因很直接：`json_object` 档
+> 实测时模型会自己发明字段名（`{summary, details:{...}}`），根本不按我们要的 schema 走；工具调用把
+> 参数 schema 交给服务端强制，模型没有自由发挥的空间。`ai/OpenAiCompatParser.kt` 和 `ai/PlanSchema.kt`
+> （JSON 输出模式的实现）已删除，`ai/ToolCallParser.kt` + `ai/ReminderTool.kt` 是唯一在用的路径。
+> 反问之后的多轮对话是客户端拼文本重放（`ai/ChatTurn.kt`），不依赖 `previous_response_id` 这类
+> 服务端会话状态 —— 第三方 OpenAI 兼容接口大概率没实现那个。下面 §6.2/6.3 的设计意图（三档降级、
+> 校验闸门）基本保留，只是"怎么让模型给出结构化数据"这一步换了机制，具体接口形状以代码为准。
+
 ### 6.1 接口
 
 ```kotlin
@@ -259,7 +268,7 @@ data class ProviderProfile(
 )
 ```
 
-唯一的实现是 `OpenAiCompatParser(profile)`。换供应商 = 在设置页改这四个字段。
+实际在用的实现是 `ToolCallParser(profile)`（见 §06 顶部的修订说明），换供应商 = 改这四个字段。
 
 ### 6.2 结构化输出的三档降级
 
@@ -432,3 +441,4 @@ MagicOS 各版本菜单名有出入，按关键词找：
 | v1 | 初稿 |
 | v1.1 | 决策 3.1 翻转：改用 `openai-java` 官方 SDK，补充两条待验前提和对应风险 |
 | v1.2 | 决策 3.2 修订：minSdk 33 → 34（全屏 intent 相关 API 是 34 才有的，停在 33 反而要写版本分支）；确认 `setAlarmClock()` 的状态栏图标代价可接受 |
+| v1.3 | §06 修订：AI 解析改用工具调用，不用 JSON 输出模式（实测 `json_object` 档模型会自造字段名）；多轮对话靠客户端拼历史文本，不依赖服务端会话状态。M1/M2 真机测试通过；M3 正式界面（Compose，八块屏幕）已实现，端到端真机验证未完成。现状与操作细节见 [CLAUDE.md](CLAUDE.md) 和 [README.md](README.md) |

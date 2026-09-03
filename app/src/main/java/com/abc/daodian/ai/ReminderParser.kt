@@ -9,7 +9,7 @@ import java.time.ZonedDateTime
  * 换 SDK / 换供应商只动实现类，接口不变。
  */
 interface ReminderParser {
-    suspend fun parse(input: String, now: ZonedDateTime): ParseResult
+    suspend fun parse(input: String, now: ZonedDateTime, history: List<ChatTurn> = emptyList()): ParseResult
 }
 
 sealed interface ParseResult {

@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import com.abc.daodian.MainActivity
 import com.abc.daodian.data.Reminder
 import com.abc.daodian.schedule.NotificationActionReceiver
+import com.abc.daodian.ui.alarm.AlarmActivity
 
 object Notifier {
 
@@ -82,10 +83,20 @@ object Notifier {
         }
         if (body.isNotEmpty()) builder.setContentText(body)
 
-        // Android 14+ 收紧了全屏 intent，拿不到就安静降级成 heads-up，不要崩
+        // Android 14+ 收紧了全屏 intent，拿不到就安静降级成 heads-up，不要崩。
+        // 全屏页是独立的 AlarmActivity（响铃屏），不是打开 app 本体那个 MainActivity。
         val nm = context.getSystemService(NotificationManager::class.java)
         if (nm.canUseFullScreenIntent()) {
-            builder.setFullScreenIntent(open, true)
+            val ring = PendingIntent.getActivity(
+                context,
+                reminder.id.toInt(),
+                Intent(context, AlarmActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .putExtra(AlarmActivity.EXTRA_REMINDER_ID, reminder.id)
+                    .putExtra(AlarmActivity.EXTRA_TITLE, reminder.title),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            builder.setFullScreenIntent(ring, true)
         }
 
         // 权限被拒时 notify() 是**静默失败**的 —— 提醒会「响」、FireLog 会记一条，

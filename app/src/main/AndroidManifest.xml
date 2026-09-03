@@ -32,14 +32,22 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true"
             android:theme="@style/Theme.Daodian">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 到点全屏页（响铃屏），从通知的 fullScreenIntent 拉起，不是 MainActivity。见 §06 -->
+        <activity
+            android:name=".ui.alarm.AlarmActivity"
+            android:exported="false"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:theme="@style/Theme.Daodian" />
 
         <!-- 闹钟到点。只接收我们自己的 PendingIntent，不对外暴露 -->
         <receiver

@@ -26,7 +26,7 @@ class ToolCallParser(private val profile: ProviderProfile) : ReminderParser {
             .build()
     }
 
-    override suspend fun parse(input: String, now: ZonedDateTime): ParseResult =
+    override suspend fun parse(input: String, now: ZonedDateTime, history: List<ChatTurn>): ParseResult =
         withContext(Dispatchers.IO) {
             if (!profile.isConfigured) {
                 return@withContext ParseResult.Failed("还没配置供应商：${profile.redacted()}")
@@ -37,7 +37,7 @@ class ToolCallParser(private val profile: ProviderProfile) : ReminderParser {
                     ResponseCreateParams.builder()
                         .model(profile.model)
                         .instructions(Prompt.TOOL_SYSTEM)
-                        .input(Prompt.user(input, now))
+                        .input(Prompt.user(input, now, history))
                         .addTool(ReminderTool.definition())
                         .toolChoice(ToolChoiceOptions.AUTO)
                         .build()

@@ -6,12 +6,15 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
-import com.abc.daodian.ui.MainScreen
+import com.abc.daodian.ui.DaodianNavHost
+import com.abc.daodian.ui.MainViewModel
+import com.abc.daodian.ui.theme.DaodianTheme
 
 class MainActivity : ComponentActivity() {
+
+    private val vm: MainViewModel by viewModels()
 
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -27,8 +30,8 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MaterialTheme {
-                Surface { MainScreen() }
+            DaodianTheme {
+                DaodianNavHost(vm = vm)
             }
         }
     }
