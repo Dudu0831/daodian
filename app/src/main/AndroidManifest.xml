@@ -12,9 +12,16 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!--
+      usesCleartextTraffic: 当前 LLM_BASE_URL 是 http:// 明文。Android 从 API 28 起默认禁止
+      明文流量，不开这个连接会被系统直接掐断。
+      代价：key 在链路上不加密传输。等 endpoint 换成 https 就该把这行删掉。
+      （没有用 networkSecurityConfig 精确放行单个主机，是为了不把服务器地址写进这个会公开的仓库。）
+    -->
     <application
         android:name=".DaodianApp"
         android:allowBackup="false"
+        android:usesCleartextTraffic="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@android:drawable/ic_lock_idle_alarm"
         android:label="@string/app_name"

@@ -1,6 +1,9 @@
 *.iml
 .gradle/
 local.properties
+
+# API key 在这里，绝对不能提交
+secrets.properties
 .idea/
 build/
 .DS_Store

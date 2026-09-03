@@ -54,7 +54,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun MainScreen(vm: MainViewModel = viewModel()) {
     var tab by remember { mutableStateOf(0) }
-    val titles = listOf("提醒", "投递日志", "体检")
+    val titles = listOf("提醒", "日志", "体检", "AI")
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("到点 · M1") }) }
@@ -69,6 +69,7 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                 0 -> RemindersTab(vm)
                 1 -> LogTab(vm)
                 2 -> HealthTab()
+                3 -> AiTab(vm)
             }
         }
     }
@@ -240,4 +241,32 @@ private fun HealthTab() {
 
 private fun Context.safeStart(intent: Intent) {
     runCatching { startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+}
+
+
+/** M2 验证用的临时页。等确认 SDK 可用之后会并进主输入框。 */
+@Composable
+private fun AiTab(vm: MainViewModel) {
+    var text by remember { mutableStateOf("三分钟后提醒我喝水") }
+
+    Column(Modifier.padding(16.dp)) {
+        Text(vm.profile.redacted(), fontSize = 11.sp, fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedTextField(
+            value = text, onValueChange = { text = it },
+            label = { Text("说一句话") },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+        )
+        Button(
+            onClick = { vm.aiParseAndAdd(text) },
+            enabled = !vm.aiBusy,
+            modifier = Modifier.padding(top = 8.dp)
+        ) { Text(if (vm.aiBusy) "解析中…" else "解析并建提醒") }
+
+        vm.aiResult?.let {
+            Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                Text(it, Modifier.padding(12.dp), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            }
+        }
+    }
 }

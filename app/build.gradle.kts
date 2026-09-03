@@ -1,9 +1,19 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
+
+// secrets.properties 不进 git（见 .gitignore）。文件缺失时用空值兜底 ——
+// 别人 clone 这个仓库必须能直接构建，不能因为没有 key 就编译失败。
+val secrets = Properties().apply {
+    rootProject.file("secrets.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+fun secret(key: String, fallback: String = ""): String =
+    (secrets.getProperty(key) ?: fallback).replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
     namespace = "com.abc.daodian"
@@ -19,6 +29,12 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1-M1"
+
+        buildConfigField("String", "LLM_BASE_URL",  "\"${secret("LLM_BASE_URL")}\"")
+        buildConfigField("String", "LLM_API_KEY",   "\"${secret("LLM_API_KEY")}\"")
+        buildConfigField("String", "LLM_MODEL",     "\"${secret("LLM_MODEL")}\"")
+        buildConfigField("String", "LLM_API_STYLE", "\"${secret("LLM_API_STYLE", "CHAT_COMPLETIONS")}\"")
+        buildConfigField("String", "LLM_JSON_MODE", "\"${secret("LLM_JSON_MODE", "JSON_OBJECT")}\"")
     }
 
     buildTypes {
@@ -27,8 +43,10 @@ android {
             isMinifyEnabled = false
         }
         release {
-            // M1 阶段先不开混淆，等 M2 引入 SDK 后再验包体
-            isMinifyEnabled = false
+            // M2 验包体：openai-java 拖着 Jackson + kotlin-reflect + victools，
+            // 必须量 R8 之后的数字，debug 包不裁剪没有参考价值
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -44,6 +62,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -73,4 +92,7 @@ dependencies {
 
     implementation(libs.androidx.work.runtime)
     implementation(libs.androidx.datastore.prefs)
+
+    // M2 待验：Android 可用性 + 包体增量，见 DESIGN.md 决策 3.1
+    implementation(libs.openai.java)
 }
