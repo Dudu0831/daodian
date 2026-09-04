@@ -1,4 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">到点</string>
+
+    <!-- 桌面小组件 -->
+    <string name="widget_label">到点 · 待办提醒</string>
+    <string name="widget_description">最近几条提醒摆在桌面上，点一下改，点 ✓ 完成。</string>
+    <string name="widget_empty">还没有排上的提醒。\n点一下，说一句话。</string>
+    <string name="widget_add">手动新建一条</string>
+    <string name="widget_done">标记完成</string>
+    <!-- 这两个字符本身就是图标，翻不了也不该翻 -->
+    <string name="widget_add_glyph" translatable="false">＋</string>
+    <string name="widget_done_glyph" translatable="false">✓</string>
+    <string name="widget_count">%1$d 条待提醒</string>
+    <string name="widget_count_more">%1$d 条待提醒 · 还有 %2$d 条</string>
+
+    <!-- 选择器预览用的示例文案，不会出现在真实小组件上 -->
+    <string name="widget_preview_count">3 条待提醒</string>
+    <string name="widget_preview_title_1">交房租</string>
+    <string name="widget_preview_time_1">9月2日 15:00 · 3 小时后</string>
+    <string name="widget_preview_title_2">喝水</string>
+    <string name="widget_preview_time_2">每天 10:00 · 明天</string>
 </resources>

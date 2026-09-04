@@ -3,75 +3,78 @@ package com.abc.daodian.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * 视觉稿的色板，照抄自 daodian-ui-mockups 里的 CSS 变量。见 DESIGN.md §01 视觉方向。
- * 只在这里出现字面色值，其余地方一律通过 [DaodianColors] 引用。
+ * 「墨宋」色板 —— 照抄自视觉稿（Claude Design 画布 c7073888）。见 DESIGN.md §8.1 视觉语言。
+ *
+ * 三条规矩，改色之前先读：
+ * 1. 宣纸底 + 墨色主体。实心按钮、用户气泡一律用 [solid]（浅色下就是墨黑），不是彩色。
+ * 2. 朱砂 [accent] 只做印章式点缀 —— 圆点、对勾、「已记下」这类小标记，绝不铺成大色块。
+ * 3. 只在这个文件里出现字面色值，其余地方一律通过 [DaodianColors] 引用。
  */
 data class DaodianPalette(
+    /** 页面底色，宣纸 */
     val paper: Color,
+    /** 卡片 / 输入框底色，比纸再亮一点 */
     val surface: Color,
+    /** 次级块面（组件展板、骨架屏底） */
     val surfaceAlt: Color,
     val ink: Color,
     val ink2: Color,
     val muted: Color,
+    /** 占位符这类最轻的字 */
+    val hint: Color,
+    /** 分隔线 */
     val rule: Color,
+    /** 描边（比 rule 重，用在按钮边框） */
     val rule2: Color,
-    val green: Color,
-    val greenInk: Color,
-    val greenSoft: Color,
-    val amber: Color,
-    val amberSoft: Color,
+    /** 卡片内部的细分隔线，比 rule 还轻 */
+    val ruleSoft: Color,
+    /** 朱砂，印章式点缀 */
+    val accent: Color,
+    /** 实心块（按钮、用户气泡）—— 浅色是墨黑，深色是米白 */
+    val solid: Color,
+    /** 铺在 [solid] 上的字色 */
+    val onSolid: Color,
+    /** 解析中的骨架条 */
+    val skeleton: Color,
+    /** 出错 / 迟到这类需要被看见的告警字色 */
     val red: Color,
-    val redSoft: Color,
-    /** 铺在 green 上的文字色 —— 浅色主题是纸色，深色主题是近黑 */
-    val onGreen: Color
+    val amber: Color
 )
 
 val LightPalette = DaodianPalette(
-    paper = Color(0xFFF3F0E7),
-    surface = Color(0xFFFBF9F3),
-    surfaceAlt = Color(0xFFEBE7DA),
-    ink = Color(0xFF23211B),
-    ink2 = Color(0xFF4C483D),
-    muted = Color(0xFF847F6E),
-    rule = Color(0xFFDFD9C8),
-    rule2 = Color(0xFFC9C2AE),
-    green = Color(0xFF23402F),
-    greenInk = Color(0xFF1B3325),
-    greenSoft = Color(0xFFE3E9E0),
-    amber = Color(0xFF8A6A24),
-    amberSoft = Color(0xFFF2EBD8),
-    red = Color(0xFF8E3A2C),
-    redSoft = Color(0xFFF3E3DE),
-    onGreen = Color(0xFFFBF9F3)
+    paper = Color(0xFFF2EFE6),
+    surface = Color(0xFFF8F6EF),
+    surfaceAlt = Color(0xFFEAE6DA),
+    ink = Color(0xFF1C1A17),
+    ink2 = Color(0xFF3A372F),
+    muted = Color(0xFF8A8578),
+    hint = Color(0xFFA9A395),
+    rule = Color(0xFFDFDACC),
+    rule2 = Color(0xFFC9C3B3),
+    ruleSoft = Color(0xFFE5E0D2),
+    accent = Color(0xFF9E3B2E),
+    solid = Color(0xFF1C1A17),
+    onSolid = Color(0xFFF2EFE6),
+    skeleton = Color(0xFFE2DDCF),
+    red = Color(0xFFB0533F),
+    amber = Color(0xFF8A6A24)
 )
 
 val DarkPalette = DaodianPalette(
-    paper = Color(0xFF16150F),
-    surface = Color(0xFF1E1C15),
-    surfaceAlt = Color(0xFF272419),
-    ink = Color(0xFFEFEBDE),
-    ink2 = Color(0xFFCBC6B4),
-    muted = Color(0xFF8F8A78),
-    rule = Color(0xFF322F24),
-    rule2 = Color(0xFF474334),
-    green = Color(0xFF93C0A2),
-    greenInk = Color(0xFFB4D6BF),
-    greenSoft = Color(0xFF1C2A21),
-    amber = Color(0xFFD7AC5C),
-    amberSoft = Color(0xFF2A2214),
-    red = Color(0xFFDB8676),
-    redSoft = Color(0xFF2C1A15),
-    onGreen = Color(0xFF16150F)
+    paper = Color(0xFF14130F),
+    surface = Color(0xFF1C1A15),
+    surfaceAlt = Color(0xFF22201A),
+    ink = Color(0xFFEDEAE0),
+    ink2 = Color(0xFFC3BEB0),
+    muted = Color(0xFF7C7869),
+    hint = Color(0xFF6E6A5E),
+    rule = Color(0xFF2E2B23),
+    rule2 = Color(0xFF38352C),
+    ruleSoft = Color(0xFF2A2720),
+    accent = Color(0xFFC4604F),
+    solid = Color(0xFFE6E2D6),
+    onSolid = Color(0xFF14130F),
+    skeleton = Color(0xFF272419),
+    red = Color(0xFFD6786A),
+    amber = Color(0xFFD7AC5C)
 )
-
-/** 「到点」全屏页专用 —— 半夜会看到它，固定深色，不跟系统主题切换。见 DESIGN.md §06 */
-object AlarmPalette {
-    val bg = Color(0xFF14130E)
-    val bgGlow = Color(0xFF1E2A20)
-    val ink = Color(0xFFF4F0E2)
-    val muted = Color(0xFF8F8A78)
-    val accent = Color(0xFF93C0A2)
-    val accentInk = Color(0xFF16150F)
-    val rule = Color(0xFF3A3628)
-    val secondaryInk = Color(0xFFC9C4B2)
-}

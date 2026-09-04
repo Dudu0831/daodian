@@ -11,90 +11,113 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.abc.daodian.ui.theme.AlarmPalette
+import com.abc.daodian.ui.theme.DaodianColors
 import com.abc.daodian.ui.theme.DaodianType
 
 /**
- * 半夜会看到的那个屏幕。固定深色，不跟系统主题走 —— 见 DESIGN.md §06。
+ * 半夜会看到的那个屏幕 —— app 兑现价值的一刻。见 DESIGN.md §08 界面、视觉稿 Alarm / AlarmDark 两块画板。
+ *
  * 荣耀会把通知重要性静默降级（横幅可能不弹），这一屏是主要的送达手段之一，不是锦上添花。
+ * 深色那版是按半夜三点看的场景做的：降低对比、不用纯白 —— 所以 AlarmActivity 目前钉死深色，
+ * 想让它跟随系统主题的话，改 AlarmActivity 里那行 `darkTheme = true` 就行，这一屏两套色都画得出来。
  */
 @Composable
 fun AlarmScreen(
     title: String,
-    nowLabel: String,
+    dateLabel: String,
+    clockLabel: String,
     onDone: () -> Unit,
     onSnooze: () -> Unit
 ) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(Brush.radialGradient(listOf(AlarmPalette.bgGlow, AlarmPalette.bg)))
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(top = 40.dp, start = 26.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp)
+    val colors = DaodianColors.current
+
+    Column(Modifier.fillMaxSize().background(colors.paper)) {
+
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(top = 34.dp, start = 32.dp, end = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Box(Modifier.size(9.dp).background(AlarmPalette.accent, CircleShape))
-            Text("到点", style = DaodianType.wordmark.copy(fontSize = 14.sp), color = AlarmPalette.muted)
+            Text(dateLabel, style = DaodianType.alarmDate, color = colors.muted)
+            Spacer(Modifier.height(4.dp))
+            Text(clockLabel, style = DaodianType.alarmClock, color = colors.ink.copy(alpha = 0.92f))
         }
 
         Column(
-            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 32.dp),
+            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 40.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text(
-                "现在 $nowLabel",
-                style = DaodianType.monoSmall.copy(fontSize = 13.sp),
-                color = AlarmPalette.muted
-            )
-            Spacer(Modifier.height(16.dp))
+            Hairline()
+            Spacer(Modifier.height(34.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(Modifier.size(5.dp).background(colors.accent, CircleShape))
+                Text("到点了", style = DaodianType.alarmTag, color = colors.muted)
+            }
+            Spacer(Modifier.height(22.dp))
             Text(
                 title,
                 style = DaodianType.alarmTitle,
-                color = AlarmPalette.ink,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                color = colors.ink,
+                textAlign = TextAlign.Center
             )
-            Spacer(Modifier.height(12.dp))
-            Text("到点了。", fontSize = 14.sp, color = AlarmPalette.muted)
+            Spacer(Modifier.height(34.dp))
+            Hairline()
         }
 
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 26.dp).padding(bottom = 54.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 28.dp)
+                .padding(bottom = 20.dp)
+                .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .background(AlarmPalette.accent, RoundedCornerShape(100.dp))
-                    .clickable(onClick = onDone)
-                    .padding(vertical = 17.dp),
+                    .height(60.dp)
+                    .background(colors.solid, RoundedCornerShape(34.dp))
+                    .clickable(onClick = onDone),
                 contentAlignment = Alignment.Center
             ) {
-                Text("完成", fontSize = 16.sp, color = AlarmPalette.accentInk)
+                Text("完成", style = DaodianType.button, color = colors.onSolid)
             }
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .border(1.dp, AlarmPalette.rule, RoundedCornerShape(100.dp))
-                    .clickable(onClick = onSnooze)
-                    .padding(vertical = 16.dp),
+                    .height(60.dp)
+                    .border(1.dp, colors.rule2, RoundedCornerShape(34.dp))
+                    .clickable(onClick = onSnooze),
                 contentAlignment = Alignment.Center
             ) {
-                Text("稍后 10 分钟", fontSize = 15.sp, color = AlarmPalette.secondaryInk)
+                Text("稍后 10 分钟", style = DaodianType.button, color = colors.ink2)
             }
         }
     }
+}
+
+/** 标题上下那两道短横 —— 把「到点了」这件事框住 */
+@Composable
+private fun Hairline() {
+    val colors = DaodianColors.current
+    Box(Modifier.width(26.dp).height(1.dp).background(colors.rule2))
 }

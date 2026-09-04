@@ -42,7 +42,11 @@ object ReminderTool {
     fun definition(): FunctionTool =
         FunctionTool.builder()
             .name(NAME)
-            .description("为用户创建一条定时提醒。信息足够时必须调用这个工具，不要用文字描述你要做什么。")
+            .description(
+                "为用户创建一条定时提醒 —— 这会在他手机上真的排一个闹钟。" +
+                    "只有当他明确要求被提醒、且触发时刻能算得出来时才调用。" +
+                    "闲聊、提问、只是话里提到某个时间，都不要调。"
+            )
             .strict(true)
             .parameters(
                 FunctionTool.Parameters.builder()

@@ -69,13 +69,13 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onOpenLog: () -> Unit)
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .background(colors.surface, RoundedCornerShape(4.dp))
-                    .border(1.dp, colors.rule, RoundedCornerShape(4.dp))
+                    .background(colors.surface, RoundedCornerShape(5.dp))
+                    .border(1.dp, colors.rule, RoundedCornerShape(5.dp))
                     .clickable(onClick = onOpenLog)
                     .padding(horizontal = 18.dp, vertical = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("投递日志", style = DaodianType.bodySmall, color = colors.ink)
+                Text("投递日志", style = DaodianType.rowTitle, color = colors.ink)
                 ChevronRightIcon(size = 14.dp, tint = colors.muted)
             }
             Spacer(Modifier.height(40.dp))
@@ -86,7 +86,7 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onOpenLog: () -> Unit)
 @Composable
 private fun SectionLabel(text: String) {
     val colors = DaodianColors.current
-    Text(text, style = DaodianType.monoSmall, color = colors.muted, modifier = Modifier.padding(vertical = 12.dp))
+    Text(text, style = DaodianType.sectionLabel, color = colors.muted, modifier = Modifier.padding(vertical = 12.dp))
 }
 
 @Composable
@@ -106,8 +106,8 @@ private fun HealthRow(item: HealthItem) {
     Column(
         Modifier
             .fillMaxWidth()
-            .background(colors.surface, RoundedCornerShape(4.dp))
-            .border(1.dp, colors.rule, RoundedCornerShape(4.dp))
+            .background(colors.surface, RoundedCornerShape(5.dp))
+            .border(1.dp, colors.rule, RoundedCornerShape(5.dp))
             .padding(14.dp)
     ) {
         Text(
@@ -121,7 +121,7 @@ private fun HealthRow(item: HealthItem) {
         if (!item.ok && fix != null) {
             Spacer(Modifier.height(8.dp))
             Text(
-                "去设置 ›", style = DaodianType.caption, color = colors.green,
+                "去设置 ›", style = DaodianType.caption, color = colors.accent,
                 modifier = Modifier.clickable {
                     runCatching { context.startActivity(fix.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
                 }

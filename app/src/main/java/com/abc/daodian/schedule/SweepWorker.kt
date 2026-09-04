@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.abc.daodian.data.DaodianDatabase
 import com.abc.daodian.data.FireSource
+import com.abc.daodian.widget.WidgetUpdater
 import java.util.concurrent.TimeUnit
 
 /**
@@ -49,6 +50,7 @@ class SweepWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
                 }
 
             Log.i(TAG, "巡检完成：补发 ${overdue.size} 条，补排 $repaired 条")
+            WidgetUpdater.refresh(app)
             Result.success()
         } catch (t: Throwable) {
             Log.e(TAG, "巡检失败", t)

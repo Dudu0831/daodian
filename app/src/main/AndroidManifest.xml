@@ -28,10 +28,15 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Daodian">
 
+        <!--
+            adjustResize：默认的 adjustPan 会把整个窗口往上推（标题会被推到状态栏外面），
+            再叠上 Compose 自己的 ime inset，输入框就被顶高一截。inset 只留 Compose 一个来源。
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Daodian">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -57,6 +62,30 @@
         <!-- 通知上的「完成」「稍后 10 分钟」 -->
         <receiver
             android:name=".schedule.NotificationActionReceiver"
+            android:exported="false" />
+
+        <!--
+            桌面小组件。exported 必须是 true —— APPWIDGET_UPDATE 是系统/桌面发过来的。
+            另外三条 DATE/TIME/TIMEZONE 也都是受保护广播，别的 app 伪造不了。见 DESIGN.md §8.2
+        -->
+        <receiver
+            android:name=".widget.DaodianWidget"
+            android:exported="true"
+            android:label="@string/widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_info" />
+        </receiver>
+
+        <!-- 小组件上那个 ✓。只接自己发的 PendingIntent -->
+        <receiver
+            android:name=".widget.WidgetActionReceiver"
             android:exported="false" />
 
         <!-- 重排触发源。BOOT_COMPLETED 等都是受保护广播，只有系统能发 -->

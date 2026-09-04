@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import com.abc.daodian.MainActivity
 import com.abc.daodian.data.Reminder
 import com.abc.daodian.schedule.NotificationActionReceiver
+import com.abc.daodian.ui.common.Format
 import com.abc.daodian.ui.alarm.AlarmActivity
 
 object Notifier {
@@ -74,11 +75,16 @@ object Notifier {
             .addAction(0, "完成", actionIntent(context, reminder.id, NotificationActionReceiver.ACTION_DONE))
             .addAction(0, "稍后 10 分钟", actionIntent(context, reminder.id, NotificationActionReceiver.ACTION_SNOOZE))
 
+        // 视觉稿的通知形态：标题是提醒本身，副行交代「什么时候的事」。
+        // 迟到必须写在脸上 —— 补发假装准时，用户下次就不敢信这个 app 了。
         val body = buildString {
             reminder.note?.let { append(it) }
+            if (isEmpty()) {
+                if (lateBy > 60_000) append("应在 ${Format.clock(reminder.nextTriggerAt)}")
+                else append(Format.humanDateTime(reminder.nextTriggerAt))
+            }
             if (lateBy > 60_000) {
-                if (isNotEmpty()) append(" · ")
-                append("补发，迟了 ${lateBy / 60_000} 分钟")
+                append(" · 补发，迟了 ${lateBy / 60_000} 分钟")
             }
         }
         if (body.isNotEmpty()) builder.setContentText(body)

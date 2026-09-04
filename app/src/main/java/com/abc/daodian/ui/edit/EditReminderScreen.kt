@@ -112,7 +112,7 @@ fun EditReminderScreen(vm: MainViewModel, reminderId: Long?, onBack: () -> Unit)
                     wallClockAnchored = wallClockAnchored
                 )
                 onBack()
-            }) { Text("保存", color = colors.green) }
+            }) { Text("保存", color = colors.accent) }
         }
 
         Column(
@@ -161,7 +161,11 @@ fun EditReminderScreen(vm: MainViewModel, reminderId: Long?, onBack: () -> Unit)
                 Switch(
                     checked = wallClockAnchored,
                     onCheckedChange = { wallClockAnchored = it },
-                    colors = SwitchDefaults.colors(checkedTrackColor = colors.green)
+                    colors = SwitchDefaults.colors(
+                        checkedTrackColor = colors.solid,
+                        checkedThumbColor = colors.onSolid,
+                        checkedBorderColor = colors.solid
+                    )
                 )
             }
             Spacer(Modifier.height(40.dp))
@@ -218,7 +222,7 @@ private fun initialRepeat(rrule: String?): RepeatChoice {
 @Composable
 private fun FieldLabel(text: String) {
     val colors = DaodianColors.current
-    Text(text, style = DaodianType.monoSmall, color = colors.muted, modifier = Modifier.padding(bottom = 8.dp))
+    Text(text, style = DaodianType.sectionLabel, color = colors.muted, modifier = Modifier.padding(bottom = 8.dp))
 }
 
 @Composable
@@ -227,15 +231,15 @@ private fun PlainField(value: String, onChange: (String) -> Unit, placeholder: S
     Box(
         Modifier
             .fillMaxWidth()
-            .background(colors.surface, RoundedCornerShape(4.dp))
-            .border(1.dp, colors.rule, RoundedCornerShape(4.dp))
+            .background(colors.surface, RoundedCornerShape(5.dp))
+            .border(1.dp, colors.rule, RoundedCornerShape(5.dp))
             .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
-        if (value.isEmpty()) Text(placeholder, style = DaodianType.body, color = colors.muted)
+        if (value.isEmpty()) Text(placeholder, style = DaodianType.body, color = colors.hint)
         BasicTextField(
             value = value, onValueChange = onChange,
             textStyle = DaodianType.body.copy(color = colors.ink),
-            cursorBrush = SolidColor(colors.green)
+            cursorBrush = SolidColor(colors.accent)
         )
     }
 }
@@ -245,11 +249,11 @@ private fun ChoiceChip(label: String, selected: Boolean, onClick: () -> Unit) {
     val colors = DaodianColors.current
     Box(
         Modifier
-            .let { if (selected) it.background(colors.green, RoundedCornerShape(100.dp)) else it }
-            .let { if (!selected) it.border(1.dp, colors.rule2, RoundedCornerShape(100.dp)) else it }
+            .let { if (selected) it.background(colors.solid, RoundedCornerShape(22.dp)) else it }
+            .let { if (!selected) it.border(1.dp, colors.rule2, RoundedCornerShape(22.dp)) else it }
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 9.dp)
+            .padding(horizontal = 18.dp, vertical = 11.dp)
     ) {
-        Text(label, style = DaodianType.bodySmall, color = if (selected) colors.onGreen else colors.ink2)
+        Text(label, style = DaodianType.bodySmall, color = if (selected) colors.onSolid else colors.ink2)
     }
 }

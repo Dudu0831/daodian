@@ -19,6 +19,7 @@ import com.abc.daodian.data.ReminderStatus
 import com.abc.daodian.notify.Notifier
 import com.abc.daodian.schedule.Rescheduler
 import com.abc.daodian.ui.chat.ChatMessage
+import com.abc.daodian.widget.WidgetUpdater
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
@@ -38,6 +39,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val profile = ProviderProfile.fromBuildConfig()
     private val parser: ReminderParser = ToolCallParser(profile)
 
+    init {
+        // app 内的增删改一律走 Room，所以盯住这一条流就够了 ——
+        // 不用在 upsert/markDone/delete 里各插一行刷新，也就不会漏。
+        // app 没开着时的改动（响铃、通知按钮、巡检）由各自的调用点自己喊，见 WidgetUpdater。
+        viewModelScope.launch {
+            db.reminderDao().observeAll().collect { WidgetUpdater.refresh(app) }
+        }
+    }
+
     // ---------------- 对话 ----------------
 
     private val idGen = AtomicLong(0)
@@ -49,6 +59,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var aiBusy by mutableStateOf(false)
         private set
 
+    /** 最后一句用户说的话，失败后「重试」用得上 */
+    private var lastUserInput: String? = null
+
     /**
      * 一句话 → 模型 → 校验闸门 → 落库 → 排闹钟。见 DESIGN.md §6.1
      *
@@ -59,30 +72,53 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val trimmed = text.trim()
         if (trimmed.isBlank() || aiBusy) return
 
-        viewModelScope.launch {
-            // 新一轮开始，上一张还展开的卡片自动收起
-            val collapsedPrev = _messages.value.map {
-                if (it is ChatMessage.AssistantCard && !it.collapsed) it.copy(collapsed = true) else it
-            }
-            val history = historyOf(collapsedPrev)
+        // 新一轮开始，上一张还展开的卡片自动收起
+        val collapsedPrev = _messages.value.map {
+            if (it is ChatMessage.AssistantCard && !it.collapsed) it.copy(collapsed = true) else it
+        }
+        val history = historyOf(collapsedPrev)
 
+        lastUserInput = trimmed
+        _messages.value = collapsedPrev + ChatMessage.UserText(newId(), trimmed)
+        parseAndReply(trimmed, history)
+    }
+
+    /**
+     * 解析失败后的「重试」。失败那条会被抹掉、也不进历史 ——
+     * 不然下一轮模型会看到自己说过「连不上服务器」，然后顺着这个话头往下编。
+     */
+    fun retryLast() {
+        val trimmed = lastUserInput ?: return
+        if (aiBusy) return
+
+        val kept = _messages.value.filterNot { it is ChatMessage.AssistantText && it.isError }
+        val last = kept.lastOrNull()
+        val prior = if (last is ChatMessage.UserText && last.text == trimmed) kept.dropLast(1) else kept
+
+        _messages.value = kept
+        parseAndReply(trimmed, historyOf(prior))
+    }
+
+    private fun parseAndReply(text: String, history: List<ChatTurn>) {
+        viewModelScope.launch {
             val thinkingId = newId()
-            _messages.value = collapsedPrev + ChatMessage.UserText(newId(), trimmed) + ChatMessage.Thinking(thinkingId)
+            _messages.value = _messages.value + ChatMessage.Thinking(thinkingId)
             aiBusy = true
 
-            val result = parser.parse(trimmed, ZonedDateTime.now(), history)
+            val result = parser.parse(text, ZonedDateTime.now(), history)
 
             val reply: ChatMessage = when (result) {
                 is ParseResult.Ok -> {
-                    val reminderId = insertFromPlan(trimmed, result.plan)
+                    val reminderId = insertFromPlan(text, result.plan)
                     ChatMessage.AssistantCard(newId(), reminderId, result.plan)
                 }
                 is ParseResult.NeedsClarification ->
                     ChatMessage.AssistantText(newId(), result.question)
                 is ParseResult.Failed ->
+                    // 第二句「你可以自己填一条」由 UI 补，见 AssistantTextRow
                     ChatMessage.AssistantText(
                         newId(),
-                        "连不上解析服务，可能是网络断了，或者服务配置不对。这条我先不建。",
+                        "连不上服务器，这句话没能解析。",
                         isError = true
                     )
             }
@@ -97,13 +133,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 只取纯文本往返喂给下一轮请求，见 ChatTurn 的说明 */
+    /**
+     * 把对话压成喂给下一轮的文本历史，见 ChatTurn 的说明。
+     *
+     * 已建的提醒必须以「回执」的形式留在历史里：否则模型看到的是
+     * 「用户：三分钟后提醒我喝水 / 用户：谢谢」—— 上一句请求像是没人应，
+     * 它会好心再建一遍。真机上就是这么冒出重复提醒的。
+     */
     private fun historyOf(snapshot: List<ChatMessage>): List<ChatTurn> =
         snapshot.mapNotNull { m ->
             when (m) {
                 is ChatMessage.UserText -> ChatTurn(fromUser = true, text = m.text)
                 is ChatMessage.AssistantText -> ChatTurn(fromUser = false, text = m.text)
-                else -> null
+                is ChatMessage.AssistantCard -> ChatTurn(
+                    fromUser = false,
+                    text = buildString {
+                        append("（已建好提醒：「${m.plan.title}」，${m.plan.firstTriggerAt}")
+                        m.plan.rrule?.let { append("，重复 $it") }
+                        append("。这条已经落库排期了，不要重复建）")
+                    }
+                )
+                is ChatMessage.Thinking -> null
             }
         }
 

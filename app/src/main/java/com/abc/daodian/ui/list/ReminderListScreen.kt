@@ -26,13 +26,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.abc.daodian.data.Reminder
 import com.abc.daodian.data.ReminderStatus
 import com.abc.daodian.ui.MainViewModel
 import com.abc.daodian.ui.common.CheckIcon
 import com.abc.daodian.ui.common.Format
 import com.abc.daodian.ui.common.PlusIcon
+import com.abc.daodian.ui.common.RepeatBadge
 import com.abc.daodian.ui.common.ScreenTopBar
 import com.abc.daodian.ui.common.TrashIcon
 import com.abc.daodian.ui.theme.DaodianColors
@@ -57,17 +57,17 @@ fun ReminderListScreen(
             Box(
                 Modifier
                     .size(38.dp)
-                    .background(colors.green, CircleShape)
+                    .background(colors.solid, CircleShape)
                     .clickable(onClick = onAdd),
                 contentAlignment = Alignment.Center
-            ) { PlusIcon(tint = colors.onGreen) }
+            ) { PlusIcon(tint = colors.onSolid) }
         }
 
         if (reminders.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                 Text(
                     "还没有提醒 —— 去对话页说一句，或者点右上角手动加一条。",
-                    style = DaodianType.body, color = colors.muted
+                    style = DaodianType.prose, color = colors.muted
                 )
             }
             return@Column
@@ -77,7 +77,7 @@ fun ReminderListScreen(
             groups.forEach { (label, items) ->
                 item(key = "h-$label") {
                     Text(
-                        label, style = DaodianType.monoSmall, color = colors.muted,
+                        label, style = DaodianType.sectionLabel, color = colors.muted,
                         modifier = Modifier.padding(top = 22.dp, bottom = 10.dp)
                     )
                 }
@@ -111,24 +111,19 @@ private fun ReminderRow(
     Column(
         Modifier
             .fillMaxWidth()
-            .background(colors.surface, RoundedCornerShape(4.dp))
-            .border(1.dp, if (!armed) colors.red else colors.rule, RoundedCornerShape(4.dp))
+            .background(colors.surface, RoundedCornerShape(5.dp))
+            .border(1.dp, if (!armed) colors.red else colors.rule, RoundedCornerShape(5.dp))
             .clickable(onClick = onClick)
-            .padding(16.dp)
+            .padding(horizontal = 18.dp, vertical = 15.dp)
     ) {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f)) {
-                Text(r.title, style = DaodianType.bodySmall.copy(fontSize = 16.sp), color = colors.ink)
-                Spacer(Modifier.height(3.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(Format.humanDateTime(r.nextTriggerAt), style = DaodianType.caption, color = colors.ink2)
-                    rruleText?.let {
-                        Text(
-                            it, style = DaodianType.monoSmall, color = colors.greenInk,
-                            modifier = Modifier.background(colors.greenSoft, RoundedCornerShape(100.dp))
-                                .padding(horizontal = 8.dp, vertical = 1.dp)
-                        )
-                    }
+                Text(r.title, style = DaodianType.rowTitle, color = colors.ink)
+                Spacer(Modifier.height(4.dp))
+                Text(Format.humanDateTime(r.nextTriggerAt), style = DaodianType.caption, color = colors.ink2)
+                rruleText?.let {
+                    Spacer(Modifier.height(9.dp))
+                    RepeatBadge(it)
                 }
                 if (!armed) {
                     Spacer(Modifier.height(6.dp))
@@ -142,7 +137,7 @@ private fun ReminderRow(
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (r.status == ReminderStatus.SCHEDULED) {
                     Box(Modifier.size(30.dp).clickable(onClick = onDone), contentAlignment = Alignment.Center) {
-                        CheckIcon(size = 15.dp, tint = colors.green)
+                        CheckIcon(size = 13.dp, tint = colors.accent)
                     }
                 }
                 Box(Modifier.size(30.dp).clickable(onClick = onDelete), contentAlignment = Alignment.Center) {

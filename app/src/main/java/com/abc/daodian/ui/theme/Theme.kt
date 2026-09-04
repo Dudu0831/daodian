@@ -27,8 +27,8 @@ fun DaodianTheme(
     // 界面主体都是直接读 DaodianColors 画的自定义 composable。
     val colorScheme = if (darkTheme) {
         darkColorScheme(
-            primary = palette.green,
-            onPrimary = palette.onGreen,
+            primary = palette.solid,
+            onPrimary = palette.onSolid,
             background = palette.paper,
             onBackground = palette.ink,
             surface = palette.surface,
@@ -36,13 +36,12 @@ fun DaodianTheme(
             surfaceVariant = palette.surfaceAlt,
             onSurfaceVariant = palette.ink2,
             outline = palette.rule2,
-            error = palette.red,
-            errorContainer = palette.redSoft
+            error = palette.red
         )
     } else {
         lightColorScheme(
-            primary = palette.green,
-            onPrimary = palette.onGreen,
+            primary = palette.solid,
+            onPrimary = palette.onSolid,
             background = palette.paper,
             onBackground = palette.ink,
             surface = palette.surface,
@@ -50,8 +49,7 @@ fun DaodianTheme(
             surfaceVariant = palette.surfaceAlt,
             onSurfaceVariant = palette.ink2,
             outline = palette.rule2,
-            error = palette.red,
-            errorContainer = palette.redSoft
+            error = palette.red
         )
     }
 

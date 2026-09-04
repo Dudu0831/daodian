@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 朱砂圆点，印章式点缀。见 DESIGN.md §8.1 第 2 条 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/widget_accent" />
+</shape>

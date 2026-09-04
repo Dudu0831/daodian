@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.abc.daodian.widget.WidgetUpdater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -33,6 +34,8 @@ class RescheduleReceiver : BroadcastReceiver() {
                 }
                 // 开机后 WorkManager 的周期任务不一定还在，重新登记一次
                 SweepWorker.enqueue(app)
+                // 开机 / 改时间之后桌面上的字大概率已经过期了
+                WidgetUpdater.refresh(app)
             } catch (t: Throwable) {
                 Log.e(TAG, "重排失败 action=$action", t)
             } finally {

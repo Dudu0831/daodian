@@ -28,8 +28,8 @@
 完整设计与决策记录见 **[DESIGN.md](DESIGN.md)**。代码注释里的 `§5.3`、`§9.2` 之类引用都指向那份文档。
 面向 Claude Code 会话本身的操作手册在 **[CLAUDE.md](CLAUDE.md)**。
 
-界面视觉稿（Claude Design 画布，八块对话/卡片/到点全屏状态）：
-<https://claude.ai/code/artifact/327af1d8-4987-4f13-bc25-536e9b5f10d9>
+界面视觉稿（Claude Design 画布，九块画板 · 墨宋，视觉规范见 DESIGN.md §8.1）：
+<https://claude.ai/code/artifact/c7073888-2022-4a7f-bb22-4ae61961d0a1>
 
 ---
 

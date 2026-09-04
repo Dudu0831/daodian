@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  桌面小组件的登记表。见 DESIGN.md §8.2
+
+  updatePeriodMillis 写 1800000（30 分钟，系统允许的最小值）——
+  它只用来兜「N 小时后」这种相对时间的自然变旧，**不是**数据变化的通知渠道：
+  真正的刷新由 WidgetUpdater 在每个改动点主动推（建/改/删/响铃/完成/稍后）。
+  这个周期不唤醒设备，息屏期间的到期由系统攒着，亮屏后补一次。
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="3"
+    android:targetCellHeight="2"
+    android:minResizeWidth="140dp"
+    android:minResizeHeight="70dp"
+    android:maxResizeWidth="400dp"
+    android:maxResizeHeight="400dp"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/widget_container"
+    android:previewLayout="@layout/widget_preview"
+    android:description="@string/widget_description" />

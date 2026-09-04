@@ -91,7 +91,7 @@ private fun LogRow(log: FireLog) {
             Text(log.title, style = DaodianType.bodySmall, color = colors.ink)
             Text(
                 log.source.name,
-                fontFamily = DaodianType.monoSmall.fontFamily,
+                fontFamily = DaodianType.basis.fontFamily,
                 fontSize = 10.sp,
                 color = if (bad) colors.red else colors.muted
             )
@@ -100,7 +100,7 @@ private fun LogRow(log: FireLog) {
         Text(
             "应响 ${Format.humanDateTime(log.scheduledAt)} → 实响 ${Format.humanDateTime(log.firedAt)} · " +
                 "漂移 ${if (drift >= 0) "+" else ""}${drift / 1000}s",
-            fontFamily = DaodianType.monoSmall.fontFamily,
+            fontFamily = DaodianType.basis.fontFamily,
             fontSize = 11.sp,
             color = if (bad) colors.red else colors.muted
         )

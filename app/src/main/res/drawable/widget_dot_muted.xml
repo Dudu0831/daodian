@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 已过点还没响的那条用灰点：朱砂留给「下一条」，不能满屏都是印章 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/widget_rule2" />
+</shape>

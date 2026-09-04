@@ -9,6 +9,7 @@ import com.abc.daodian.data.Reminder
 import com.abc.daodian.data.ReminderStatus
 import com.abc.daodian.notify.Notifier
 import com.abc.daodian.recur.Rrule
+import com.abc.daodian.widget.WidgetUpdater
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -67,10 +68,13 @@ object FireHandler {
                 db.reminderDao().setNextTrigger(reminder.id, at, firedAt)
                 db.reminderDao().byId(reminder.id)?.let { Rescheduler(context).schedule(it) }
                 Log.i(TAG, "已排下一次: id=${reminder.id} at=$candidate")
+                WidgetUpdater.refresh(context)
                 return
             }
         }
 
         db.reminderDao().setStatus(reminder.id, ReminderStatus.FIRED, firedAt)
+        // 4. 桌面上那条得跟着消失/翻到下一次。漏了只是显示旧数据，不影响触发
+        WidgetUpdater.refresh(context)
     }
 }

@@ -7,6 +7,7 @@ import android.util.Log
 import com.abc.daodian.data.DaodianDatabase
 import com.abc.daodian.data.ReminderStatus
 import com.abc.daodian.notify.Notifier
+import com.abc.daodian.widget.WidgetUpdater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -40,6 +41,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
                     }
                 }
                 Notifier.cancel(app, id)
+                WidgetUpdater.refresh(app)
             } catch (t: Throwable) {
                 Log.e(TAG, "通知动作失败 id=$id action=$action", t)
             } finally {

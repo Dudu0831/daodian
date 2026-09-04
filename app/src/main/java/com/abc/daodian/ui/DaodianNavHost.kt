@@ -1,6 +1,7 @@
 package com.abc.daodian.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -12,6 +13,7 @@ import com.abc.daodian.ui.edit.EditReminderScreen
 import com.abc.daodian.ui.list.ReminderListScreen
 import com.abc.daodian.ui.settings.FireLogScreen
 import com.abc.daodian.ui.settings.SettingsScreen
+import com.abc.daodian.widget.WidgetTarget
 
 private object Routes {
     const val CHAT = "chat"
@@ -27,7 +29,28 @@ private object Routes {
  * 避免 Navigation-Compose 按 backstack entry 分别建实例，导致数据不同步。
  */
 @Composable
-fun DaodianNavHost(vm: MainViewModel, navController: NavHostController = rememberNavController()) {
+fun DaodianNavHost(
+    vm: MainViewModel,
+    navController: NavHostController = rememberNavController(),
+    widgetTarget: WidgetTarget? = null,
+    onWidgetTargetHandled: () -> Unit = {}
+) {
+    // 桌面小组件只说去处，路由字符串是 NavHost 自己的事，见 WidgetLaunch
+    LaunchedEffect(widgetTarget) {
+        when (widgetTarget) {
+            null -> return@LaunchedEffect
+            WidgetTarget.Chat -> navController.navigate(Routes.CHAT) {
+                popUpTo(Routes.CHAT) { inclusive = true }
+                launchSingleTop = true
+            }
+            WidgetTarget.List -> navController.navigate(Routes.LIST) { launchSingleTop = true }
+            WidgetTarget.New -> navController.navigate(Routes.edit(null)) { launchSingleTop = true }
+            is WidgetTarget.Edit ->
+                navController.navigate(Routes.edit(widgetTarget.reminderId)) { launchSingleTop = true }
+        }
+        onWidgetTargetHandled()
+    }
+
     NavHost(navController = navController, startDestination = Routes.CHAT) {
 
         composable(Routes.CHAT) {

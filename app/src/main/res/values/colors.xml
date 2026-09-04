@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  墨宋色板的第二份拷贝 —— 桌面小组件专用。
+
+  为什么必须重复一遍：小组件是 RemoteViews，跑在桌面进程里，读不到 Compose 的
+  DaodianPalette。而颜色又必须写成 @color 引用（不能在 Kotlin 里 setTextColor 硬塞）——
+  只有这样，桌面在深浅色切换时才会用 values-night 重新解析一次；硬塞进去的色值会僵在那儿。
+
+  改色规矩：这里的每个值都对应 ui/theme/Palette.kt 里的同名字段，两边一起改。
+  values/ 抄 LightPalette，values-night/ 抄 DarkPalette。
+-->
+<resources>
+    <color name="widget_paper">#FFF2EFE6</color>
+    <color name="widget_ink">#FF1C1A17</color>
+    <color name="widget_muted">#FF8A8578</color>
+    <color name="widget_hint">#FFA9A395</color>
+    <color name="widget_rule">#FFDFDACC</color>
+    <color name="widget_rule2">#FFC9C3B3</color>
+    <color name="widget_accent">#FF9E3B2E</color>
+    <color name="widget_red">#FFB0533F</color>
+</resources>
