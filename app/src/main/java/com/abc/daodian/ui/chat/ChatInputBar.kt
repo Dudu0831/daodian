@@ -23,11 +23,14 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.abc.daodian.ui.common.MicIcon
 import com.abc.daodian.ui.common.SendIcon
+import com.abc.daodian.ui.common.StopIcon
 import com.abc.daodian.ui.theme.DaodianColors
 import com.abc.daodian.ui.theme.DaodianType
 
 /**
- * 底部那根横条。解析中整条压暗 + 发送键变成空心圈 —— 让「现在轮不到你说话」这件事一眼可见。
+ * 底部那根横条。解析中整条压暗，发送键变成空心圈里一个墨块 —— 那不只是禁用态，是「停」，
+ * 按下去掐断当前这条流（见 DESIGN.md §6.7）。字在一路往外冒的时候，
+ * 用户必须能喊停，否则只能干等。
  */
 @Composable
 fun ChatInputBar(
@@ -36,6 +39,7 @@ fun ChatInputBar(
     onSend: () -> Unit,
     onMicClick: () -> Unit,
     enabled: Boolean,
+    onStop: (() -> Unit)? = null,
     placeholder: String = "说一句话……"
 ) {
     val colors = DaodianColors.current
@@ -79,17 +83,23 @@ fun ChatInputBar(
 
         // 稿子里空输入框的发送键也是实心带箭头 —— 空心圈只属于「解析中」那一档。
         // 没字时按钮还在，只是按不动：按钮凭空消失比按了没反应更让人发懵。
+        val stopping = !enabled && onStop != null
         Box(
             Modifier
                 .size(36.dp)
+                // 整条横条压到 0.55 透明度，「停」得单独提回不透明，不然它看着像个禁用的按钮
+                .alpha(if (stopping) 1f / 0.55f else 1f)
                 .let {
                     if (enabled) it.background(colors.solid, CircleShape)
                     else it.border(1.5.dp, colors.rule2, CircleShape)
                 }
-                .clickable(enabled = canSend, onClick = onSend),
+                .clickable(enabled = canSend || stopping) { if (stopping) onStop!!() else onSend() },
             contentAlignment = Alignment.Center
         ) {
-            if (enabled) SendIcon(tint = if (canSend) colors.onSolid else colors.onSolid.copy(alpha = 0.45f))
+            when {
+                enabled -> SendIcon(tint = if (canSend) colors.onSolid else colors.onSolid.copy(alpha = 0.45f))
+                stopping -> StopIcon(tint = colors.ink2)
+            }
         }
     }
 }

@@ -326,6 +326,49 @@ data class ReminderPlan(
 
 **这个用量下成本不该成为选型依据**，该看的是接口稳定性、延迟、以及对 `response_format` 的支持程度。
 
+### 6.7 流式：把过程摊开给人看
+
+非流式那版实测 6–7 秒空白，只能拿骨架条撑着。现在走 `client.responses().createStreaming()`，
+四类事件各自对应界面上的一块：
+
+| SDK 事件 | 我们的事件 | 界面 |
+|---|---|---|
+| `reasoningTextDelta` / `reasoningSummaryTextDelta` | `Reasoning` | 左侧一条细线圈起来的浅色小字 |
+| `outputTextDelta` | `Text` | 正文，末尾跟一个闪的墨块光标 |
+| `outputItemAdded`（functionCall） | `ToolStarted` | 「在建提醒 · create_reminder」 |
+| `functionCallArgumentsDelta` / `...Done` | `ToolArgs` | 参数 JSON 逐字流，等宽字 |
+| `completed` / `incomplete` / `failed` / `error` | `Done` | 塌陷成回执卡片或文字 |
+
+**终局仍然是 `ParseResult`。** 这是整个改动的支点：`MainViewModel` 里「落库 → 排闹钟 → 出卡片」
+那一段一个字都没动，没有第二条落库路径，风险全关在网络层和界面层，够不着 `schedule/` 和 `data/`。
+判定逻辑也只有一份 —— 流式收到 `completed` 时，走的是和非流式完全相同的 `resultOfResponse()`。
+
+**决策 6.1 · 保留非流式 `parse()` 作为回退**
+
+不是死代码。第三方 OpenAI 兼容网关不一定实现 SSE，两种情形自动回落：
+
+1. `createStreaming()` 直接抛（对 `stream:true` 返回 4xx 是最常见的一种）
+2. 流开了但一个事件都没吐就结束
+
+回落前先发一个 `FellBack` 事件，界面把已经吐出来的半截字**擦掉**、退回骨架条 ——
+不擦的话，半截字后面再蹦出一份完整答案，看着像模型把同一句话说了两遍。
+
+**流开到一半断掉不算「没跑起来」**，不回退：那时候工具参数可能已经收全了，
+硬回退等于把同一条提醒建两遍。这种情况按手上的残料判结果。
+
+**三个坑，改这块之前先读**
+
+1. **`stream()` 是阻塞迭代**。取消（用户点「停」、离开页面）时必须主动 `close()` 掉
+   `StreamResponse`，否则要一直卡到下一个事件到达才醒得过来。实现里把 `close` 挂在了
+   协程 Job 的 `invokeOnCompletion` 上。
+2. **思考过程可能压根没有**。`reasoning*` 事件只有推理模型才发。界面在「没有思考块」时
+   必须长得正常，不能留一个空槽 —— 所以一个字都还没来的时候，退回的是原来那个骨架条。
+3. **参数以 `...Done` 给的完整串为准**，不用 delta 拼出来的那份 —— 拼串可能缺尾巴。
+
+思考过程流完之后不直接丢掉：折成一行「想了 3 秒 ›」留在卡片上面，点开可看。
+模型把时间算歪的时候，那段和卡片上的 `basis` 是仅有的两条线索。但它**不进对话历史**
+（见 `ChatTurn`）—— 把模型自己的思考喂回给它没有意义，只会挤掉真正的上下文。
+
 ---
 
 ## 07 时区与重复规则

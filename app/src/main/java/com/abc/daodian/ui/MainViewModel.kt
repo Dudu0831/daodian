@@ -7,11 +7,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.abc.daodian.ai.ChatTurn
+import com.abc.daodian.ai.ParseEvent
 import com.abc.daodian.ai.ParseResult
 import com.abc.daodian.ai.PlanValidator
 import com.abc.daodian.ai.ProviderProfile
-import com.abc.daodian.ai.ReminderParser
 import com.abc.daodian.ai.ReminderPlan
+import com.abc.daodian.ai.StreamingReminderParser
 import com.abc.daodian.ai.ToolCallParser
 import com.abc.daodian.data.DaodianDatabase
 import com.abc.daodian.data.Reminder
@@ -22,8 +23,10 @@ import com.abc.daodian.ui.chat.ChatMessage
 import com.abc.daodian.widget.WidgetUpdater
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import kotlin.coroutines.cancellation.CancellationException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -37,7 +40,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val rescheduler = Rescheduler(app)
 
     val profile = ProviderProfile.fromBuildConfig()
-    private val parser: ReminderParser = ToolCallParser(profile)
+    private val parser: StreamingReminderParser = ToolCallParser(profile)
 
     init {
         // app 内的增删改一律走 Room，所以盯住这一条流就够了 ——
@@ -61,6 +64,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 最后一句用户说的话，失败后「重试」用得上 */
     private var lastUserInput: String? = null
+
+    /** 当前那条流。「停」和「换一句」都靠它掐断 */
+    private var streamJob: Job? = null
 
     /**
      * 一句话 → 模型 → 校验闸门 → 落库 → 排闹钟。见 DESIGN.md §6.1
@@ -91,7 +97,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val trimmed = lastUserInput ?: return
         if (aiBusy) return
 
-        val kept = _messages.value.filterNot { it is ChatMessage.AssistantText && it.isError }
+        // 失败那条的思考过程一并抹掉 —— 它是上一次跑偏的痕迹，留着只会让人对着两段思考发懵
+        val kept = _messages.value
+            .filterNot { it is ChatMessage.AssistantText && it.isError }
+            .let { if (it.lastOrNull() is ChatMessage.ReasoningTrace) it.dropLast(1) else it }
         val last = kept.lastOrNull()
         val prior = if (last is ChatMessage.UserText && last.text == trimmed) kept.dropLast(1) else kept
 
@@ -99,31 +108,90 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         parseAndReply(trimmed, historyOf(prior))
     }
 
+    /**
+     * 流式解析。见 DESIGN.md §6.7。
+     *
+     * 过程逐字画在 [ChatMessage.Streaming] 上，终局仍然是 [ParseResult] ——
+     * 底下「落库 → 排闹钟 → 出卡片」那一段和非流式时代一模一样，没有第二条落库路径。
+     */
     private fun parseAndReply(text: String, history: List<ChatTurn>) {
-        viewModelScope.launch {
-            val thinkingId = newId()
-            _messages.value = _messages.value + ChatMessage.Thinking(thinkingId)
+        streamJob = viewModelScope.launch {
+            val streamId = newId()
+            _messages.value = _messages.value + ChatMessage.Streaming(streamId)
             aiBusy = true
 
-            val result = parser.parse(text, ZonedDateTime.now(), history)
-
-            val reply: ChatMessage = when (result) {
-                is ParseResult.Ok -> {
-                    val reminderId = insertFromPlan(text, result.plan)
-                    ChatMessage.AssistantCard(newId(), reminderId, result.plan)
+            var result: ParseResult? = null
+            try {
+                parser.parseStream(text, ZonedDateTime.now(), history).collect { event ->
+                    if (event is ParseEvent.Done) result = event.result else patchStream(streamId, event)
                 }
-                is ParseResult.NeedsClarification ->
-                    ChatMessage.AssistantText(newId(), result.question)
-                is ParseResult.Failed ->
-                    // 第二句「你可以自己填一条」由 UI 补，见 AssistantTextRow
-                    ChatMessage.AssistantText(
-                        newId(),
-                        "连不上服务器，这句话没能解析。",
-                        isError = true
-                    )
+                finishStream(streamId, text, result)
+            } catch (t: CancellationException) {
+                // 用户点了「停」：连同半截字一起撤掉，用户那句话留着，可以直接改了重发
+                _messages.value = _messages.value.filterNot { it.id == streamId }
+                throw t
+            } finally {
+                aiBusy = false
             }
-            _messages.value = _messages.value.filterNot { it.id == thinkingId } + reply
-            aiBusy = false
+        }
+    }
+
+    /** 把一个过程事件叠到那条 Streaming 消息上 */
+    private fun patchStream(streamId: Long, event: ParseEvent) {
+        _messages.value = _messages.value.map { m ->
+            if (m.id != streamId || m !is ChatMessage.Streaming) m else when (event) {
+                is ParseEvent.Reasoning -> m.copy(reasoning = m.reasoning + event.delta)
+                is ParseEvent.Text -> m.copy(text = m.text + event.delta)
+                is ParseEvent.ToolStarted -> m.copy(toolName = event.name)
+                is ParseEvent.ToolArgs -> m.copy(toolArgs = m.toolArgs + event.delta)
+                // 回退了：吐出来的半截全部作废，退回骨架条。
+                // 留着的话，等下一次性结果一到，同一句话会像是被说了两遍
+                ParseEvent.FellBack -> ChatMessage.Streaming(m.id, fellBack = true)
+                is ParseEvent.Done -> m
+            }
+        }
+    }
+
+    /** 流走完了：把占位换成回执卡片 / 文字，思考过程折成一行留在上面 */
+    private suspend fun finishStream(streamId: Long, rawInput: String, result: ParseResult?) {
+        val streaming = _messages.value
+            .firstOrNull { it.id == streamId } as? ChatMessage.Streaming
+
+        val reply: ChatMessage = when (result) {
+            is ParseResult.Ok -> {
+                val reminderId = insertFromPlan(rawInput, result.plan)
+                ChatMessage.AssistantCard(newId(), reminderId, result.plan)
+            }
+            is ParseResult.NeedsClarification ->
+                ChatMessage.AssistantText(newId(), result.question)
+            // 第二句「你可以自己填一条」由 UI 补，见 AssistantTextRow
+            is ParseResult.Failed, null ->
+                ChatMessage.AssistantText(newId(), "连不上服务器，这句话没能解析。", isError = true)
+        }
+
+        val trace = streaming?.reasoning
+            ?.takeIf { it.isNotBlank() }
+            ?.let {
+                ChatMessage.ReasoningTrace(
+                    id = newId(),
+                    text = it.trim(),
+                    seconds = ((System.currentTimeMillis() - streaming.startedAt) / 1000).toInt()
+                )
+            }
+
+        _messages.value = _messages.value.filterNot { it.id == streamId } +
+            listOfNotNull(trace, reply)
+    }
+
+    /** 「停」。流被取消时 StreamResponse 会被 close 掉，见 ToolCallParser.parseStream */
+    fun stopStreaming() {
+        streamJob?.cancel()
+        streamJob = null
+    }
+
+    fun toggleReasoning(id: Long) {
+        _messages.value = _messages.value.map {
+            if (it.id == id && it is ChatMessage.ReasoningTrace) it.copy(expanded = !it.expanded) else it
         }
     }
 
@@ -153,7 +221,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         append("。这条已经落库排期了，不要重复建）")
                     }
                 )
-                is ChatMessage.Thinking -> null
+                is ChatMessage.Streaming, is ChatMessage.ReasoningTrace -> null
             }
         }
 

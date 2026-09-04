@@ -10,6 +10,15 @@
 - **视觉改版（墨宋）**：整套 UI 按新视觉稿重画完，规范见 DESIGN.md §8.1。真机确认过：空状态、对话、解析骨架、卡片、收起态、设置体检页（截图），到点全屏页（用户肉眼在锁屏上看到并点了「完成」，我没截到图）。
 - **"喝水"全链路真机跑通了**（2026-09-04）：点例句 → 模型调 `create_reminder` → 落库排期 → `dumpsys alarm` 有闹钟 → 10:03:49.259 准点响，漂移 259ms，通知 `not_intercepted`。
 - **闲聊被当成建提醒**（已修）：`TOOL_SYSTEM` 原来开头就把用户每句话都当建提醒请求，加上 `historyOf()` 把已建卡片整条丢掉、模型看到一串"没人应的请求"，于是每句话都弹卡。现在提示词先分流（闲聊/反问/建提醒），历史里补一句中文回执。真机复验："hello"→ 文字回复，"thanks"→"不客气！"，全程只排了一个闹钟。
+- **流式输出**（2026-09-04）：`ToolCallParser.parseStream()` 走 `createStreaming()`，工具调用参数 / 正文分块逐字画出来，规范和三个坑见 DESIGN.md §6.7。非流式 `parse()` 留作回退（第三方网关不一定支持 SSE），回退时先发 `FellBack` 把半截字擦掉。
+  **真机验过（截图为证）**：「remind me to buy milk tomorrow at 3pm」→ 屏幕上逐字出现
+  `在建提醒 · create_reminder` + `{"title":"买牛奶","firstTriggerAt":"2026-09-05T15:00:00+08:00","basis":"用户当前时间 2026-09-` + 光标，
+  同时正文「我会为明天（9月5日）下午3点创建一次"买牛奶"提醒。」也在逐字长；随后 `dumpsys alarm` 里
+  `RTC_WAKEUP #106 origWhen=2026-09-05 15:00:00.000 exactAllowReason=policy_permission`。
+  这个工具调用块是**流式独有的**，一次性路径画不出来 —— 所以它就是「真的在流」的判据。
+  **那家供应商不发 `reasoning*` 事件**（普通模型，不是推理模型），所以思考块暂时看不到，界面在没有它时长得正常。
+  还差两条没验：断网/坏 key 的回退（坑 1）、点「停」真的掐断连接。
+  另外这台 ROM 屏蔽第三方 logcat，`Log.i` 一行都看不到，别指望用日志判断流式有没有跑 —— 只能看界面。
 - **桌面小组件**（2026-09-04 新增）：RemoteViews 实现，规范和三条改动规矩见 DESIGN.md §8.2。真机上 provider 已注册（`dumpsys appwidget` 里 `min=(46081x28161) updatePeriodMillis=1800000`，字段都解析出来了），深链也验过（`am start --es com.abc.daodian.widget.TARGET new/list` 分别落到新建页和列表页）。**还差最后一步硬证据：把它拖到桌面上看真实渲染** —— 桌面小组件没法用 adb 绑定（`cmd appwidget` 在这台 ROM 上不存在），只能手动长按桌面添加。
 - **全屏页在锁屏上确实会弹**（2026-09-04 关屏实测，用户肉眼确认，点「完成」后闹钟正常取消、无残留排期）。
   别被 adb 骗了：`AlarmActivity` 是 `exported=false`，`am start` 起不来；关屏后隔几十秒截图也只会拍到黑屏 ——

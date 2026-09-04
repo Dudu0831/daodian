@@ -17,8 +17,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +32,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.abc.daodian.ai.PlanValidator
@@ -136,6 +144,121 @@ fun ThinkingRow() {
                 style = DaodianType.thinkingNote,
                 color = colors.hint
             )
+        }
+    }
+}
+
+/**
+ * 流式解析中的那一坨。见 DESIGN.md §6.7
+ *
+ * 一个字都还没来（或者流式没跑通已经回退）时退回骨架条 ——
+ * 空着的思考框比骨架条更让人发懵。
+ */
+@Composable
+fun StreamingRow(msg: ChatMessage.Streaming) {
+    if (msg.fellBack || msg.isBlank) {
+        ThinkingRow()
+        return
+    }
+    val colors = DaodianColors.current
+    Column {
+        SpeakerTag()
+        Spacer(Modifier.height(12.dp))
+        Column(
+            Modifier.padding(start = AssistantIndent),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            if (msg.reasoning.isNotBlank()) {
+                ReasoningStream(msg.reasoning, showCaret = msg.text.isEmpty() && msg.toolName == null)
+            }
+            msg.toolName?.let { ToolCallStream(it, msg.toolArgs) }
+            if (msg.text.isNotBlank()) {
+                Text(withCaret(msg.text, colors.ink), style = DaodianType.prose, color = colors.ink)
+            }
+        }
+    }
+}
+
+/** 思考过程：左边一条细线圈出来，字压到最轻的一档 —— 它是过程，不该跟结论抢注意力 */
+@Composable
+private fun ReasoningStream(text: String, showCaret: Boolean) {
+    val colors = DaodianColors.current
+    Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+        Box(Modifier.width(1.dp).fillMaxHeight().background(colors.rule))
+        Text(
+            if (showCaret) withCaret(text, colors.muted) else buildAnnotatedString { append(text) },
+            style = DaodianType.thinkingNote,
+            color = colors.muted
+        )
+    }
+}
+
+/**
+ * 工具调用过程：函数名 + 参数 JSON 逐字流进来。
+ * 用等宽字，和卡片上「依据」那行同一个字体角色（§8.1）—— 都是「模型的原始产出」。
+ */
+@Composable
+private fun ToolCallStream(name: String, args: String) {
+    val colors = DaodianColors.current
+    val shape = RoundedCornerShape(5.dp)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(colors.surfaceAlt, shape)
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.size(5.dp).background(colors.accent, CircleShape))
+            Text("在建提醒 · $name", style = DaodianType.speakerTag, color = colors.muted)
+        }
+        if (args.isNotEmpty()) {
+            Spacer(Modifier.height(9.dp))
+            Text(withCaret(args, colors.ink2), style = DaodianType.basis, color = colors.ink2)
+        }
+    }
+}
+
+/** 末字后面跟一个墨块光标。inline 拼进同一个 Text，换行时自己跟着走，不用额外布局 */
+@Composable
+private fun withCaret(text: String, tint: Color): AnnotatedString {
+    val alpha by rememberInfiniteTransition(label = "caret").animateFloat(
+        initialValue = 1f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(tween(560, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "caretAlpha"
+    )
+    return buildAnnotatedString {
+        append(text)
+        withStyle(SpanStyle(color = tint.copy(alpha = alpha))) { append("\u258d") }
+    }
+}
+
+/**
+ * 流完之后留下的一行「想了 3 秒 ›」。默认收着，点开是完整的思考过程。
+ * 不直接删掉：模型算错时间时，这段是除了卡片上「依据」之外唯一的线索。
+ */
+@Composable
+fun ReasoningTraceRow(msg: ChatMessage.ReasoningTrace, onToggle: () -> Unit) {
+    val colors = DaodianColors.current
+    Column(Modifier.padding(start = AssistantIndent)) {
+        Row(
+            Modifier.clickable(onClick = onToggle),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Text(
+                if (msg.seconds > 0) "想了 ${msg.seconds} 秒" else "想了一下",
+                style = DaodianType.speakerTag,
+                color = colors.hint
+            )
+            Text(if (msg.expanded) "收起" else "看看", style = DaodianType.speakerTag, color = colors.accent)
+        }
+        if (msg.expanded) {
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                Box(Modifier.width(1.dp).fillMaxHeight().background(colors.rule))
+                Text(msg.text, style = DaodianType.thinkingNote, color = colors.muted)
+            }
         }
     }
 }

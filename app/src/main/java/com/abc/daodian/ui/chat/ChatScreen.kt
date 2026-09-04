@@ -104,7 +104,9 @@ fun ChatScreen(
                     items(messages, key = { it.id }) { msg ->
                         when (msg) {
                             is ChatMessage.UserText -> UserBubble(msg.text)
-                            is ChatMessage.Thinking -> ThinkingRow()
+                            is ChatMessage.Streaming -> StreamingRow(msg)
+                            is ChatMessage.ReasoningTrace ->
+                                ReasoningTraceRow(msg, onToggle = { vm.toggleReasoning(msg.id) })
                             is ChatMessage.AssistantText -> AssistantTextRow(
                                 text = msg.text,
                                 isError = msg.isError,
@@ -148,8 +150,9 @@ fun ChatScreen(
                         .onFailure { if (it is ActivityNotFoundException) { /* 设备没有语音输入服务，安静忽略 */ } }
                 },
                 enabled = !vm.aiBusy,
+                onStop = { vm.stopStreaming() },
                 placeholder = when {
-                    vm.aiBusy -> "解析中……"
+                    vm.aiBusy -> "正在说……"
                     messages.isEmpty() -> "说一句话……"
                     else -> "再说点什么……"
                 }

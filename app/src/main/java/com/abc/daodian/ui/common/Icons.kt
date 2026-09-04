@@ -182,3 +182,20 @@ fun TrashIcon(modifier: Modifier = Modifier, size: Dp = 16.dp, tint: Color, stro
         drawLine(tint, Offset(11.7f * k, 8.6f * k), Offset(11.3f * k, 13.8f * k), strokeWidth = sw, cap = StrokeCap.Round)
     }
 }
+
+/**
+ * 「停」。这一个是实心的 —— 图标一律细线那条规矩在这儿要让路：
+ * 空心方块在空心圆圈里，两层描边套着看不出是个能按的东西。
+ */
+@Composable
+fun StopIcon(modifier: Modifier = Modifier, size: Dp = 16.dp, tint: Color) {
+    Canvas(modifier.size(size)) {
+        val k = this.size.width / 20f
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(6.4f * k, 6.4f * k),
+            size = Size(7.2f * k, 7.2f * k),
+            cornerRadius = CornerRadius(1.4f * k, 1.4f * k)
+        )
+    }
+}
