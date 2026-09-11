@@ -30,6 +30,9 @@ android {
         versionCode = 1
         versionName = "0.1-M1"
 
+        // 本地语音识别（sherpa-onnx）的 native 库四个 ABI 加起来 70MB+，真机只要 arm64 那份
+        ndk { abiFilters += "arm64-v8a" }
+
         buildConfigField("String", "LLM_BASE_URL",  "\"${secret("LLM_BASE_URL")}\"")
         buildConfigField("String", "LLM_API_KEY",   "\"${secret("LLM_API_KEY")}\"")
         buildConfigField("String", "LLM_MODEL",     "\"${secret("LLM_MODEL")}\"")
@@ -67,6 +70,10 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
+    androidResources {
+        // 识别模型 26MB，native 那边整块读进内存；压着放每次打开都要先解压一遍
+        noCompress += "onnx"
+    }
 }
 
 ksp {
@@ -96,4 +103,8 @@ dependencies {
 
     // M2 待验：Android 可用性 + 包体增量，见 DESIGN.md 决策 3.1
     implementation(libs.openai.java)
+
+    // 桌面速记的本地语音识别，见 DESIGN.md 决策 8.3。官方只发 GitHub Releases 的 AAR，没有 Maven 坐标。
+    // 用的是 onnxruntime 静态链接那版：arm64 只有一个 24MB 的 .so，不和别的 onnxruntime 撞
+    implementation(files("libs/sherpa-onnx-static-link-onnxruntime-1.13.8.aar"))
 }

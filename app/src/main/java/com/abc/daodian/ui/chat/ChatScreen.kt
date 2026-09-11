@@ -1,8 +1,7 @@
 package com.abc.daodian.ui.chat
 
-import android.content.ActivityNotFoundException
-import android.content.Intent
-import android.speech.RecognizerIntent
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -40,9 +39,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,10 +51,15 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.abc.daodian.ui.MainViewModel
 import com.abc.daodian.ui.common.ChatTopBar
 import com.abc.daodian.ui.common.Format
+import com.abc.daodian.ui.quick.VoiceInput
 import com.abc.daodian.ui.theme.DaodianColors
 import com.abc.daodian.ui.theme.DaodianType
 import com.abc.daodian.ui.theme.Motion
@@ -88,14 +94,57 @@ fun ChatScreen(
     // 贴底跟随。一个回合在原地长大时条数不变，只盯条数的话新长出来的部分会掉到屏幕外
     var follow by remember { mutableStateOf(true) }
 
-    val voiceLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        val said = result.data
-            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            ?.firstOrNull()
-        if (!said.isNullOrBlank()) input = said
+    // 麦克风：和桌面速记同一套本地识别（VoiceInput，见 DESIGN.md 决策 8.3）。
+    // 边说边把字写进输入框，接在已经打了的字后面；说完不自动发 —— 这里是能改字的地方，改好了自己按发送
+    val context = LocalContext.current
+    val focus = LocalFocusManager.current
+    val voice = remember { VoiceInput(context.applicationContext) }
+    DisposableEffect(voice) { onDispose { voice.release() } }
+    var listening by remember { mutableStateOf(false) }
+    var level by remember { mutableFloatStateOf(0f) }
+    // 没听清 / 用不了：顶替占位字，一打字或再点麦克风就没了。没听清不是出错，不写红字
+    var voiceNote by remember { mutableStateOf<String?>(null) }
+
+    fun endListening() {
+        listening = false
+        level = 0f
     }
+
+    fun startListening() {
+        val before = input
+        focus.clearFocus()
+        voiceNote = null
+        listening = true
+        voice.start { event ->
+            when (event) {
+                VoiceInput.Event.Ready -> Unit
+                is VoiceInput.Event.Partial -> input = before + event.text
+                is VoiceInput.Event.Level -> level = event.value
+                is VoiceInput.Event.Final -> {
+                    endListening()
+                    if (event.text.isNotBlank()) input = before + event.text
+                    else if (input == before) voiceNote = "没听清，再说一次？"
+                }
+                // 说到一半出错：已经写进框里的字留着
+                is VoiceInput.Event.Error -> {
+                    endListening()
+                    if (input == before) voiceNote = event.message
+                }
+            }
+        }
+    }
+
+    fun cancelListening() {
+        if (!listening) return
+        voice.cancel()
+        endListening()
+    }
+
+    val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startListening() else voiceNote = "没有麦克风权限，可以在系统设置里给「到点」打开"
+    }
+    // 切到后台就不录了
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { cancelListening() }
 
     // 点了「停」：原话退回输入框，改两个字就能重发
     LaunchedEffect(vm.restoredInput) {
@@ -130,6 +179,7 @@ fun ChatScreen(
 
     fun send(text: String) {
         if (text.isBlank() || vm.aiBusy) return
+        cancelListening()
         vm.sendMessage(text)
         input = ""
         follow = true
@@ -210,19 +260,29 @@ fun ChatScreen(
         ) {
             ChatInputBar(
                 text = input,
-                onTextChange = { input = it },
+                onTextChange = {
+                    // 自己动手改字了，就不再往里写听到的
+                    cancelListening()
+                    voiceNote = null
+                    input = it
+                },
                 onSend = { send(input) },
                 onMicClick = {
-                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
+                    when {
+                        listening -> voice.stop()
+                        !voice.available -> voiceNote = "这台手机没有可用的语音识别"
+                        context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED ->
+                            startListening()
+                        else -> askMic.launch(Manifest.permission.RECORD_AUDIO)
                     }
-                    runCatching { voiceLauncher.launch(intent) }
-                        .onFailure { if (it is ActivityNotFoundException) { /* 设备没有语音输入服务，安静忽略 */ } }
                 },
+                listening = listening,
+                level = level,
                 enabled = !vm.aiBusy,
                 onStop = { vm.stopStreaming() },
                 placeholder = when {
+                    listening -> "在听，说吧——"
+                    voiceNote != null -> voiceNote.orEmpty()
                     vm.aiBusy -> "正在说……"
                     messages.isEmpty() -> "说一句话……"
                     else -> "再说点什么……"

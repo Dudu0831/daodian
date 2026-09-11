@@ -539,16 +539,34 @@ debug 包里可以慢放看接缝：`adb shell run-as com.abc.daodian.debug sh -
 | 情况 | 去向 |
 |---|---|
 | 第一次用 | 弹 `RECORD_AUDIO` 授权；拒了，纸上只剩一句原因和「去 app 里说」 |
-| 手机没有识别服务 | 同上 |
+| 包里没带识别模型 | 同上 |
 | 没听清 | 印熄成待命，那句「没听清，再说一次？」顶替提示语；不是出错，不写红字 |
 | 说到一半识别出错 | 已经听到的字就当说完了，照样送去解析 |
 | 点「停」 | 掐断这条流，纸回到待命，点一下重说 |
 | 「改一下」/ 解析失败「手动填一条」 | 打开 app 的编辑页，桌面速记关掉 |
 | 按 Home、锁屏 | 纸直接关掉（`onStop` 里 finish，等授权弹窗时除外） |
 
-**决策 8.3 · 语音直接绑 `SpeechRecognizer`，不走 `RecognizerIntent`**
+**决策 8.3 · 语音在手机上本地识别（sherpa-onnx），不用系统的识别服务**
 
-`RecognizerIntent` 要一个能接 `ACTION_RECOGNIZE_SPEECH` 的 Activity，荣耀 MagicOS 上**一个都没有**（`cmd package query-activities` 查过，空的）—— 对话页那个麦克风在这台手机上按了其实没反应。但系统默认识别服务在（`settings get secure voice_recognition_service` → MagicVoice），所以直接绑它。代价两条：自己申请 `RECORD_AUDIO`；manifest 里用 `<queries>` 声明 `android.speech.RecognitionService`，否则 Android 11+ 的包可见性让 `isRecognitionAvailable()` 直接返回 false。
+系统给的两条路在荣耀 MagicOS 上都走不通，供应商那边也没有第三条：
+
+- `RecognizerIntent`：没有 Activity 接 `ACTION_RECOGNIZE_SPEECH`（`cmd package query-activities` 查过，空的），按下去只会 `ActivityNotFoundException` —— 对话页的麦克风以前在这台手机上按了没反应，就是这个。
+- `SpeechRecognizer`：默认识别服务是 MagicVoice（`settings get secure voice_recognition_service`），绑得上，它也真把麦克风打开了 —— 状态栏同时挂着「到点」和 YOYO 两个在用麦克风 —— 但**一个回调都不回**，Ready、Error 都没有，等 18 秒也没有，纸永远停在「在听」。它只伺候自家语音助手。（上一版就是这么绑的，还为它在 manifest 里加过 `<queries>`，已删。）
+- 供应商网关：`/audio/transcriptions` 返回 Route not found，`/responses` 和 `/chat/completions` 带音频输入也都失败。
+
+所以自己录音（`AudioRecord`，`VOICE_RECOGNITION` 源，16kHz 单声道），sherpa-onnx 在本地流式识别，模型 `sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01`（26MB，在 `assets/asr/`）。实现只有 `VoiceInput` 一处，桌面速记和对话页的麦克风共用：
+
+- 模型第一次 `start()` 时才加载（真机约 1.9 秒），加载期间录音照常进来、先攒着，好了一口气喂进去 —— 开头的字不丢。实例活多久模型就在内存里待多久，`release()` 放掉。
+- 端点用 sherpa 自带的三条规则：还没开口给 5 秒，开了口停 1.2 秒就收，一句最长 20 秒。
+- 声音不出手机，断网也能听写（解析那一步照样要网）。
+- 对话页：字边说边写进输入框、接在已经打的字后面，**不自动发** —— 那边是能改字的地方。桌面速记只有语音，听完直接送去解析。
+
+代价：
+
+- 包体：arm64 的 `libsherpa-onnx-jni.so` 24MB（onnxruntime 静态链接在里面）+ 模型 26MB（`noCompress`，原样进包）。`abiFilters` 只留 `arm64-v8a`，不然四个 ABI 加起来 70MB+。
+- 官方只发 GitHub Releases 的 AAR，没有 Maven 坐标，放在 `app/libs/`；升级就是换那个文件。
+- release 包必须 `-keep class com.k2fsa.sherpa.onnx.**` —— JNI 按名字读配置类的字段，AAR 自带的 proguard.txt 是空的。
+- 模型不出标点；开口前的环境音偶尔会被认成几个乱字（真机测过一次）。送去解析的就是这串字，模型一般看得懂。
 
 **没有第二条落库路径。** 桌面速记和对话页共用 `ToolCallParser`、`ChatMessage.kt` 里的回合规则（`patched` / `finished` / `historyText`）和 `PlanCommitter.commit()`。`commit` 整段 `NonCancellable`：插完库、闹钟还没排上的一瞬间被取消（纸被 Home 掉），会留下一条没有闹钟的 SCHEDULED 记录。
 

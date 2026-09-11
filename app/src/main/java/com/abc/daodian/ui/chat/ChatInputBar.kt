@@ -37,6 +37,9 @@ import com.abc.daodian.ui.theme.Motion
  * 底部那根横条。解析中整条压暗，发送键淡成空心圈里一个墨块 —— 那不只是禁用态，是「停」，
  * 按下去掐断当前这条流（见 DESIGN.md §6.7）。字在一路往外冒的时候，
  * 用户必须能喊停，否则只能干等。
+ *
+ * 麦克风在听的时候（[listening]）变成墨色实心圆，底下一圈淡墨跟着音量 [level] 胀缩 ——
+ * 和桌面速记那枚墨印同一个样子。再点一下＝说完了。
  */
 @Composable
 fun ChatInputBar(
@@ -45,6 +48,8 @@ fun ChatInputBar(
     onSend: () -> Unit,
     onMicClick: () -> Unit,
     enabled: Boolean,
+    listening: Boolean = false,
+    level: Float = 0f,
     onStop: (() -> Unit)? = null,
     placeholder: String = "说一句话……"
 ) {
@@ -82,6 +87,11 @@ fun ChatInputBar(
             )
         }
 
+        val swell by animateFloatAsState(if (listening) level else 0f, Motion.flow(Motion.CHAR), label = "micSwell")
+        val micFill by animateColorAsState(
+            if (listening) colors.solid else colors.solid.copy(alpha = 0f), tween(Motion.SHORT), label = "micFill"
+        )
+        val micTint by animateColorAsState(if (listening) colors.onSolid else colors.ink2, tween(Motion.SHORT), label = "micTint")
         Box(
             Modifier
                 .size(36.dp)
@@ -89,7 +99,20 @@ fun ChatInputBar(
                 .clickable(enabled = enabled, onClick = onMicClick),
             contentAlignment = Alignment.Center
         ) {
-            MicIcon(tint = colors.ink2)
+            if (listening) {
+                Box(
+                    Modifier
+                        .size(36.dp)
+                        .graphicsLayer {
+                            val s = 1f + swell * 0.45f
+                            scaleX = s
+                            scaleY = s
+                        }
+                        .background(colors.ink.copy(alpha = 0.1f), CircleShape)
+                )
+            }
+            Box(Modifier.size(34.dp).background(micFill, CircleShape))
+            MicIcon(tint = micTint)
         }
 
         // 稿子里空输入框的发送键也是实心带箭头 —— 空心圈只属于「解析中」那一档。

@@ -11,18 +11,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- 桌面速记的语音输入。只在第一次点小组件说话条时才弹授权，见 DESIGN.md §8.3 -->
+    <!-- 桌面速记的语音输入（本地识别，自己录音）。只在第一次点小组件墨印时才弹授权，见 DESIGN.md §8.3 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-
-    <!--
-      Android 11+ 的包可见性：不声明的话 SpeechRecognizer 看不见系统识别服务（MagicVoice），
-      isRecognitionAvailable() 直接返回 false。
-    -->
-    <queries>
-        <intent>
-            <action android:name="android.speech.RecognitionService" />
-        </intent>
-    </queries>
 
     <!--
       usesCleartextTraffic: 当前 LLM_BASE_URL 是 http:// 明文。Android 从 API 28 起默认禁止

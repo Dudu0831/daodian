@@ -190,6 +190,6 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
-        voice.cancel()
+        voice.release()
     }
 }

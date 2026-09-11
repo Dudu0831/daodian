@@ -19,3 +19,7 @@
 -dontwarn org.slf4j.**
 -dontwarn java.beans.**
 -dontwarn javax.xml.**
+
+# sherpa-onnx：JNI 按名字读 OnlineRecognizerConfig 这些 Kotlin 类的字段、按名字回调构造结果，
+# 改名就在 native 里崩。AAR 自带的 proguard.txt 是空的，只能自己 keep
+-keep class com.k2fsa.sherpa.onnx.** { *; }

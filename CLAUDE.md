@@ -24,6 +24,9 @@
   **没在真机上验**：推理模型的思考块（这家供应商不发）、闸门拦下的「× 没记下」、流式回退擦字、点「停」退回原话、「↓ 新内容」。
   另：同一句中文「下周三下午三点，交房租。」模型这次只回了句「明白」没调工具，英文版才调了 —— 是模型/提示词的问题，不是界面。
 - **桌面小组件**（2026-09-04 新增）：RemoteViews 实现，规范和三条改动规矩见 DESIGN.md §8.2。真机上 provider 已注册、深链验过（`am start --es com.abc.daodian.widget.TARGET new/list`），**2026-09-11 用户已手动加到桌面，真实渲染正常**（抬头「到点 +」、空状态文案）。桌面小组件没法用 adb 绑定（`cmd appwidget` 在这台 ROM 上不存在），只能手动长按桌面添加。
+- **语音改成本地识别**（2026-09-11）：小组件语音「权限给了但不能用」—— 荣耀的 MagicVoice（YOYO）绑得上、会开麦克风，但对第三方一个回调都不回；网关也没有转写接口。现在 `VoiceInput` 自己录音 + sherpa-onnx 本地流式识别，桌面速记和对话页麦克风共用，来龙去脉见 DESIGN.md 决策 8.3。
+  **真机验过**：从 Mac 扬声器放「你好，今天天气怎么样」→ 桌面速记里逐字出来 → 停顿自动收 → `dumpsys audio` 里是 `src:VOICE_RECOGNITION pack:com.abc.daodian.debug`，没有 YOYO。模型首次加载 1.9s，期间录音不丢。
+  **代价**：release 包 35MB → 88MB（arm64 `.so` 24MB + 模型 26MB，都不压缩进包）；AAR 在 `app/libs/`、模型在 `assets/asr/`，没 Maven 坐标。验证用 debug 包的 `files/quick_trace.txt`，`voice ←` 那几行就是识别事件。
 - **全屏页在锁屏上确实会弹**（2026-09-04 关屏实测，用户肉眼确认，点「完成」后闹钟正常取消、无残留排期）。
   别被 adb 骗了：`AlarmActivity` 是 `exported=false`，`am start` 起不来；关屏后隔几十秒截图也只会拍到黑屏 ——
   用户已经把它关掉了，`screencap` 拍的是关掉之后的状态。`appops` 里那条 `USE_FULL_SCREEN_INTENT rejectTime`
