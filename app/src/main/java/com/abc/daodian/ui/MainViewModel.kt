@@ -80,7 +80,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
         // 新一轮开始，上一张还展开的卡片自动收起
         val collapsedPrev = _messages.value.map {
-            if (it is ChatMessage.AssistantCard && !it.collapsed) it.copy(collapsed = true) else it
+            if (it is ChatMessage.AssistantTurn && it.plan != null && !it.cardCollapsed) {
+                it.copy(cardCollapsed = true)
+            } else it
         }
         val history = historyOf(collapsedPrev)
 
@@ -90,17 +92,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 解析失败后的「重试」。失败那条会被抹掉、也不进历史 ——
+     * 解析失败后的「重试」。失败那一整个回合会被抹掉、也不进历史 ——
      * 不然下一轮模型会看到自己说过「连不上服务器」，然后顺着这个话头往下编。
+     * 思考过程跟着一起走（它是上一次跑偏的痕迹），因为现在它就长在那个回合里。
      */
     fun retryLast() {
         val trimmed = lastUserInput ?: return
         if (aiBusy) return
 
-        // 失败那条的思考过程一并抹掉 —— 它是上一次跑偏的痕迹，留着只会让人对着两段思考发懵
-        val kept = _messages.value
-            .filterNot { it is ChatMessage.AssistantText && it.isError }
-            .let { if (it.lastOrNull() is ChatMessage.ReasoningTrace) it.dropLast(1) else it }
+        val kept = _messages.value.filterNot { it is ChatMessage.AssistantTurn && it.isError }
         val last = kept.lastOrNull()
         val prior = if (last is ChatMessage.UserText && last.text == trimmed) kept.dropLast(1) else kept
 
@@ -111,24 +111,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * 流式解析。见 DESIGN.md §6.7。
      *
-     * 过程逐字画在 [ChatMessage.Streaming] 上，终局仍然是 [ParseResult] ——
-     * 底下「落库 → 排闹钟 → 出卡片」那一段和非流式时代一模一样，没有第二条落库路径。
+     * 一个回合**原地长大**：思考 → 工具行 → 正文 → 卡片，中途不换消息类型。
+     * 终局仍然是 [ParseResult]，底下「落库 → 排闹钟」那一段和非流式时代一模一样，
+     * 没有第二条落库路径。
      */
     private fun parseAndReply(text: String, history: List<ChatTurn>) {
         streamJob = viewModelScope.launch {
-            val streamId = newId()
-            _messages.value = _messages.value + ChatMessage.Streaming(streamId)
+            val turnId = newId()
+            _messages.value = _messages.value + ChatMessage.AssistantTurn(turnId, streaming = true)
             aiBusy = true
 
             var result: ParseResult? = null
             try {
                 parser.parseStream(text, ZonedDateTime.now(), history).collect { event ->
-                    if (event is ParseEvent.Done) result = event.result else patchStream(streamId, event)
+                    if (event is ParseEvent.Done) result = event.result else patchTurn(turnId, event)
                 }
-                finishStream(streamId, text, result)
+                finishTurn(turnId, text, result)
             } catch (t: CancellationException) {
                 // 用户点了「停」：连同半截字一起撤掉，用户那句话留着，可以直接改了重发
-                _messages.value = _messages.value.filterNot { it.id == streamId }
+                _messages.value = _messages.value.filterNot { it.id == turnId }
                 throw t
             } finally {
                 aiBusy = false
@@ -136,51 +137,45 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 把一个过程事件叠到那条 Streaming 消息上 */
-    private fun patchStream(streamId: Long, event: ParseEvent) {
+    /** 把一个过程事件叠到那个回合上 */
+    private fun patchTurn(turnId: Long, event: ParseEvent) {
         _messages.value = _messages.value.map { m ->
-            if (m.id != streamId || m !is ChatMessage.Streaming) m else when (event) {
+            if (m.id != turnId || m !is ChatMessage.AssistantTurn) m else when (event) {
                 is ParseEvent.Reasoning -> m.copy(reasoning = m.reasoning + event.delta)
                 is ParseEvent.Text -> m.copy(text = m.text + event.delta)
-                is ParseEvent.ToolStarted -> m.copy(toolName = event.name)
-                is ParseEvent.ToolArgs -> m.copy(toolArgs = m.toolArgs + event.delta)
+                is ParseEvent.ToolStarted -> m.copy(toolName = event.name, toolRunning = true)
+                // 参数不上屏（见设计稿）—— 只用它证明工具还在跑
+                is ParseEvent.ToolArgs -> m
                 // 回退了：吐出来的半截全部作废，退回骨架条。
                 // 留着的话，等下一次性结果一到，同一句话会像是被说了两遍
-                ParseEvent.FellBack -> ChatMessage.Streaming(m.id, fellBack = true)
+                ParseEvent.FellBack -> ChatMessage.AssistantTurn(m.id, streaming = true)
                 is ParseEvent.Done -> m
             }
         }
     }
 
-    /** 流走完了：把占位换成回执卡片 / 文字，思考过程折成一行留在上面 */
-    private suspend fun finishStream(streamId: Long, rawInput: String, result: ParseResult?) {
-        val streaming = _messages.value
-            .firstOrNull { it.id == streamId } as? ChatMessage.Streaming
+    /** 流走完了：卡片长在同一个回合里，正文和工具行按各自的规则留或藏 */
+    private suspend fun finishTurn(turnId: Long, rawInput: String, result: ParseResult?) {
+        val reminderId = (result as? ParseResult.Ok)?.let { insertFromPlan(rawInput, it.plan) }
 
-        val reply: ChatMessage = when (result) {
-            is ParseResult.Ok -> {
-                val reminderId = insertFromPlan(rawInput, result.plan)
-                ChatMessage.AssistantCard(newId(), reminderId, result.plan)
-            }
-            is ParseResult.NeedsClarification ->
-                ChatMessage.AssistantText(newId(), result.question)
-            // 第二句「你可以自己填一条」由 UI 补，见 AssistantTextRow
-            is ParseResult.Failed, null ->
-                ChatMessage.AssistantText(newId(), "连不上服务器，这句话没能解析。", isError = true)
-        }
-
-        val trace = streaming?.reasoning
-            ?.takeIf { it.isNotBlank() }
-            ?.let {
-                ChatMessage.ReasoningTrace(
-                    id = newId(),
-                    text = it.trim(),
-                    seconds = ((System.currentTimeMillis() - streaming.startedAt) / 1000).toInt()
+        _messages.value = _messages.value.map { m ->
+            if (m.id != turnId || m !is ChatMessage.AssistantTurn) m else when (result) {
+                is ParseResult.Ok -> m.copy(
+                    streaming = false, toolRunning = false,
+                    reminderId = reminderId, plan = result.plan
+                )
+                is ParseResult.NeedsClarification -> m.copy(
+                    streaming = false, toolRunning = false,
+                    // 流里已经逐字吐过这句话了，别再覆盖一遍
+                    text = m.text.ifBlank { result.question }
+                )
+                // 第二句「你可以自己填一条」由 UI 补，见 AssistantTurnRow
+                is ParseResult.Failed, null -> m.copy(
+                    streaming = false, toolRunning = false, isError = true,
+                    text = "连不上服务器，这句话没能解析。"
                 )
             }
-
-        _messages.value = _messages.value.filterNot { it.id == streamId } +
-            listOfNotNull(trace, reply)
+        }
     }
 
     /** 「停」。流被取消时 StreamResponse 会被 close 掉，见 ToolCallParser.parseStream */
@@ -191,13 +186,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleReasoning(id: Long) {
         _messages.value = _messages.value.map {
-            if (it.id == id && it is ChatMessage.ReasoningTrace) it.copy(expanded = !it.expanded) else it
+            if (it.id == id && it is ChatMessage.AssistantTurn) it.copy(reasoningOpen = !it.reasoningOpen) else it
         }
     }
 
     fun collapseCard(id: Long) {
         _messages.value = _messages.value.map {
-            if (it.id == id && it is ChatMessage.AssistantCard) it.copy(collapsed = true) else it
+            if (it.id == id && it is ChatMessage.AssistantTurn) it.copy(cardCollapsed = true) else it
         }
     }
 
@@ -212,16 +207,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         snapshot.mapNotNull { m ->
             when (m) {
                 is ChatMessage.UserText -> ChatTurn(fromUser = true, text = m.text)
-                is ChatMessage.AssistantText -> ChatTurn(fromUser = false, text = m.text)
-                is ChatMessage.AssistantCard -> ChatTurn(
-                    fromUser = false,
-                    text = buildString {
-                        append("（已建好提醒：「${m.plan.title}」，${m.plan.firstTriggerAt}")
-                        m.plan.rrule?.let { append("，重复 $it") }
-                        append("。这条已经落库排期了，不要重复建）")
+                is ChatMessage.AssistantTurn -> {
+                    // 思考过程不进历史：把模型自己的思考喂回给它没有意义，只会挤掉真正的上下文
+                    val said = buildString {
+                        append(m.text.trim())
+                        m.plan?.let { plan ->
+                            if (isNotEmpty()) append(" ")
+                            append("（已建好提醒：「${plan.title}」，${plan.firstTriggerAt}")
+                            plan.rrule?.let { append("，重复 $it") }
+                            append("。这条已经落库排期了，不要重复建）")
+                        }
                     }
-                )
-                is ChatMessage.Streaming, is ChatMessage.ReasoningTrace -> null
+                    said.takeIf { it.isNotBlank() }?.let { ChatTurn(fromUser = false, text = it) }
+                }
             }
         }
 

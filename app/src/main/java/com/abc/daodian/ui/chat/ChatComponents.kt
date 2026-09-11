@@ -32,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -77,38 +78,11 @@ fun SpeakerTag(isError: Boolean = false) {
     }
 }
 
-@Composable
-fun AssistantTextRow(
-    text: String,
-    isError: Boolean,
-    onManualAdd: (() -> Unit)? = null,
-    onRetry: (() -> Unit)? = null
-) {
-    val colors = DaodianColors.current
-    Column {
-        SpeakerTag(isError = isError)
-        Spacer(Modifier.height(12.dp))
-        Column(Modifier.padding(start = AssistantIndent)) {
-            Text(text, style = DaodianType.prose, color = colors.ink)
-            if (isError) {
-                Text(
-                    "你可以自己填一条，跟解析出来的一样能用。",
-                    style = DaodianType.prose,
-                    color = colors.muted
-                )
-                Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                    onManualAdd?.let { PillButton("手动填一条", PillStyle.OutlineStrong, it) }
-                    onRetry?.let { PillButton("重试", PillStyle.Outline, it) }
-                }
-            }
-        }
-    }
-}
-
 /**
- * 解析等待的占位。实测 6–7 秒，用「正在写字」的骨架条撑着，不用转圈 ——
+ * 请求发出去了，一个字都还没回来。用「正在写字」的骨架条撑着，不用转圈 ——
  * 转圈是「系统在忙」，骨架条是「答案正在成形」，后者才是这里的真相。见 DESIGN.md §8.1
+ *
+ * 只有三根条，没有说明文字：首字延迟本来就短不了，再配一句解说反而像在道歉。
  */
 @Composable
 fun ThinkingRow() {
@@ -138,82 +112,148 @@ fun ThinkingRow() {
                         .background(colors.skeleton.copy(alpha = alpha), RoundedCornerShape(2.dp))
                 )
             }
-            Spacer(Modifier.height(3.dp))
-            Text(
-                "正在推算时间——",
-                style = DaodianType.thinkingNote,
-                color = colors.hint
-            )
         }
     }
 }
 
 /**
- * 流式解析中的那一坨。见 DESIGN.md §6.7
+ * 助手的一个回合。见 DESIGN.md §6.7 和设计稿。
  *
- * 一个字都还没来（或者流式没跑通已经回退）时退回骨架条 ——
- * 空着的思考框比骨架条更让人发懵。
+ * 四块按这个顺序摞：思考 → 工具行 → 正文 → 卡片。工具行在正文**上面** ——
+ * 模型的动作先于它的解说，也让「这一回合动了手」不用读完整段话才知道。
  */
 @Composable
-fun StreamingRow(msg: ChatMessage.Streaming) {
-    if (msg.fellBack || msg.isBlank) {
+fun AssistantTurnRow(
+    msg: ChatMessage.AssistantTurn,
+    onToggleReasoning: () -> Unit,
+    onCollapseCard: () -> Unit,
+    onEditReminder: () -> Unit,
+    onManualAdd: () -> Unit,
+    onRetry: () -> Unit
+) {
+    if (msg.isBlank) {
         ThinkingRow()
         return
     }
     val colors = DaodianColors.current
     Column {
-        SpeakerTag()
+        SpeakerTag(isError = msg.isError)
         Spacer(Modifier.height(12.dp))
         Column(
             Modifier.padding(start = AssistantIndent),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             if (msg.reasoning.isNotBlank()) {
-                ReasoningStream(msg.reasoning, showCaret = msg.text.isEmpty() && msg.toolName == null)
+                if (msg.streaming) {
+                    ReasoningStream(msg.reasoning)
+                } else {
+                    ReasoningTrace(msg.reasoning, msg.thoughtSeconds, msg.reasoningOpen, onToggleReasoning)
+                }
             }
-            msg.toolName?.let { ToolCallStream(it, msg.toolArgs) }
+
+            if (msg.showToolRow) ToolRow(msg.toolName!!, running = msg.toolRunning)
+
             if (msg.text.isNotBlank()) {
-                Text(withCaret(msg.text, colors.ink), style = DaodianType.prose, color = colors.ink)
+                Text(
+                    if (msg.streaming) withCaret(msg.text, colors.ink) else buildAnnotatedString { append(msg.text) },
+                    style = DaodianType.prose,
+                    color = colors.ink
+                )
+            }
+
+            msg.plan?.let { plan ->
+                if (msg.cardCollapsed) {
+                    ReminderCardCollapsed(plan)
+                } else {
+                    ReminderCardExpanded(
+                        plan = plan,
+                        nowMillis = System.currentTimeMillis(),
+                        onCollapse = onCollapseCard,
+                        onEdit = onEditReminder
+                    )
+                }
+            }
+
+            if (msg.isError) {
+                Text(
+                    "你可以自己填一条，跟解析出来的一样能用。",
+                    style = DaodianType.prose,
+                    color = colors.muted
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                    PillButton("手动填一条", PillStyle.OutlineStrong, onManualAdd)
+                    PillButton("重试", PillStyle.Outline, onRetry)
+                }
             }
         }
-    }
-}
-
-/** 思考过程：左边一条细线圈出来，字压到最轻的一档 —— 它是过程，不该跟结论抢注意力 */
-@Composable
-private fun ReasoningStream(text: String, showCaret: Boolean) {
-    val colors = DaodianColors.current
-    Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-        Box(Modifier.width(1.dp).fillMaxHeight().background(colors.rule))
-        Text(
-            if (showCaret) withCaret(text, colors.muted) else buildAnnotatedString { append(text) },
-            style = DaodianType.thinkingNote,
-            color = colors.muted
-        )
     }
 }
 
 /**
- * 工具调用过程：函数名 + 参数 JSON 逐字流进来。
- * 用等宽字，和卡片上「依据」那行同一个字体角色（§8.1）—— 都是「模型的原始产出」。
+ * 工具行。**只露工具名，参数不上屏** —— 参数是给日志看的，不是给人看的。
+ *
+ * 跑着的时候整行呼吸式明暗，它是这几秒里屏幕上唯一在动的东西；
+ * 落定后换成朱砂对勾、字压到 muted。什么时候该藏见 [ChatMessage.AssistantTurn.showToolRow]。
  */
 @Composable
-private fun ToolCallStream(name: String, args: String) {
+private fun ToolRow(name: String, running: Boolean) {
     val colors = DaodianColors.current
-    val shape = RoundedCornerShape(5.dp)
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(colors.surfaceAlt, shape)
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+    val alpha by rememberInfiniteTransition(label = "tool").animateFloat(
+        initialValue = 1f,
+        targetValue = 0.3f,
+        animationSpec = infiniteRepeatable(tween(1250, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "toolAlpha"
+    )
+    Row(
+        Modifier.alpha(if (running) alpha else 1f),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (running) {
             Box(Modifier.size(5.dp).background(colors.accent, CircleShape))
-            Text("在建提醒 · $name", style = DaodianType.speakerTag, color = colors.muted)
+        } else {
+            CheckIcon(tint = colors.accent)
         }
-        if (args.isNotEmpty()) {
-            Spacer(Modifier.height(9.dp))
-            Text(withCaret(args, colors.ink2), style = DaodianType.basis, color = colors.ink2)
+        Text(name, style = DaodianType.toolName, color = if (running) colors.ink2 else colors.muted)
+    }
+}
+
+/** 思考过程流着的时候：左边一条细线圈出来，字压到最轻的一档 */
+@Composable
+private fun ReasoningStream(text: String) {
+    val colors = DaodianColors.current
+    Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+        Box(Modifier.width(1.dp).fillMaxHeight().background(colors.rule))
+        Text(withCaret(text, colors.muted), style = DaodianType.thinkingNote, color = colors.muted)
+    }
+}
+
+/**
+ * 流完之后折成一行「想了 3 秒 · 看看」。不直接删：
+ * 模型把时间算歪的时候，这段和卡片上的「依据」是仅有的两条线索。
+ */
+@Composable
+private fun ReasoningTrace(text: String, seconds: Int, expanded: Boolean, onToggle: () -> Unit) {
+    val colors = DaodianColors.current
+    Column {
+        Row(
+            Modifier.clickable(onClick = onToggle),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Text(
+                if (seconds > 0) "想了 $seconds 秒" else "想了一下",
+                style = DaodianType.speakerTag,
+                color = colors.hint
+            )
+            Text(if (expanded) "收起" else "看看", style = DaodianType.speakerTag, color = colors.accent)
+        }
+        if (expanded) {
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                Box(Modifier.width(1.dp).fillMaxHeight().background(colors.rule))
+                Text(text, style = DaodianType.thinkingNote, color = colors.muted)
+            }
         }
     }
 }
@@ -230,36 +270,6 @@ private fun withCaret(text: String, tint: Color): AnnotatedString {
     return buildAnnotatedString {
         append(text)
         withStyle(SpanStyle(color = tint.copy(alpha = alpha))) { append("\u258d") }
-    }
-}
-
-/**
- * 流完之后留下的一行「想了 3 秒 ›」。默认收着，点开是完整的思考过程。
- * 不直接删掉：模型算错时间时，这段是除了卡片上「依据」之外唯一的线索。
- */
-@Composable
-fun ReasoningTraceRow(msg: ChatMessage.ReasoningTrace, onToggle: () -> Unit) {
-    val colors = DaodianColors.current
-    Column(Modifier.padding(start = AssistantIndent)) {
-        Row(
-            Modifier.clickable(onClick = onToggle),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            Text(
-                if (msg.seconds > 0) "想了 ${msg.seconds} 秒" else "想了一下",
-                style = DaodianType.speakerTag,
-                color = colors.hint
-            )
-            Text(if (msg.expanded) "收起" else "看看", style = DaodianType.speakerTag, color = colors.accent)
-        }
-        if (msg.expanded) {
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                Box(Modifier.width(1.dp).fillMaxHeight().background(colors.rule))
-                Text(msg.text, style = DaodianType.thinkingNote, color = colors.muted)
-            }
-        }
     }
 }
 

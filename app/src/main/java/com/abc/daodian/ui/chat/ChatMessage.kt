@@ -3,10 +3,11 @@ package com.abc.daodian.ui.chat
 import com.abc.daodian.ai.ReminderPlan
 
 /**
- * 对话流里的一条消息。见 DESIGN.md §02 / 设计稿 daodian-ui-mockups。
+ * 对话流里的一条消息。见 DESIGN.md §02 / §6.7，设计稿见 CLAUDE.md 里的画布链接。
  *
- * 只有纯文本往返和卡片两类会进历史；[Streaming] 和 [ReasoningTrace] 都是过程的痕迹，
- * 一律不进（见 ChatTurn 的说明）—— 模型的思考过程喂回给它自己没有意义，只会挤掉真正的上下文。
+ * 只有两类：用户说的话，和助手的一个回合。
+ * 助手回合是**原地长大**的 —— 从「一个字都没有」一路长到「正文 + 卡片」，
+ * 中途不换消息类型、不清屏。上一版是流式占位消失、卡片另起一条，正文被丢掉了。
  */
 sealed interface ChatMessage {
     val id: Long
@@ -14,45 +15,43 @@ sealed interface ChatMessage {
     data class UserText(override val id: Long, val text: String) : ChatMessage
 
     /**
-     * 正在流式解析。字是一路长出来的，见 DESIGN.md §6.7。
+     * 助手的一个回合。四块内容按这个顺序摞：
+     * 思考 → 工具行 → 正文 → 卡片。
      *
-     * 四个格子都空着 = 请求发出去了还没有任何回音，界面退回骨架条；
-     * [fellBack] = 流式没跑通已经回退成一次性请求，半截字要擦掉。
+     * 工具行的显隐规则是 [showToolRow]：**有卡片就藏，没卡片就留**。
+     * 落定之后卡片上的「已记下」和工具名说的是同一件事，留着是同义反复；
+     * 但工具跑了却没长出卡片（校验闸门拦下了算错的时间，见 §6.5），
+     * 它就是「模型动过手」的唯一痕迹，必须留。
      */
-    data class Streaming(
+    data class AssistantTurn(
         override val id: Long,
+        /** 推理模型的思考过程。普通模型压根不发，这里就一直是空的 */
         val reasoning: String = "",
+        val reasoningOpen: Boolean = false,
         val text: String = "",
         val toolName: String? = null,
-        val toolArgs: String = "",
-        val fellBack: Boolean = false,
+        /** 工具正在跑 —— 工具行闪烁的那一档 */
+        val toolRunning: Boolean = false,
+        /** 建成的提醒。null = 这一回合没建出东西 */
+        val reminderId: Long? = null,
+        val plan: ReminderPlan? = null,
+        val cardCollapsed: Boolean = false,
+        /** 解析失败，挂「手动填一条 / 重试」 */
+        val isError: Boolean = false,
+        /** 还在流 —— 决定要不要画光标 */
+        val streaming: Boolean = false,
         val startedAt: Long = System.currentTimeMillis()
     ) : ChatMessage {
-        val isBlank: Boolean get() = reasoning.isEmpty() && text.isEmpty() && toolName == null
+
+        /** 请求发出去了但一个字都还没回来 —— 界面退回骨架条，空着的框比骨架条更让人发懵 */
+        val isBlank: Boolean
+            get() = reasoning.isEmpty() && text.isEmpty() && toolName == null && plan == null
+
+        val showToolRow: Boolean
+            get() = toolName != null && (toolRunning || plan == null)
+
+        /** 思考流完之后折成一行「想了 N 秒」 */
+        val thoughtSeconds: Int
+            get() = ((System.currentTimeMillis() - startedAt) / 1000).toInt()
     }
-
-    /**
-     * 流完之后留下的一行「想了 3 秒 ›」。默认收着 ——
-     * 思考是过程不是结论，不该长期占版面，但也不该看完就没了。
-     */
-    data class ReasoningTrace(
-        override val id: Long,
-        val text: String,
-        val seconds: Int,
-        val expanded: Boolean = false
-    ) : ChatMessage
-
-    /** 反问，或者失败。[isError] 决定圆点是红是绿、要不要挂「手动添加」按钮 */
-    data class AssistantText(override val id: Long, val text: String, val isError: Boolean = false) : ChatMessage
-
-    /**
-     * 已经建好的提醒。工具调用一旦成功就直接落库了 —— 这张卡片不是「请确认」，
-     * 是「已经这样了」的回执。「就这样」= 收起确认；「改一下」= 跳编辑页微调。
-     */
-    data class AssistantCard(
-        override val id: Long,
-        val reminderId: Long,
-        val plan: ReminderPlan,
-        val collapsed: Boolean = false
-    ) : ChatMessage
 }

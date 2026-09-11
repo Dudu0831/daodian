@@ -147,6 +147,21 @@ object DaodianType {
         letterSpacing = 0.06.em
     )
 
+    /** 顶栏那枚朱砂小印里的「点」 */
+    val seal = TextStyle(
+        fontFamily = DaodianFonts.serif,
+        fontWeight = FontWeight.Medium,
+        fontSize = 12.sp,
+        lineHeight = 12.sp
+    )
+
+    /** 工具行的函数名。等宽 —— 它是代码，不是话 */
+    val toolName = TextStyle(
+        fontFamily = DaodianFonts.mono,
+        fontSize = 12.sp,
+        letterSpacing = 0.04.em
+    )
+
     /** 「依据」那行 —— 模型的推算过程，等宽，不要删（见视觉稿组件展板的批注） */
     val basis = TextStyle(
         fontFamily = DaodianFonts.mono,

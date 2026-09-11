@@ -19,6 +19,7 @@
   **那家供应商不发 `reasoning*` 事件**（普通模型，不是推理模型），所以思考块暂时看不到，界面在没有它时长得正常。
   还差两条没验：断网/坏 key 的回退（坑 1）、点「停」真的掐断连接。
   另外这台 ROM 屏蔽第三方 logcat，`Log.i` 一行都看不到，别指望用日志判断流式有没有跑 —— 只能看界面。
+- **对话界面改版**（2026-09-04，**还没真机验证**）：助手侧合并成一个 `AssistantTurn`，原地长大不清屏；工具行只露名字、落定即隐（规则见 DESIGN.md 决策 6.2）；顶栏 wordmark 换成朱砂小印。设计稿：<https://claude.ai/code/artifact/144cdaef-ed50-471a-93f0-99349e798d52>。编译过、lint 干净，真机没跑过 —— 手机当时不在线。
 - **桌面小组件**（2026-09-04 新增）：RemoteViews 实现，规范和三条改动规矩见 DESIGN.md §8.2。真机上 provider 已注册（`dumpsys appwidget` 里 `min=(46081x28161) updatePeriodMillis=1800000`，字段都解析出来了），深链也验过（`am start --es com.abc.daodian.widget.TARGET new/list` 分别落到新建页和列表页）。**还差最后一步硬证据：把它拖到桌面上看真实渲染** —— 桌面小组件没法用 adb 绑定（`cmd appwidget` 在这台 ROM 上不存在），只能手动长按桌面添加。
 - **全屏页在锁屏上确实会弹**（2026-09-04 关屏实测，用户肉眼确认，点「完成」后闹钟正常取消、无残留排期）。
   别被 adb 骗了：`AlarmActivity` 是 `exported=false`，`am start` 起不来；关屏后隔几十秒截图也只会拍到黑屏 ——

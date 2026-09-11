@@ -104,25 +104,14 @@ fun ChatScreen(
                     items(messages, key = { it.id }) { msg ->
                         when (msg) {
                             is ChatMessage.UserText -> UserBubble(msg.text)
-                            is ChatMessage.Streaming -> StreamingRow(msg)
-                            is ChatMessage.ReasoningTrace ->
-                                ReasoningTraceRow(msg, onToggle = { vm.toggleReasoning(msg.id) })
-                            is ChatMessage.AssistantText -> AssistantTextRow(
-                                text = msg.text,
-                                isError = msg.isError,
-                                onManualAdd = if (msg.isError) onManualAdd else null,
-                                onRetry = if (msg.isError) ({ vm.retryLast() }) else null
+                            is ChatMessage.AssistantTurn -> AssistantTurnRow(
+                                msg = msg,
+                                onToggleReasoning = { vm.toggleReasoning(msg.id) },
+                                onCollapseCard = { vm.collapseCard(msg.id) },
+                                onEditReminder = { msg.reminderId?.let(onEditReminder) },
+                                onManualAdd = onManualAdd,
+                                onRetry = { vm.retryLast() }
                             )
-                            is ChatMessage.AssistantCard -> if (msg.collapsed) {
-                                ReminderCardCollapsed(msg.plan)
-                            } else {
-                                ReminderCardExpanded(
-                                    plan = msg.plan,
-                                    nowMillis = System.currentTimeMillis(),
-                                    onCollapse = { vm.collapseCard(msg.id) },
-                                    onEdit = { onEditReminder(msg.reminderId) }
-                                )
-                            }
                         }
                     }
                 }
