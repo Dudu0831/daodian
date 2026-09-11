@@ -2,11 +2,15 @@
 <!-- 抄自 ui/theme/Palette.kt 的 DarkPalette。改色时和 values/colors.xml 一起改 -->
 <resources>
     <color name="widget_paper">#FF14130F</color>
+    <color name="widget_surface">#FF1C1A15</color>
     <color name="widget_ink">#FFEDEAE0</color>
+    <color name="widget_ink2">#FFC3BEB0</color>
     <color name="widget_muted">#FF7C7869</color>
     <color name="widget_hint">#FF6E6A5E</color>
     <color name="widget_rule">#FF2E2B23</color>
     <color name="widget_rule2">#FF38352C</color>
     <color name="widget_accent">#FFC4604F</color>
+    <color name="widget_solid">#FFE6E2D6</color>
+    <color name="widget_on_solid">#FF14130F</color>
     <color name="widget_red">#FFD6786A</color>
 </resources>

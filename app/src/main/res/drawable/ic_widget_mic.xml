@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ui/common/Icons.kt MicIcon 的 XML 版（同一个 20×20 viewBox）。颜色走 @color，深浅色由桌面解析 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="20dp"
+    android:height="20dp"
+    android:viewportWidth="20"
+    android:viewportHeight="20">
+    <path
+        android:pathData="M7.4,5.2 A2.6,2.6 0 0 1 12.6,5.2 L12.6,9.4 A2.6,2.6 0 0 1 7.4,9.4 Z"
+        android:strokeColor="@color/widget_on_solid"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M4.4,9.4 C4.4,12.5 6.9,15 10,15 C13.1,15 15.6,12.5 15.6,9.4 M10,15 L10,17.4"
+        android:strokeColor="@color/widget_on_solid"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

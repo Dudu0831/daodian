@@ -4,4 +4,15 @@
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowActionBar">false</item>
     </style>
+
+    <!--
+      桌面速记：窗口本身透明，桌面留在底下；压暗和纸都在 Compose 里画。
+      窗口动画关掉 —— 进出场由 QuickAddScreen 自己做，叠上系统那一下会闪。
+    -->
+    <style name="Theme.Daodian.Quick" parent="Theme.Daodian">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

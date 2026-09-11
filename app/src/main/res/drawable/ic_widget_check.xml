@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ui/common/Icons.kt CheckIcon 的 XML 版（12×12 viewBox） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="12dp"
+    android:height="12dp"
+    android:viewportWidth="12"
+    android:viewportHeight="12">
+    <path
+        android:pathData="M2.4,6.3 L4.9,8.8 L9.6,3.4"
+        android:strokeColor="@color/widget_muted"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

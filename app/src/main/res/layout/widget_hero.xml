@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  「下一条」：大字时钟 + 标题，右边的圈＝直接完成；整块点开＝编辑。
+  时钟是宋体大字 —— 这一块是桌面上一眼要读到的东西，和到点全屏页的大时钟同一个意思。
+
+  「明天 · 23 小时后」那行：下面没有别的行时挪到脚上、和墨印并排（省下一整行，3×2 也放得下），
+  下面还有行时才回到时钟底下（hero_when），外加一根分隔线。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/hero_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingTop="2dp">
+
+        <TextView
+            android:id="@+id/hero_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="serif"
+            android:textSize="30sp"
+            android:letterSpacing="0.02"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="@color/widget_ink" />
+
+        <TextView
+            android:id="@+id/hero_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="12dp"
+            android:fontFamily="serif"
+            android:textSize="15sp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="@color/widget_ink" />
+
+        <!-- 44dp 宽：圈心和底下墨印的圆心在一条竖线上 -->
+        <FrameLayout
+            android:id="@+id/hero_done"
+            android:layout_width="44dp"
+            android:layout_height="40dp"
+            android:contentDescription="@string/widget_done">
+
+            <ImageView
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_gravity="center"
+                android:background="@drawable/widget_done_ring"
+                android:padding="8dp"
+                android:src="@drawable/ic_widget_check"
+                android:importantForAccessibility="no" />
+        </FrameLayout>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/hero_when"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="6dp"
+        android:paddingBottom="8dp"
+        android:textSize="11sp"
+        android:letterSpacing="0.04"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:visibility="gone"
+        android:textColor="@color/widget_muted" />
+
+    <ImageView
+        android:id="@+id/hero_rule"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginEnd="6dp"
+        android:layout_marginBottom="4dp"
+        android:background="@color/widget_rule"
+        android:visibility="gone"
+        android:importantForAccessibility="no" />
+</LinearLayout>

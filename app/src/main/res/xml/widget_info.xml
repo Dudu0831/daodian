@@ -6,14 +6,16 @@
   它只用来兜「N 小时后」这种相对时间的自然变旧，**不是**数据变化的通知渠道：
   真正的刷新由 WidgetUpdater 在每个改动点主动推（建/改/删/响铃/完成/稍后）。
   这个周期不唤醒设备，息屏期间的到期由系统攒着，亮屏后补一次。
+
+  minResizeHeight 100dp = 抬头 + 脚（墨印）+ 内边距，再矮墨印就要被裁了（见 WidgetRenderer.CHROME_DP）。
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="180dp"
     android:minHeight="110dp"
     android:targetCellWidth="3"
     android:targetCellHeight="2"
-    android:minResizeWidth="140dp"
-    android:minResizeHeight="70dp"
+    android:minResizeWidth="160dp"
+    android:minResizeHeight="100dp"
     android:maxResizeWidth="400dp"
     android:maxResizeHeight="400dp"
     android:resizeMode="horizontal|vertical"

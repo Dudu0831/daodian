@@ -1,66 +1,82 @@
 package com.abc.daodian.ui.chat
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import com.abc.daodian.ai.PlanValidator
-import com.abc.daodian.ai.ReminderPlan
-import com.abc.daodian.ui.common.CheckIcon
-import com.abc.daodian.ui.common.Format
-import com.abc.daodian.ui.common.OutlineBadge
-import com.abc.daodian.ui.common.RepeatBadge
 import com.abc.daodian.ui.theme.DaodianColors
 import com.abc.daodian.ui.theme.DaodianType
+import com.abc.daodian.ui.theme.Motion
 
 /** 助手说的话一律缩进这么多，跟上面的「· 到点」标签对齐 */
 private val AssistantIndent = 14.dp
 
+/** 刚发出的气泡从下方升起；列表滚回来重组时不再升 */
 @Composable
-fun UserBubble(text: String) {
+fun UserBubble(msg: ChatMessage.UserText) {
     val colors = DaodianColors.current
+    val rise = remember { Animatable(if (System.currentTimeMillis() - msg.sentAt < 600) 0f else 1f) }
+    LaunchedEffect(Unit) { rise.animateTo(1f, Motion.settle()) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Text(
-            text,
+            msg.text,
             style = DaodianType.body,
             color = colors.onSolid,
             modifier = Modifier
+                .graphicsLayer {
+                    val p = rise.value
+                    translationY = (1f - p) * 26.dp.toPx()
+                    alpha = 0.15f + 0.85f * p
+                    scaleX = 0.97f + 0.03f * p
+                    scaleY = scaleX
+                    transformOrigin = TransformOrigin(1f, 1f)
+                }
                 .widthIn(max = 264.dp)
                 .background(colors.solid, RoundedCornerShape(20.dp, 20.dp, 5.dp, 20.dp))
                 .padding(horizontal = 18.dp, vertical = 12.dp)
@@ -68,59 +84,37 @@ fun UserBubble(text: String) {
     }
 }
 
-/** 朱砂小圆点 + 「到点」。出错时圆点褪成灰的 —— 报错不该比正常回答更抢眼 */
+/**
+ * 朱砂小圆点 + 「到点」。等回复的时候圆点呼吸，告诉你是谁在准备说话；
+ * 出错时褪成灰的 —— 报错不该比正常回答更抢眼
+ */
 @Composable
-fun SpeakerTag(isError: Boolean = false) {
+fun SpeakerTag(isError: Boolean = false, breathing: Boolean = false) {
     val colors = DaodianColors.current
+    val dot by animateColorAsState(if (isError) colors.rule2 else colors.accent, Motion.flow(), label = "speakerDot")
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-        Box(Modifier.size(5.dp).background(if (isError) colors.rule2 else colors.accent, CircleShape))
+        if (breathing) BreathingDot(dot) else Box(Modifier.size(5.dp).background(dot, CircleShape))
         Text("到点", style = DaodianType.speakerTag, color = colors.muted)
     }
 }
 
-/**
- * 请求发出去了，一个字都还没回来。用「正在写字」的骨架条撑着，不用转圈 ——
- * 转圈是「系统在忙」，骨架条是「答案正在成形」，后者才是这里的真相。见 DESIGN.md §8.1
- *
- * 只有三根条，没有说明文字：首字延迟本来就短不了，再配一句解说反而像在道歉。
- */
 @Composable
-fun ThinkingRow() {
-    val colors = DaodianColors.current
-    val transition = rememberInfiniteTransition(label = "thinking")
-    Column {
-        SpeakerTag()
-        Spacer(Modifier.height(14.dp))
-        Column(
-            Modifier.padding(start = AssistantIndent),
-            verticalArrangement = Arrangement.spacedBy(11.dp)
-        ) {
-            listOf(0.78f, 0.54f, 0.31f).forEachIndexed { i, fraction ->
-                val alpha by transition.animateFloat(
-                    initialValue = 0.45f,
-                    targetValue = 1f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(900, delayMillis = i * 180, easing = FastOutSlowInEasing),
-                        repeatMode = RepeatMode.Reverse
-                    ),
-                    label = "bar$i"
-                )
-                Box(
-                    Modifier
-                        .fillMaxWidth(fraction)
-                        .height(11.dp)
-                        .background(colors.skeleton.copy(alpha = alpha), RoundedCornerShape(2.dp))
-                )
-            }
-        }
-    }
+private fun BreathingDot(color: Color) {
+    val a by rememberInfiniteTransition(label = "breathe").animateFloat(
+        initialValue = 1f,
+        targetValue = 0.3f,
+        animationSpec = infiniteRepeatable(tween(1100, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "breatheAlpha"
+    )
+    Box(Modifier.size(5.dp).graphicsLayer { alpha = a }.background(color, CircleShape))
 }
 
 /**
- * 助手的一个回合。见 DESIGN.md §6.7 和设计稿。
+ * 助手的一个回合。见 DESIGN.md §6.7、决策 6.2 / 6.3。
  *
- * 四块按这个顺序摞：思考 → 工具行 → 正文 → 卡片。工具行在正文**上面** ——
- * 模型的动作先于它的解说，也让「这一回合动了手」不用读完整段话才知道。
+ * 按这个顺序摞：墨条 → 思考 → 卡片 → 闸门说明 → 正文 → 出路。每一块都是展开着进场、
+ * 收起着退场，一个回合在原地长大，中间没有硬切。
+ * 卡片在正文上面：两者同时流时，卡片的高度起稿就定了，正文在它下面长，谁也不推谁。
  */
 @Composable
 fun AssistantTurnRow(
@@ -131,100 +125,115 @@ fun AssistantTurnRow(
     onManualAdd: () -> Unit,
     onRetry: () -> Unit
 ) {
-    if (msg.isBlank) {
-        ThinkingRow()
-        return
-    }
     val colors = DaodianColors.current
+    val waiting = msg.isBlank && msg.streaming
+    val draft = remember(msg.toolArgs) { DraftArgs.parse(msg.toolArgs) }
+    val phase = cardPhaseOf(msg, draft)
+
     Column {
-        SpeakerTag(isError = msg.isError)
-        Spacer(Modifier.height(12.dp))
-        Column(
-            Modifier.padding(start = AssistantIndent),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            if (msg.reasoning.isNotBlank()) {
-                if (msg.streaming) {
-                    ReasoningStream(msg.reasoning)
-                } else {
-                    ReasoningTrace(msg.reasoning, msg.thoughtSeconds, msg.reasoningOpen, onToggleReasoning)
-                }
-            }
-
-            if (msg.showToolRow) ToolRow(msg.toolName!!, running = msg.toolRunning)
-
-            if (msg.text.isNotBlank()) {
+        SpeakerTag(isError = msg.isError, breathing = waiting)
+        Column(Modifier.padding(start = AssistantIndent)) {
+            Reveal(waiting && msg.fellBack) {
                 Text(
-                    if (msg.streaming) withCaret(msg.text, colors.ink) else buildAnnotatedString { append(msg.text) },
-                    style = DaodianType.prose,
-                    color = colors.ink
+                    "换个方式重新问了一次",
+                    style = DaodianType.speakerTag.copy(fontSize = 11.5.sp, letterSpacing = 0.1.em),
+                    color = colors.hint
+                )
+            }
+            // 墨条收起和第一块内容进场在同一帧，中间没有空白帧
+            Reveal(waiting, exit = BarsExit) { InkWashBars() }
+
+            Reveal(msg.reasoning.isNotBlank() && !msg.reasoningFolded) { ReasoningStream(msg.reasoning) }
+            Reveal(msg.reasoning.isNotBlank() && msg.reasoningFolded) {
+                ReasoningTrace(
+                    msg.reasoning,
+                    seconds = ((msg.thoughtMillis ?: 0L) / 1000).toInt(),
+                    expanded = msg.reasoningOpen,
+                    onToggle = onToggleReasoning
                 )
             }
 
-            msg.plan?.let { plan ->
-                if (msg.cardCollapsed) {
-                    ReminderCardCollapsed(plan)
-                } else {
-                    ReminderCardExpanded(
-                        plan = plan,
-                        nowMillis = System.currentTimeMillis(),
+            Reveal(phase != null, enter = CardEnter) {
+                if (phase != null) {
+                    ReminderCard(
+                        phase = phase,
+                        toolName = msg.toolName.orEmpty(),
+                        draft = draft,
+                        plan = msg.plan,
+                        stampedAt = msg.stampedAt,
                         onCollapse = onCollapseCard,
                         onEdit = onEditReminder
                     )
                 }
             }
+            Reveal(msg.gateNote != null) {
+                Text(msg.gateNote.orEmpty(), style = DaodianType.bodySmall.copy(lineHeight = 22.sp), color = colors.ink2)
+            }
 
-            if (msg.isError) {
-                Text(
-                    "你可以自己填一条，跟解析出来的一样能用。",
-                    style = DaodianType.prose,
-                    color = colors.muted
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                    PillButton("手动填一条", PillStyle.OutlineStrong, onManualAdd)
-                    PillButton("重试", PillStyle.Outline, onRetry)
+            Reveal(msg.text.isNotBlank()) {
+                InkText(msg.text, streaming = msg.streaming, style = DaodianType.prose, color = colors.ink, caret = msg.streaming)
+            }
+
+            Reveal(msg.isError) {
+                Column {
+                    Text("你可以自己填一条，跟解析出来的一样能用。", style = DaodianType.prose, color = colors.muted)
+                    Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                        PillButton("手动填一条", PillStyle.OutlineStrong, onManualAdd)
+                        PillButton("重试", PillStyle.Outline, onRetry)
+                    }
                 }
             }
         }
     }
 }
 
-/**
- * 工具行。**只露工具名，参数不上屏** —— 参数是给日志看的，不是给人看的。
- *
- * 跑着的时候整行呼吸式明暗，它是这几秒里屏幕上唯一在动的东西；
- * 落定后换成朱砂对勾、字压到 muted。什么时候该藏见 [ChatMessage.AssistantTurn.showToolRow]。
- */
+private val RevealEnter: EnterTransition =
+    expandVertically(Motion.settle(), expandFrom = Alignment.Top) + fadeIn(Motion.flow())
+private val RevealExit: ExitTransition =
+    shrinkVertically(Motion.flow(), shrinkTowards = Alignment.Top) + fadeOut(Motion.exit())
+private val BarsExit: ExitTransition =
+    shrinkVertically(Motion.exit(), shrinkTowards = Alignment.Top) + fadeOut(Motion.exit())
+private val CardEnter: EnterTransition =
+    expandVertically(Motion.settle(Motion.LONG), expandFrom = Alignment.Top) + fadeIn(Motion.flow())
+
+/** 回合里的一块：块与块的间距长在块自己身上，收起时一起收，不会留一截空白 */
 @Composable
-private fun ToolRow(name: String, running: Boolean) {
-    val colors = DaodianColors.current
-    val alpha by rememberInfiniteTransition(label = "tool").animateFloat(
-        initialValue = 1f,
-        targetValue = 0.3f,
-        animationSpec = infiniteRepeatable(tween(1250, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "toolAlpha"
-    )
-    Row(
-        Modifier.alpha(if (running) alpha else 1f),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(9.dp)
-    ) {
-        if (running) {
-            Box(Modifier.size(5.dp).background(colors.accent, CircleShape))
-        } else {
-            CheckIcon(tint = colors.accent)
-        }
-        Text(name, style = DaodianType.toolName, color = if (running) colors.ink2 else colors.muted)
+private fun ColumnScope.Reveal(
+    visible: Boolean,
+    enter: EnterTransition = RevealEnter,
+    exit: ExitTransition = RevealExit,
+    content: @Composable () -> Unit
+) {
+    AnimatedVisibility(visible, enter = enter, exit = exit) {
+        Box(Modifier.padding(top = 12.dp)) { content() }
     }
 }
 
-/** 思考过程流着的时候：左边一条细线圈出来，字压到最轻的一档 */
+/**
+ * 思考过程流着的时候：左边一根细线，字压到最轻的一档。
+ * 最多露三行，更早的行在顶上渐隐 —— 思考不该把下面的内容越推越远。
+ */
 @Composable
 private fun ReasoningStream(text: String) {
     val colors = DaodianColors.current
-    Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-        Box(Modifier.width(1.dp).fillMaxHeight().background(colors.rule))
-        Text(withCaret(text, colors.muted), style = DaodianType.thinkingNote, color = colors.muted)
+    var overflow by remember { mutableStateOf(false) }
+    Box(
+        Modifier
+            .drawBehind { drawLine(colors.rule, Offset(0f, 0f), Offset(0f, size.height), 1.dp.toPx()) }
+            .padding(start = 12.dp)
+            .heightIn(max = 60.dp)
+            .clipToBounds()
+            .fadeTop(24.dp, overflow)
+    ) {
+        InkText(
+            text,
+            streaming = true,
+            style = DaodianType.thinkingNote.copy(lineHeight = 20.sp),
+            color = colors.muted,
+            caret = true,
+            modifier = Modifier.wrapContentHeight(Alignment.Bottom, unbounded = true),
+            onTextLayout = { overflow = it.lineCount > 3 }
+        )
     }
 }
 
@@ -241,168 +250,24 @@ private fun ReasoningTrace(text: String, seconds: Int, expanded: Boolean, onTogg
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            Text(
-                if (seconds > 0) "想了 $seconds 秒" else "想了一下",
-                style = DaodianType.speakerTag,
-                color = colors.hint
-            )
+            Text(if (seconds > 0) "想了 $seconds 秒" else "想了一下", style = DaodianType.speakerTag, color = colors.hint)
             Text(if (expanded) "收起" else "看看", style = DaodianType.speakerTag, color = colors.accent)
         }
-        if (expanded) {
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                Box(Modifier.width(1.dp).fillMaxHeight().background(colors.rule))
-                Text(text, style = DaodianType.thinkingNote, color = colors.muted)
-            }
-        }
-    }
-}
-
-/** 末字后面跟一个墨块光标。inline 拼进同一个 Text，换行时自己跟着走，不用额外布局 */
-@Composable
-private fun withCaret(text: String, tint: Color): AnnotatedString {
-    val alpha by rememberInfiniteTransition(label = "caret").animateFloat(
-        initialValue = 1f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(tween(560, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "caretAlpha"
-    )
-    return buildAnnotatedString {
-        append(text)
-        withStyle(SpanStyle(color = tint.copy(alpha = alpha))) { append("\u258d") }
-    }
-}
-
-private enum class PillStyle { Solid, Outline, OutlineStrong }
-
-@Composable
-private fun PillButton(text: String, style: PillStyle, onClick: () -> Unit) {
-    val colors = DaodianColors.current
-    val shape = RoundedCornerShape(22.dp)
-    Box(
-        Modifier
-            .defaultMinSize(minHeight = 44.dp)
-            .let { if (style == PillStyle.Solid) it.background(colors.solid, shape) else it }
-            .let {
-                when (style) {
-                    PillStyle.Solid -> it
-                    PillStyle.Outline -> it.border(1.dp, colors.rule2, shape)
-                    PillStyle.OutlineStrong -> it.border(1.dp, colors.ink, shape)
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(Motion.flow()) + fadeIn(Motion.flow()),
+            exit = shrinkVertically(Motion.flow()) + fadeOut(Motion.exit())
+        ) {
+            Column {
+                Spacer(Modifier.height(10.dp))
+                Box(
+                    Modifier
+                        .drawBehind { drawLine(colors.rule, Offset(0f, 0f), Offset(0f, size.height), 1.dp.toPx()) }
+                        .padding(start = 12.dp)
+                ) {
+                    Text(text, style = DaodianType.thinkingNote, color = colors.muted)
                 }
             }
-            .clickable(onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 12.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text,
-            style = DaodianType.bodySmall,
-            color = when (style) {
-                PillStyle.Solid -> colors.onSolid
-                PillStyle.OutlineStrong -> colors.ink
-                PillStyle.Outline -> colors.ink2
-            }
-        )
-    }
-}
-
-/**
- * 已建提醒的回执卡片。工具调用成功时已经落库了 —— 这不是「请确认」表单。
- * 「就这样」= 收起；「改一下」= 跳编辑页微调。见 DESIGN.md §08 界面
- */
-@Composable
-fun ReminderCardExpanded(
-    plan: ReminderPlan,
-    nowMillis: Long,
-    onCollapse: () -> Unit,
-    onEdit: () -> Unit
-) {
-    val colors = DaodianColors.current
-    val shape = RoundedCornerShape(5.dp)
-    val triggerMillis = remember(plan) { runCatching { PlanValidator.triggerMillis(plan) }.getOrNull() }
-    val whenText = triggerMillis?.let { Format.humanDateTime(it) } ?: Format.humanDateTime(plan.firstTriggerAt)
-    val rruleText = remember(plan.rrule) { Format.humanRrule(plan.rrule) }
-
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = AssistantIndent)
-            .background(colors.surface, shape)
-            .border(1.dp, colors.rule, shape)
-            .padding(horizontal = 20.dp, vertical = 18.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            CheckIcon(tint = colors.accent)
-            Text("已记下", style = DaodianType.stampLabel, color = colors.accent)
         }
-
-        Spacer(Modifier.height(13.dp))
-        Text(plan.title, style = DaodianType.cardTitle, color = colors.ink)
-        Spacer(Modifier.height(6.dp))
-
-        // 重复的提醒报「每天 08:00」，一次性的报完整日期 —— 重复的那条写全日期没意义
-        Text(
-            if (rruleText != null && triggerMillis != null) "$rruleText ${Format.clock(triggerMillis)}" else whenText,
-            fontSize = 14.sp,
-            color = colors.ink2
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            when {
-                triggerMillis == null -> ""
-                rruleText != null -> "下一次 · ${Format.relative(triggerMillis, nowMillis)}"
-                else -> Format.relative(triggerMillis, nowMillis)
-            },
-            style = DaodianType.caption, color = colors.muted
-        )
-
-        if (rruleText != null) {
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                RepeatBadge(rruleText)
-                // 时区锚定是「每天早上 8 点吃药」和「9月2号15:00的会」的分水岭，必须能看见
-                OutlineBadge(if (plan.wallClockAnchored) "跟着所在时区" else "固定这一瞬间")
-            }
-        }
-
-        // 「依据」是模型的推算过程 —— 算错时唯一能看出哪儿歪了的线索，不要删（见视觉稿组件展板批注）
-        if (plan.basis.isNotBlank()) {
-            Spacer(Modifier.height(15.dp))
-            HorizontalDivider(color = colors.ruleSoft)
-            Spacer(Modifier.height(11.dp))
-            Text("依据 · ${plan.basis}", style = DaodianType.basis, color = colors.muted)
-        }
-
-        Spacer(Modifier.height(20.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-            PillButton("就这样", PillStyle.Solid, onCollapse)
-            PillButton("改一下", PillStyle.Outline, onEdit)
-        }
-    }
-}
-
-@Composable
-fun ReminderCardCollapsed(plan: ReminderPlan) {
-    val colors = DaodianColors.current
-    val shape = RoundedCornerShape(5.dp)
-    val triggerMillis = remember(plan) { runCatching { PlanValidator.triggerMillis(plan) }.getOrNull() }
-    val whenText = triggerMillis?.let { Format.humanDateTimeShort(it) } ?: plan.firstTriggerAt
-
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = AssistantIndent)
-            .background(colors.surface, shape)
-            .border(1.dp, colors.ruleSoft, shape)
-            .padding(horizontal = 20.dp, vertical = 15.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        CheckIcon(size = 12.dp, tint = colors.accent)
-        Text(plan.title, style = DaodianType.rowTitle, color = colors.ink, modifier = Modifier.weight(1f))
-        Text(whenText, style = DaodianType.caption, color = colors.muted)
     }
 }

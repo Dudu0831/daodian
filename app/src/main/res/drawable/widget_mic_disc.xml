@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 说话条左边那枚墨印。实心块一律墨色，不是彩色 —— DESIGN.md §8.1 第 1 条 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/widget_solid" />
+</shape>

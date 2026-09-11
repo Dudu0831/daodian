@@ -115,8 +115,14 @@ object Notifier {
             return false
         }
 
+        // 不加 INSISTENT 的话，铃声和震动各播一遍就停 —— 那是普通通知，不是闹钟。
+        // 加了之后一直循环到通知被取消：「完成」「稍后」（通知按钮和全屏页都走
+        // NotificationActionReceiver → cancel()）、点开通知、划掉通知。
+        // 不在 AlarmActivity 里自己放铃：亮屏时系统只给 heads-up、不起全屏页，那条路就又只响一下了。
+        val notification = builder.build().apply { flags = flags or Notification.FLAG_INSISTENT }
+
         return try {
-            NotificationManagerCompat.from(context).notify(reminder.id.toInt(), builder.build())
+            NotificationManagerCompat.from(context).notify(reminder.id.toInt(), notification)
             true
         } catch (e: SecurityException) {
             Log.e(TAG, "发通知被系统拒绝，id=${reminder.id}", e)

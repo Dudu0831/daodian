@@ -9,9 +9,7 @@ import androidx.compose.runtime.setValue
 import com.abc.daodian.ai.ChatTurn
 import com.abc.daodian.ai.ParseEvent
 import com.abc.daodian.ai.ParseResult
-import com.abc.daodian.ai.PlanValidator
 import com.abc.daodian.ai.ProviderProfile
-import com.abc.daodian.ai.ReminderPlan
 import com.abc.daodian.ai.StreamingReminderParser
 import com.abc.daodian.ai.ToolCallParser
 import com.abc.daodian.data.DaodianDatabase
@@ -20,6 +18,9 @@ import com.abc.daodian.data.ReminderStatus
 import com.abc.daodian.notify.Notifier
 import com.abc.daodian.schedule.Rescheduler
 import com.abc.daodian.ui.chat.ChatMessage
+import com.abc.daodian.ui.chat.finished
+import com.abc.daodian.ui.chat.historyText
+import com.abc.daodian.ui.chat.patched
 import com.abc.daodian.widget.WidgetUpdater
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -62,11 +63,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var aiBusy by mutableStateOf(false)
         private set
 
+    /** 点了「停」之后要退回输入框的原话。界面取走后调 [consumeRestoredInput] */
+    var restoredInput by mutableStateOf<String?>(null)
+        private set
+
     /** 最后一句用户说的话，失败后「重试」用得上 */
     private var lastUserInput: String? = null
 
     /** 当前那条流。「停」和「换一句」都靠它掐断 */
     private var streamJob: Job? = null
+
+    /** 这次取消是用户按的「停」，不是离开页面之类 */
+    private var stoppedByUser = false
 
     /**
      * 一句话 → 模型 → 校验闸门 → 落库 → 排闹钟。见 DESIGN.md §6.1
@@ -111,7 +119,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * 流式解析。见 DESIGN.md §6.7。
      *
-     * 一个回合**原地长大**：思考 → 工具行 → 正文 → 卡片，中途不换消息类型。
+     * 一个回合**原地长大**：思考 → 卡片 → 正文，中途不换消息类型。
      * 终局仍然是 [ParseResult]，底下「落库 → 排闹钟」那一段和非流式时代一模一样，
      * 没有第二条落库路径。
      */
@@ -128,60 +136,48 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 finishTurn(turnId, text, result)
             } catch (t: CancellationException) {
-                // 用户点了「停」：连同半截字一起撤掉，用户那句话留着，可以直接改了重发
-                _messages.value = _messages.value.filterNot { it.id == turnId }
+                // 用户点了「停」：这一回合连同半截字撤掉，那句话也撤下来、退回输入框 ——
+                // 气泡改不了，留在对话里没用；退回去改两个字就能重发。见 DESIGN.md 决策 6.3
+                val msgs = _messages.value
+                val asked = msgs.getOrNull(msgs.indexOfFirst { it.id == turnId } - 1) as? ChatMessage.UserText
+                val takeBackId = asked?.takeIf { stoppedByUser && it.text == text }?.id
+                _messages.value = msgs.filterNot { it.id == turnId || it.id == takeBackId }
+                if (takeBackId != null) restoredInput = text
                 throw t
             } finally {
                 aiBusy = false
+                stoppedByUser = false
             }
         }
     }
 
-    /** 把一个过程事件叠到那个回合上 */
+    /** 把一个过程事件叠到那个回合上。规则本身在 ChatMessage.kt，桌面速记也用同一份 */
     private fun patchTurn(turnId: Long, event: ParseEvent) {
         _messages.value = _messages.value.map { m ->
-            if (m.id != turnId || m !is ChatMessage.AssistantTurn) m else when (event) {
-                is ParseEvent.Reasoning -> m.copy(reasoning = m.reasoning + event.delta)
-                is ParseEvent.Text -> m.copy(text = m.text + event.delta)
-                is ParseEvent.ToolStarted -> m.copy(toolName = event.name, toolRunning = true)
-                // 参数不上屏（见设计稿）—— 只用它证明工具还在跑
-                is ParseEvent.ToolArgs -> m
-                // 回退了：吐出来的半截全部作废，退回骨架条。
-                // 留着的话，等下一次性结果一到，同一句话会像是被说了两遍
-                ParseEvent.FellBack -> ChatMessage.AssistantTurn(m.id, streaming = true)
-                is ParseEvent.Done -> m
-            }
+            if (m.id == turnId && m is ChatMessage.AssistantTurn) m.patched(event) else m
         }
     }
 
-    /** 流走完了：卡片长在同一个回合里，正文和工具行按各自的规则留或藏 */
+    /** 流走完了：先落库排期，再让卡片长在同一个回合里 */
     private suspend fun finishTurn(turnId: Long, rawInput: String, result: ParseResult?) {
-        val reminderId = (result as? ParseResult.Ok)?.let { insertFromPlan(rawInput, it.plan) }
+        val reminderId = (result as? ParseResult.Ok)?.let {
+            PlanCommitter.commit(getApplication(), rawInput, it.plan, profile.model)
+        }
 
         _messages.value = _messages.value.map { m ->
-            if (m.id != turnId || m !is ChatMessage.AssistantTurn) m else when (result) {
-                is ParseResult.Ok -> m.copy(
-                    streaming = false, toolRunning = false,
-                    reminderId = reminderId, plan = result.plan
-                )
-                is ParseResult.NeedsClarification -> m.copy(
-                    streaming = false, toolRunning = false,
-                    // 流里已经逐字吐过这句话了，别再覆盖一遍
-                    text = m.text.ifBlank { result.question }
-                )
-                // 第二句「你可以自己填一条」由 UI 补，见 AssistantTurnRow
-                is ParseResult.Failed, null -> m.copy(
-                    streaming = false, toolRunning = false, isError = true,
-                    text = "连不上服务器，这句话没能解析。"
-                )
-            }
+            if (m.id == turnId && m is ChatMessage.AssistantTurn) m.finished(result, reminderId) else m
         }
     }
 
     /** 「停」。流被取消时 StreamResponse 会被 close 掉，见 ToolCallParser.parseStream */
     fun stopStreaming() {
+        stoppedByUser = true
         streamJob?.cancel()
         streamJob = null
+    }
+
+    fun consumeRestoredInput() {
+        restoredInput = null
     }
 
     fun toggleReasoning(id: Long) {
@@ -196,53 +192,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /**
-     * 把对话压成喂给下一轮的文本历史，见 ChatTurn 的说明。
-     *
-     * 已建的提醒必须以「回执」的形式留在历史里：否则模型看到的是
-     * 「用户：三分钟后提醒我喝水 / 用户：谢谢」—— 上一句请求像是没人应，
-     * 它会好心再建一遍。真机上就是这么冒出重复提醒的。
-     */
+    /** 把对话压成喂给下一轮的文本历史。助手回合怎么压（含已建提醒的回执）见 [historyText] */
     private fun historyOf(snapshot: List<ChatMessage>): List<ChatTurn> =
         snapshot.mapNotNull { m ->
             when (m) {
                 is ChatMessage.UserText -> ChatTurn(fromUser = true, text = m.text)
-                is ChatMessage.AssistantTurn -> {
-                    // 思考过程不进历史：把模型自己的思考喂回给它没有意义，只会挤掉真正的上下文
-                    val said = buildString {
-                        append(m.text.trim())
-                        m.plan?.let { plan ->
-                            if (isNotEmpty()) append(" ")
-                            append("（已建好提醒：「${plan.title}」，${plan.firstTriggerAt}")
-                            plan.rrule?.let { append("，重复 $it") }
-                            append("。这条已经落库排期了，不要重复建）")
-                        }
-                    }
-                    said.takeIf { it.isNotBlank() }?.let { ChatTurn(fromUser = false, text = it) }
-                }
+                is ChatMessage.AssistantTurn -> m.historyText()?.let { ChatTurn(fromUser = false, text = it) }
             }
         }
-
-    private suspend fun insertFromPlan(rawInput: String, plan: ReminderPlan): Long {
-        val now = System.currentTimeMillis()
-        val zone = ZoneId.systemDefault()
-        val reminder = Reminder(
-            title = plan.title,
-            note = plan.note,
-            rawInput = rawInput,
-            nextTriggerAt = PlanValidator.triggerMillis(plan),
-            rrule = plan.rrule,
-            zoneId = zone.id,
-            localTime = if (plan.wallClockAnchored) PlanValidator.localTimeOf(plan, zone) else null,
-            wallClockAnchored = plan.wallClockAnchored,
-            parsedBy = profile.model,
-            createdAt = now,
-            updatedAt = now
-        )
-        val id = db.reminderDao().insert(reminder)
-        db.reminderDao().byId(id)?.let { rescheduler.schedule(it) }
-        return id
-    }
 
     // ---------------- 提醒 / 日志（列表、编辑、体检、投递日志共用）----------------
 

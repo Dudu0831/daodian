@@ -36,6 +36,8 @@ data class DaodianPalette(
     val onSolid: Color,
     /** 解析中的骨架条 */
     val skeleton: Color,
+    /** 墨条上洇过去的那道墨色，比 [skeleton] 深一档 */
+    val skeletonHi: Color,
     /** 出错 / 迟到这类需要被看见的告警字色 */
     val red: Color,
     val amber: Color
@@ -56,6 +58,7 @@ val LightPalette = DaodianPalette(
     solid = Color(0xFF1C1A17),
     onSolid = Color(0xFFF2EFE6),
     skeleton = Color(0xFFE2DDCF),
+    skeletonHi = Color(0xFFCCC5B1),
     red = Color(0xFFB0533F),
     amber = Color(0xFF8A6A24)
 )
@@ -75,6 +78,7 @@ val DarkPalette = DaodianPalette(
     solid = Color(0xFFE6E2D6),
     onSolid = Color(0xFF14130F),
     skeleton = Color(0xFF272419),
+    skeletonHi = Color(0xFF3B372B),
     red = Color(0xFFD6786A),
     amber = Color(0xFFD7AC5C)
 )
