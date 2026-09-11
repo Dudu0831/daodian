@@ -28,6 +28,7 @@
 - **语音改成本地识别**（2026-09-11）：小组件语音「权限给了但不能用」—— 荣耀的 MagicVoice（YOYO）绑得上、会开麦克风，但对第三方一个回调都不回；网关也没有转写接口。现在 `VoiceInput` 自己录音 + sherpa-onnx 本地流式识别，桌面速记和对话页麦克风共用，来龙去脉见 DESIGN.md 决策 8.3。
   **真机验过**：从 Mac 扬声器放「你好，今天天气怎么样」→ 桌面速记里逐字出来 → 停顿自动收 → `dumpsys audio` 里是 `src:VOICE_RECOGNITION pack:com.abc.daodian.debug`，没有 YOYO。模型首次加载 1.9s，期间录音不丢。
   **代价**：release 包 35MB → 88MB（arm64 `.so` 24MB + 模型 26MB，都不压缩进包）；AAR 在 `app/libs/`、模型在 `assets/asr/`，没 Maven 坐标。验证用 debug 包的 `files/quick_trace.txt`，`voice ←` 那几行就是识别事件。
+- **图标和开屏**（2026-09-11）：墨绿气泡 + 钟面 + 三道响声，照用户给的参考图描的（上一版朱砂印被用户换掉了）；开屏是同一个图形弹出来、钟响一下。规则见 DESIGN.md §8.1「图标与开屏」。`ic_launcher_foreground` / `ic_launcher_monochrome` / `splash_logo` 三个文件是同一套 path，改一个要三个一起改。
 - **全屏页在锁屏上确实会弹**（2026-09-04 关屏实测，用户肉眼确认，点「完成」后闹钟正常取消、无残留排期）。
   别被 adb 骗了：`AlarmActivity` 是 `exported=false`，`am start` 起不来；关屏后隔几十秒截图也只会拍到黑屏 ——
   用户已经把它关掉了，`screencap` 拍的是关掉之后的状态。`appops` 里那条 `USE_FULL_SCREEN_INTENT rejectTime`

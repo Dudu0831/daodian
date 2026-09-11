@@ -6,6 +6,18 @@
     </style>
 
     <!--
+      只给 MainActivity（桌面图标进来的那一个）：开屏是纸底上弹出图标，钟响一下。
+      不挂在 Theme.Daodian 上 —— AlarmActivity 也用它，到点全屏页前面不能再垫一张开屏。
+      windowBackground 同色，开屏淡出到 Compose 画第一帧之间不会闪一下系统底色。
+    -->
+    <style name="Theme.Daodian.Main" parent="Theme.Daodian">
+        <item name="android:windowBackground">@color/app_paper</item>
+        <item name="android:windowSplashScreenBackground">@color/app_paper</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
+        <item name="android:windowSplashScreenAnimationDuration">600</item>
+    </style>
+
+    <!--
       桌面速记：窗口本身透明，桌面留在底下；压暗和纸都在 Compose 里画。
       窗口动画关掉 —— 进出场由 QuickAddScreen 自己做，叠上系统那一下会闪。
     -->

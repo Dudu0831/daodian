@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 主题图标（Android 13+ 跟壁纸取色）：系统只认 alpha，钟面用 evenOdd 从气泡里抠掉，指针画回洞里 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M 51.23,36 C 62.5,35.79 71.21,43.17 71.72,53.42 C 72.03,59.57 70.69,63.15 69.67,65.71 C 68.65,68.79 71.21,71.35 70.49,73.91 C 69.67,76.99 66.08,77.19 63.01,75.45 C 59.94,73.91 57.37,74.42 53.27,75.14 C 45.08,76.47 35.85,74.94 31.76,67.76 C 29.19,63.15 29.71,55.47 31.24,50.34 C 33.81,41.12 40.98,36.2 51.23,36 Z M37.7,55.36 A12.5,12.5 0 1 1 62.7,55.36 A12.5,12.5 0 1 1 37.7,55.36 Z" />
+    <path
+        android:pathData="M 49.48,50.55 L 49.48,56.7 L 55.02,57.93"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.07"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M 56.86,31.69 L 59.94,34.97"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.48"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M 65.57,28.31 L 65.57,34.46"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.48"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M 71.21,37.84 L 75.31,33.95"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.48"
+        android:strokeLineCap="round" />
+</vector>

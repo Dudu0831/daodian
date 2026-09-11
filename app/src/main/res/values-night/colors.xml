@@ -13,4 +13,6 @@
     <color name="widget_solid">#FFE6E2D6</color>
     <color name="widget_on_solid">#FF14130F</color>
     <color name="widget_red">#FFD6786A</color>
+
+    <color name="app_paper">#FF14130F</color>
 </resources>

@@ -23,4 +23,17 @@
     <color name="widget_solid">#FF1C1A17</color>
     <color name="widget_on_solid">#FFF2EFE6</color>
     <color name="widget_red">#FFB0533F</color>
+
+    <!-- 开屏和 MainActivity 的窗口底色 = Palette.kt 的 paper，跟深浅色走 -->
+    <color name="app_paper">#FFF2EFE6</color>
+    <!--
+      桌面图标 / 开屏图形：墨绿气泡 + 米白钟面，照用户给的参考图取的色（2026-09-11）。
+      不是墨宋色板里的颜色，只在图标上用；图标不跟深浅色走，只有这一份
+    -->
+    <color name="icon_bg">#FFFAF9F5</color>
+    <color name="icon_green_hi">#FF55756A</color>
+    <color name="icon_green_lo">#FF364C41</color>
+    <color name="icon_green_fold">#FF2F4339</color>
+    <color name="icon_face">#FFF4F0E6</color>
+    <color name="icon_ink">#FF3D5A4B</color>
 </resources>

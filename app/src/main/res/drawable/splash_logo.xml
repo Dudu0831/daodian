@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  开屏：同一个图标，先是气泡连同钟面从 0.82 倍弹到 1.04 再落回 1，
+  接着右上角三道响声从气泡边上弹出来 —— 钟「响」了一下。
+  总长 580ms，在 Theme.Daodian.Main 的 windowSplashScreenAnimationDuration（600）以内；系统上限 1000ms。
+  图形和 ic_launcher_foreground 是同一套 path（同一个脚本生成），改图标时两个一起重算。
+-->
+<animated-vector
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt">
+    <aapt:attr name="android:drawable">
+        <vector
+            android:width="108dp"
+            android:height="108dp"
+            android:viewportWidth="108"
+            android:viewportHeight="108">
+            <group
+                android:name="bubble"
+                android:pivotX="54"
+                android:pivotY="54"
+                android:scaleX="0.82"
+                android:scaleY="0.82">
+                <path
+                    android:name="blob"
+                    android:fillAlpha="0"
+                    android:pathData="M 51.23,36 C 62.5,35.79 71.21,43.17 71.72,53.42 C 72.03,59.57 70.69,63.15 69.67,65.71 C 68.65,68.79 71.21,71.35 70.49,73.91 C 69.67,76.99 66.08,77.19 63.01,75.45 C 59.94,73.91 57.37,74.42 53.27,75.14 C 45.08,76.47 35.85,74.94 31.76,67.76 C 29.19,63.15 29.71,55.47 31.24,50.34 C 33.81,41.12 40.98,36.2 51.23,36 Z">
+                    <aapt:attr name="android:fillColor">
+                        <gradient
+                            android:type="linear"
+                            android:startX="35.85"
+                            android:startY="39.07"
+                            android:endX="69.67"
+                            android:endY="75.96"
+                            android:startColor="@color/icon_green_hi"
+                            android:endColor="@color/icon_green_lo" />
+                    </aapt:attr>
+                </path>
+                <path
+                    android:name="fold"
+                    android:fillAlpha="0"
+                    android:fillColor="@color/icon_green_fold"
+                    android:pathData="M 70.9,61.2 C 67.62,64.89 63.01,65.71 59.94,67.76 C 57.37,69.5 55.84,72.37 53.79,75.04 C 58.4,74.22 60.45,73.91 63.01,75.45 C 66.08,77.19 69.67,76.99 70.49,73.91 C 71.21,71.35 68.65,68.79 69.67,65.71 C 70.29,64.18 70.69,62.64 70.9,61.2 Z" />
+                <path
+                    android:name="face"
+                    android:fillAlpha="0"
+                    android:fillColor="@color/icon_face"
+                    android:pathData="M37.7,55.36 A12.5,12.5 0 1 1 62.7,55.36 A12.5,12.5 0 1 1 37.7,55.36 Z" />
+                <path
+                    android:name="hands"
+                    android:strokeAlpha="0"
+                    android:pathData="M 49.48,50.55 L 49.48,56.7 L 55.02,57.93"
+                    android:strokeColor="@color/icon_ink"
+                    android:strokeWidth="3.07"
+                    android:strokeLineCap="round"
+                    android:strokeLineJoin="round" />
+            </group>
+            <group
+                android:name="rings"
+                android:pivotX="59.42"
+                android:pivotY="36"
+                android:scaleX="0.6"
+                android:scaleY="0.6">
+                <path
+                    android:name="ring0"
+                    android:strokeAlpha="0"
+                    android:pathData="M 56.86,31.69 L 59.94,34.97"
+                    android:strokeColor="@color/icon_ink"
+                    android:strokeWidth="3.48"
+                    android:strokeLineCap="round" />
+                <path
+                    android:name="ring1"
+                    android:strokeAlpha="0"
+                    android:pathData="M 65.57,28.31 L 65.57,34.46"
+                    android:strokeColor="@color/icon_ink"
+                    android:strokeWidth="3.48"
+                    android:strokeLineCap="round" />
+                <path
+                    android:name="ring2"
+                    android:strokeAlpha="0"
+                    android:pathData="M 71.21,37.84 L 75.31,33.95"
+                    android:strokeColor="@color/icon_ink"
+                    android:strokeWidth="3.48"
+                    android:strokeLineCap="round" />
+            </group>
+        </vector>
+    </aapt:attr>
+
+    <target android:name="bubble">
+        <aapt:attr name="android:animation">
+            <set android:ordering="sequentially">
+                <set>
+                    <objectAnimator android:duration="300" android:interpolator="@android:interpolator/decelerate_cubic" android:propertyName="scaleX" android:valueFrom="0.82" android:valueTo="1.04" />
+                    <objectAnimator android:duration="300" android:interpolator="@android:interpolator/decelerate_cubic" android:propertyName="scaleY" android:valueFrom="0.82" android:valueTo="1.04" />
+                </set>
+                <set>
+                    <objectAnimator android:duration="160" android:interpolator="@android:interpolator/fast_out_slow_in" android:propertyName="scaleX" android:valueFrom="1.04" android:valueTo="1" />
+                    <objectAnimator android:duration="160" android:interpolator="@android:interpolator/fast_out_slow_in" android:propertyName="scaleY" android:valueFrom="1.04" android:valueTo="1" />
+                </set>
+            </set>
+        </aapt:attr>
+    </target>
+    <target android:name="blob">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:duration="200"
+                android:interpolator="@android:interpolator/decelerate_cubic"
+                android:propertyName="fillAlpha"
+                android:valueFrom="0"
+                android:valueTo="1" />
+        </aapt:attr>
+    </target>
+    <target android:name="fold">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:duration="200"
+                android:interpolator="@android:interpolator/decelerate_cubic"
+                android:propertyName="fillAlpha"
+                android:valueFrom="0"
+                android:valueTo="1" />
+        </aapt:attr>
+    </target>
+    <target android:name="face">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:duration="200"
+                android:interpolator="@android:interpolator/decelerate_cubic"
+                android:propertyName="fillAlpha"
+                android:valueFrom="0"
+                android:valueTo="1" />
+        </aapt:attr>
+    </target>
+    <target android:name="hands">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:duration="200"
+                android:startOffset="80"
+                android:interpolator="@android:interpolator/decelerate_cubic"
+                android:propertyName="strokeAlpha"
+                android:valueFrom="0"
+                android:valueTo="1" />
+        </aapt:attr>
+    </target>
+    <target android:name="rings">
+        <aapt:attr name="android:animation">
+            <set android:ordering="sequentially">
+                <objectAnimator android:duration="280" android:propertyName="scaleX" android:valueFrom="0.6" android:valueTo="0.6" />
+                <set>
+                    <objectAnimator android:duration="180" android:interpolator="@android:interpolator/decelerate_cubic" android:propertyName="scaleX" android:valueFrom="0.6" android:valueTo="1.12" />
+                    <objectAnimator android:duration="180" android:interpolator="@android:interpolator/decelerate_cubic" android:propertyName="scaleY" android:valueFrom="0.6" android:valueTo="1.12" />
+                </set>
+                <set>
+                    <objectAnimator android:duration="120" android:interpolator="@android:interpolator/fast_out_slow_in" android:propertyName="scaleX" android:valueFrom="1.12" android:valueTo="1" />
+                    <objectAnimator android:duration="120" android:interpolator="@android:interpolator/fast_out_slow_in" android:propertyName="scaleY" android:valueFrom="1.12" android:valueTo="1" />
+                </set>
+            </set>
+        </aapt:attr>
+    </target>
+    <target android:name="ring0">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:duration="140"
+                android:startOffset="280"
+                android:interpolator="@android:interpolator/decelerate_cubic"
+                android:propertyName="strokeAlpha"
+                android:valueFrom="0"
+                android:valueTo="1" />
+        </aapt:attr>
+    </target>
+    <target android:name="ring1">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:duration="140"
+                android:startOffset="320"
+                android:interpolator="@android:interpolator/decelerate_cubic"
+                android:propertyName="strokeAlpha"
+                android:valueFrom="0"
+                android:valueTo="1" />
+        </aapt:attr>
+    </target>
+    <target android:name="ring2">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:duration="140"
+                android:startOffset="360"
+                android:interpolator="@android:interpolator/decelerate_cubic"
+                android:propertyName="strokeAlpha"
+                android:valueFrom="0"
+                android:valueTo="1" />
+        </aapt:attr>
+    </target>
+</animated-vector>
