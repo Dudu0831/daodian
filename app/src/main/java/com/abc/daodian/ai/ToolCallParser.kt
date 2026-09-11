@@ -3,19 +3,21 @@ package com.abc.daodian.ai
 import android.util.Log
 import com.openai.client.OpenAIClient
 import com.openai.client.okhttp.OpenAIOkHttpClient
+import com.openai.core.http.StreamResponse
 import com.openai.models.responses.Response
 import com.openai.models.responses.ResponseCreateParams
 import com.openai.models.responses.ResponseStreamEvent
 import com.openai.models.responses.ToolChoiceOptions
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.job
 import kotlinx.coroutines.channels.SendChannel
-import kotlinx.coroutines.withContext
 import java.time.ZonedDateTime
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -39,19 +41,20 @@ class ToolCallParser(private val profile: ProviderProfile) : StreamingReminderPa
 
     // ---------------- 一次性（回退路径）----------------
 
-    override suspend fun parse(input: String, now: ZonedDateTime, history: List<ChatTurn>): ParseResult =
-        withContext(Dispatchers.IO) {
-            if (!profile.isConfigured) {
-                return@withContext ParseResult.Failed("还没配置供应商：${profile.redacted()}")
-            }
-            val response = try {
-                client.responses().create(params(input, now, history))
-            } catch (t: Throwable) {
-                Log.e(TAG, "调用失败", t)
-                return@withContext ParseResult.Failed("${t.javaClass.simpleName}: ${t.message}", t)
-            }
-            resultOfResponse(response, now)
+    override suspend fun parse(input: String, now: ZonedDateTime, history: List<ChatTurn>): ParseResult {
+        if (!profile.isConfigured) {
+            return ParseResult.Failed("还没配置供应商：${profile.redacted()}")
         }
+        val response = try {
+            detached { client.responses().create(params(input, now, history)) }
+        } catch (c: CancellationException) {
+            throw c                                     // 用户点了「停」，不是失败
+        } catch (t: Throwable) {
+            Log.e(TAG, "调用失败", t)
+            return ParseResult.Failed("${t.javaClass.simpleName}: ${t.message}", t)
+        }
+        return resultOfResponse(response, now)
+    }
 
     // ---------------- 流式（主路径）----------------
 
@@ -76,26 +79,25 @@ class ToolCallParser(private val profile: ProviderProfile) : StreamingReminderPa
             return@channelFlow
         }
 
+        val out: SendChannel<ParseEvent> = this
         val acc = Accumulator()
         var streamed = false
+        // 连上之后的那条流。点「停」时由 onCancel 直接 close，阻塞在 hasNext() 里的迭代随之抛出醒来
+        val live = AtomicReference<StreamResponse<ResponseStreamEvent>?>()
 
         val result: ParseResult? = try {
-            withContext(Dispatchers.IO) {
+            detached(onCancel = { live.get()?.let { runCatching { it.close() } } }) {
                 val stream = client.responses().createStreaming(params(input, now, history))
-                // stream() 是阻塞迭代：用户点「停」或离开页面时，不主动 close 就得
-                // 一直卡到下一个事件到达才醒得过来。挂在 Job 上，取消即掐连接。
-                val closer = currentCoroutineContext().job.invokeOnCompletion {
-                    runCatching { stream.close() }
-                }
+                live.set(stream)
                 try {
+                    ensureActive()                      // 等响应头时就被喊停了：一连上就关
                     val events = stream.stream().iterator()
                     while (events.hasNext()) {
-                        currentCoroutineContext().ensureActive()
+                        ensureActive()
                         streamed = true
-                        emitEventsOf(events.next(), acc)
+                        out.emitEventsOf(events.next(), acc)
                     }
                 } finally {
-                    closer.dispose()
                     runCatching { stream.close() }
                 }
             }
@@ -199,6 +201,33 @@ class ToolCallParser(private val profile: ProviderProfile) : StreamingReminderPa
 
     companion object {
         const val TAG = "Daodian/ToolCall"
+
+        /** 阻塞 HTTP 活的去处：不挂在任何调用方下面，调用方取消了它也不会连坐着把调用方拖住 */
+        private val io = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+        /**
+         * 阻塞的 HTTP 调用放到不跟调用方一起取消的线程上跑，调用方只挂起等结果。
+         *
+         * 为什么绕这一下：SDK 的同步调用在响应头回来之前，没有任何能从外面掐断的句柄；
+         * 协程取消又打断不了阻塞 IO。直接包在 withContext 里，点「停」就得陪着它干等 ——
+         * 流式要等到首个 token，回退的一次性请求要等整段回完。异步版 SDK 也救不了：
+         * `AsyncStreamResponse.close()` 只是等 future 落地后再关，重试链的 thenCompose 也不往下传取消。
+         * （旧写法挂 `invokeOnCompletion` 也不行 —— 它在 Job **完成**时才触发，而 Job 正卡在阻塞调用里完成不了。）
+         *
+         * 现在取消时调用方立刻返回。[onCancel] 负责掐掉已经连上的流；还没连上的，
+         * 由 [block] 连上后自己 ensureActive 发现、随手关掉。
+         */
+        private suspend fun <T> detached(onCancel: () -> Unit = {}, block: suspend CoroutineScope.() -> T): T {
+            val work = io.async(block = block)
+            try {
+                return work.await()
+            } catch (c: CancellationException) {
+                // 先标取消、再 onCancel：block 那边是先登记流、再查取消，两边交叉，谁晚到谁关，漏不掉
+                work.cancel()
+                onCancel()
+                throw c
+            }
+        }
 
         /** 完整 Response → 结果。流式和非流式共用，判定只有这一份 */
         private fun resultOfResponse(response: Response, now: ZonedDateTime): ParseResult {

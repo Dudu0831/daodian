@@ -364,9 +364,13 @@ data class ReminderPlan(
 
 **三个坑，改这块之前先读**
 
-1. **`stream()` 是阻塞迭代**。取消（用户点「停」、离开页面）时必须主动 `close()` 掉
-   `StreamResponse`，否则要一直卡到下一个事件到达才醒得过来。实现里把 `close` 挂在了
-   协程 Job 的 `invokeOnCompletion` 上。
+1. **HTTP 调用全程阻塞，协程取消打断不了它**。`createStreaming()` 要等到响应头回来才返回
+   （首个 token 之前都在等），`stream()` 的迭代也是阻塞的。以前包在 `withContext(IO)` 里、
+   把 `close` 挂在 `invokeOnCompletion` 上 —— 那个回调要 Job **完成**才触发，Job 卡在阻塞调用里
+   完成不了，于是点「停」得等下一个事件（骨架阶段就是等首个 token，回退路径要等整段回完）。
+   现在阻塞活放在不随调用方取消的 IO 协程里（`ToolCallParser.detached`），调用方只挂起等结果：
+   取消时立刻返回，顺手 `close()` 已连上的流；还没连上的由它连上后自己查到取消再关。
+   SDK 异步版不能替代：`AsyncStreamResponse.close()` 不取消底下的请求。
 2. **思考过程可能压根没有**。`reasoning*` 事件只有推理模型才发。界面在「没有思考块」时
    必须长得正常，不能留一个空槽 —— 所以一个字都还没来的时候，退回的是原来那个骨架条。
 3. **参数以 `...Done` 给的完整串为准**，不用 delta 拼出来的那份 —— 拼串可能缺尾巴。
