@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 import com.abc.daodian.ui.DaodianNavHost
 import com.abc.daodian.ui.MainViewModel
 import com.abc.daodian.ui.theme.DaodianTheme
+import com.abc.daodian.widget.WidgetFrame
 import com.abc.daodian.widget.WidgetLaunch
 import com.abc.daodian.widget.WidgetTarget
 
@@ -35,6 +36,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         widgetTarget = WidgetLaunch.targetOf(intent)
+        WidgetFrame.remember(this, intent)
         // 全屏绘制：窗口不再为键盘自己缩一次，inset 只有 Compose 这一个来源。
         // 少了这行，键盘弹起时窗口缩一遍、imePadding 再顶一遍，输入框会飞到半空。
         enableEdgeToEdge()
@@ -62,5 +64,6 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         widgetTarget = WidgetLaunch.targetOf(intent)
+        WidgetFrame.remember(this, intent)
     }
 }

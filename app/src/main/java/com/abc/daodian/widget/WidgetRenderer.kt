@@ -101,10 +101,10 @@ object WidgetRenderer {
     ): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_container)
 
-        // 整块小组件（连同右下角墨印）→ 桌面速记，一进来就开始听；抬头 → 列表；行 → 编辑；圈 → 完成。
-        // 墨印自己不挂点击：点它会落到整块上，桌面随点击给的 sourceBounds 就是整块小组件的框 ——
-        // 纸要从整块长出来，只有这样才拿得到准确的框（桌面报的尺寸在荣耀上是错的，见 QuickAddActivity.anchorOf）
-        views.setOnClickPendingIntent(android.R.id.background, quickAdd(context))
+        // 墨印 → 桌面速记，一进来就开始听；其余空白 → 进 app（对话页）；抬头 → 列表；行 → 编辑；圈 → 完成。
+        // 纸要从整块小组件里长出来，整块的框靠「点空白处进 app」那一下记住，见 WidgetFrame
+        views.setOnClickPendingIntent(android.R.id.background, openApp(context))
+        views.setOnClickPendingIntent(R.id.widget_mic, quickAdd(context))
         views.setOnClickPendingIntent(R.id.widget_header, activity(context, RC_LIST, WidgetTarget.List))
 
         views.removeAllViews(R.id.widget_list)
@@ -250,12 +250,24 @@ object WidgetRenderer {
         )
 
     /**
-     * 挂在整块小组件上。桌面点它时会把整块的屏幕位置填进 intent 的 sourceBounds —— 纸就从那儿长出来。
+     * 挂在整块小组件上：点空白处进 app。桌面点它时把整块的屏幕位置填进 sourceBounds，
+     * MainActivity 拿它记下整块的宽高（[WidgetFrame.remember]），下次点墨印时纸才知道该从多大的框长出来。
+     * FLAG_MUTABLE 的理由同 [quickAdd]。
+     */
+    private fun openApp(context: Context): PendingIntent =
+        PendingIntent.getActivity(
+            context,
+            RC_APP,
+            WidgetLaunch.intent(context, WidgetTarget.Chat),
+            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+    /**
+     * 挂在墨印上。桌面点它时会把墨印的屏幕位置填进 intent 的 sourceBounds —— 纸就从它所在的那块长出来。
      *
      * 这一个必须是 FLAG_MUTABLE：IMMUTABLE 的 PendingIntent 会把桌面送来的 fill-in 整个丢掉，
      * sourceBounds 也在里面，真机上纸就只能从屏幕底部升起。放开的代价是桌面能往里补字段
-     * （action / data / extras），但 intent 指名道姓发给我们自己的 QuickAddActivity，
-     * 那边除了 sourceBounds 什么都不读，补了也没用。
+     * （action / data / extras），但 intent 指名道姓发给我们自己的 activity，补了也改不了去处。
      */
     private fun quickAdd(context: Context): PendingIntent =
         PendingIntent.getActivity(
@@ -269,4 +281,5 @@ object WidgetRenderer {
     private const val RC_LIST = Int.MAX_VALUE - 2
     // 桌面速记用新号：避开上一版 IMMUTABLE 说话条用过的 MAX - 1，别和它混
     private const val RC_MIC = Int.MAX_VALUE - 3
+    private const val RC_APP = Int.MAX_VALUE - 4
 }

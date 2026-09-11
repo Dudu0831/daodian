@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Rect
 import com.abc.daodian.ui.theme.DaodianTheme
+import com.abc.daodian.widget.WidgetFrame
 import com.abc.daodian.widget.WidgetLaunch
 import com.abc.daodian.widget.WidgetTarget
 
@@ -39,7 +40,7 @@ class QuickAddActivity : ComponentActivity() {
      */
     private var anchor by mutableStateOf<Rect?>(null)
 
-    /** 小组件上那枚墨印在屏幕上的位置（从整块的右下角倒推）。展开时它一路飞到纸中间 */
+    /** 小组件上那枚墨印在屏幕上的位置。展开时它一路飞到纸中间 */
     private var mic by mutableStateOf<Rect?>(null)
 
     private val askMic = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -126,29 +127,19 @@ class QuickAddActivity : ComponentActivity() {
     }
 
     /**
-     * 纸从哪儿长出来：整块小组件的框 —— 点击挂在整块上，桌面随点击给的 sourceBounds 就是它。
-     * （试过只让墨印可点、再拿桌面报的尺寸去拼整块的框：荣耀报的宽是 224 / 302dp，
-     * 实际 242dp，哪个都对不上，第一帧就错位。）拿不到位置就是 null，纸从屏幕底部升起。
+     * 纸从哪儿长出来：整块小组件的框。点击只挂在墨印上，sourceBounds 是墨印的框，
+     * 整块从它的右下角倒推，宽高见 [WidgetFrame]。拿不到位置就是 null，纸从屏幕底部升起。
      */
-    private fun anchorOf(intent: Intent?): Rect? = intent?.sourceBounds?.let {
-        Rect(it.left.toFloat(), it.top.toFloat(), it.right.toFloat(), it.bottom.toFloat())
-    }
+    private fun anchorOf(intent: Intent?): Rect? =
+        intent?.sourceBounds?.let { WidgetFrame.fromMic(this, it) }?.toCompose()
 
-    /** 小组件右下角那枚墨印：从整块的右下角倒推 */
-    private fun micOf(intent: Intent?): Rect? = anchorOf(intent)?.let {
-        val density = resources.displayMetrics.density
-        val right = it.right - WIDGET_PADDING_DP * density
-        val bottom = it.bottom - WIDGET_PADDING_DP * density
-        Rect(right - MIC_DP * density, bottom - MIC_DP * density, right, bottom)
-    }
+    /** 小组件右下角那枚墨印：桌面随点击给的就是它的框 */
+    private fun micOf(intent: Intent?): Rect? = intent?.sourceBounds?.toCompose()
+
+    private fun android.graphics.Rect.toCompose() =
+        Rect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat())
 
     companion object {
-        /** 墨印离小组件右边、下边的距离，和 widget_container.xml 的 paddingEnd / paddingBottom 对得上 */
-        private const val WIDGET_PADDING_DP = 10
-
-        /** 墨印的直径，和 widget_container.xml 里 widget_mic 的尺寸对得上 */
-        private const val MIC_DP = 44
-
         fun intent(context: Context): Intent =
             Intent(context, QuickAddActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
