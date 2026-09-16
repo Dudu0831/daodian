@@ -1,6 +1,5 @@
 package com.abc.daodian.ui.common
 
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -10,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -18,11 +16,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.abc.daodian.ai.ApiState
+import com.abc.daodian.ai.ProviderProfile
 import com.abc.daodian.ui.theme.DaodianColors
 import com.abc.daodian.ui.theme.DaodianType
 
 /**
  * 朱砂小印 + 两个细线图标，chat 页专用的顶栏。见 DESIGN.md §08 界面
+ *
+ * 印章本身能点，点开是模型服务的状态纸签 —— 印和纸签都在 ProviderSeal.kt，见决策 8.4
  *
  * 左上角原来是「到点」wordmark，和每条回复前面那个「· 到点」重复了 ——
  * 说话人标记留在对话里（它就在说话人的位置上），品牌位缩成一枚不占字的印。
@@ -31,7 +33,13 @@ import com.abc.daodian.ui.theme.DaodianType
  * 我们再画一遍会重影，所以这里只有 statusBarsPadding，没有自绘的状态栏元素。
  */
 @Composable
-fun ChatTopBar(onOpenList: () -> Unit, onOpenSettings: () -> Unit) {
+fun ChatTopBar(
+    profile: ProviderProfile,
+    api: ApiState,
+    onOpenList: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenProvider: () -> Unit
+) {
     val colors = DaodianColors.current
     Row(
         Modifier
@@ -42,25 +50,11 @@ fun ChatTopBar(onOpenList: () -> Unit, onOpenSettings: () -> Unit) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Seal()
+        ProviderSeal(profile = profile, api = api, onOpenProvider = onOpenProvider)
         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             IconTapTarget(onClick = onOpenList) { MenuIcon(tint = colors.ink2) }
             IconTapTarget(onClick = onOpenSettings) { SettingsIcon(tint = colors.ink2) }
         }
-    }
-}
-
-/** 朱砂小印：一个描边方框里一个「点」字。徽标描边不填色、圆角 3dp，见 §8.1 第 3 条 */
-@Composable
-private fun Seal() {
-    val colors = DaodianColors.current
-    Box(
-        Modifier
-            .size(22.dp)
-            .border(1.dp, colors.accent, RoundedCornerShape(3.dp)),
-        contentAlignment = Alignment.Center
-    ) {
-        Text("点", style = DaodianType.seal, color = colors.accent)
     }
 }
 

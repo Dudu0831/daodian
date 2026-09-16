@@ -12,6 +12,7 @@ import com.abc.daodian.ui.chat.ChatScreen
 import com.abc.daodian.ui.edit.EditReminderScreen
 import com.abc.daodian.ui.list.ReminderListScreen
 import com.abc.daodian.ui.settings.FireLogScreen
+import com.abc.daodian.ui.settings.ProviderScreen
 import com.abc.daodian.ui.settings.SettingsScreen
 import com.abc.daodian.widget.WidgetTarget
 
@@ -20,6 +21,7 @@ private object Routes {
     const val LIST = "list"
     const val EDIT = "edit?id={id}"
     const val SETTINGS = "settings"
+    const val PROVIDER = "provider"
     const val LOG = "log"
     fun edit(id: Long?) = "edit?id=${id ?: -1L}"
 }
@@ -58,6 +60,7 @@ fun DaodianNavHost(
                 vm = vm,
                 onOpenList = { navController.navigate(Routes.LIST) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                onOpenProvider = { navController.navigate(Routes.PROVIDER) },
                 onManualAdd = { navController.navigate(Routes.edit(null)) },
                 onEditReminder = { id -> navController.navigate(Routes.edit(id)) }
             )
@@ -84,8 +87,13 @@ fun DaodianNavHost(
             SettingsScreen(
                 vm = vm,
                 onBack = { navController.popBackStack() },
-                onOpenLog = { navController.navigate(Routes.LOG) }
+                onOpenLog = { navController.navigate(Routes.LOG) },
+                onOpenProvider = { navController.navigate(Routes.PROVIDER) }
             )
+        }
+
+        composable(Routes.PROVIDER) {
+            ProviderScreen(vm = vm, onBack = { navController.popBackStack() })
         }
 
         composable(Routes.LOG) {

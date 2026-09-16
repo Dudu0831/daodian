@@ -14,9 +14,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,10 +32,16 @@ import com.abc.daodian.ui.theme.DaodianType
 
 /** 设置 + 权限体检。见 DESIGN.md §08、§09.1 */
 @Composable
-fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onOpenLog: () -> Unit) {
+fun SettingsScreen(
+    vm: MainViewModel,
+    onBack: () -> Unit,
+    onOpenLog: () -> Unit,
+    onOpenProvider: () -> Unit
+) {
     val colors = DaodianColors.current
     val context = LocalContext.current
     val items = remember { HealthCheck.run(context) }
+    val profile by vm.profile.collectAsState()
     val allGood = items.all { it.ok }
 
     Column(Modifier.fillMaxSize().background(colors.paper)) {
@@ -42,15 +49,21 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onOpenLog: () -> Unit)
 
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp)) {
 
+            // 供应商在配置页里改（顶栏那枚印点开也能到）。这里只留一行去处，
+            // 不再把四项摊开只读着看 —— 摊开也改不了，反倒像个死胡同
             SectionLabel("模型服务")
-            InfoRow("服务地址", vm.profile.baseUrl.ifBlank { "未配置" })
-            InfoRow("模型", vm.profile.model.ifBlank { "未配置" })
-            InfoRow("接口风格", vm.profile.apiStyle.name)
-            InfoRow("密钥", if (vm.profile.apiKey.isBlank()) "未配置" else "已配置 · 尾号 ${vm.profile.apiKey.takeLast(4)}")
-            Text(
-                "在 secrets.properties 里改，重新编译生效。设置页里改配置还没做，见 README。",
-                style = DaodianType.caption, color = colors.muted, modifier = Modifier.padding(top = 8.dp, bottom = 8.dp)
-            )
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(colors.surface, RoundedCornerShape(5.dp))
+                    .border(1.dp, colors.rule, RoundedCornerShape(5.dp))
+                    .clickable(onClick = onOpenProvider)
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(profile.model.ifBlank { "还没配置" }, style = DaodianType.rowTitle, color = colors.ink)
+                ChevronRightIcon(size = 14.dp, tint = colors.muted)
+            }
 
             Spacer(Modifier.height(32.dp))
             SectionLabel(if (allGood) "权限体检 · 全部就绪" else "权限体检")
@@ -87,16 +100,6 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit, onOpenLog: () -> Unit)
 private fun SectionLabel(text: String) {
     val colors = DaodianColors.current
     Text(text, style = DaodianType.sectionLabel, color = colors.muted, modifier = Modifier.padding(vertical = 12.dp))
-}
-
-@Composable
-private fun InfoRow(label: String, value: String) {
-    val colors = DaodianColors.current
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = DaodianType.caption, color = colors.muted)
-        Text(value, style = DaodianType.bodySmall, color = colors.ink2)
-    }
-    HorizontalDivider(color = colors.rule)
 }
 
 @Composable

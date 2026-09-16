@@ -10,9 +10,10 @@ import androidx.lifecycle.viewModelScope
 import com.abc.daodian.ai.ChatTurn
 import com.abc.daodian.ai.ParseEvent
 import com.abc.daodian.ai.ParseResult
+import com.abc.daodian.ai.ApiHealth
+import com.abc.daodian.ai.Parsers
 import com.abc.daodian.ai.ProviderProfile
-import com.abc.daodian.ai.StreamingReminderParser
-import com.abc.daodian.ai.ToolCallParser
+import com.abc.daodian.ai.ProviderStore
 import com.abc.daodian.ui.PlanCommitter
 import com.abc.daodian.ui.chat.ChatMessage
 import com.abc.daodian.ui.chat.finished
@@ -22,6 +23,7 @@ import com.abc.daodian.widget.WidgetUpdater
 import java.time.ZonedDateTime
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -33,8 +35,11 @@ import kotlinx.coroutines.launch
  */
 class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val profile = ProviderProfile.fromBuildConfig()
-    private val parser: StreamingReminderParser = ToolCallParser(profile)
+    /**
+     * 和对话页同一份配置（[ProviderStore]）：在 app 里改完，桌面速记跟着换。
+     * 每次真要说话时才去读 —— 这张纸是从桌面直接拉起来的，构造函数里抢读会跟第一句话赛跑。
+     */
+    private suspend fun profile(): ProviderProfile = ProviderStore.flow(getApplication()).first()
     private val voice = VoiceInput(app)
 
     val voiceAvailable: Boolean get() = voice.available
@@ -118,8 +123,9 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
             aiBusy = true
             var result: ParseResult? = null
             var askBack = false
+            val profile = profile()
             try {
-                parser.parseStream(said, ZonedDateTime.now(), prior).collect { event ->
+                Parsers.of(profile).parseStream(said, ZonedDateTime.now(), prior).collect { event ->
                     if (event is ParseEvent.Done) {
                         result = event.result
                     } else {
@@ -127,6 +133,7 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
                         turn = t
                     }
                 }
+                result?.let { ApiHealth.record(it) }
                 val reminderId = (result as? ParseResult.Ok)?.let {
                     PlanCommitter.commit(getApplication(), said, it.plan, profile.model)
                 }

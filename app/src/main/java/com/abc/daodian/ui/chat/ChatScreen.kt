@@ -83,11 +83,14 @@ fun ChatScreen(
     vm: MainViewModel,
     onOpenList: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenProvider: () -> Unit,
     onManualAdd: () -> Unit,
     onEditReminder: (Long) -> Unit
 ) {
     val colors = DaodianColors.current
     val messages by vm.messages.collectAsState()
+    val profile by vm.profile.collectAsState()
+    val apiState by vm.apiState.collectAsState()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -187,7 +190,13 @@ fun ChatScreen(
 
     Column(Modifier.fillMaxSize().background(colors.paper)) {
 
-        ChatTopBar(onOpenList = onOpenList, onOpenSettings = onOpenSettings)
+        ChatTopBar(
+            profile = profile,
+            api = apiState,
+            onOpenList = onOpenList,
+            onOpenSettings = onOpenSettings,
+            onOpenProvider = onOpenProvider
+        )
 
         Box(Modifier.weight(1f)) {
             // 第一句话发出时，招呼语和例句淡出上移；「停」撤回最后一句、对话空了，它们再回来

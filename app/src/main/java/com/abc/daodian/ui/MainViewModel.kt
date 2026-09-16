@@ -6,12 +6,15 @@ import androidx.lifecycle.viewModelScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.abc.daodian.ai.ApiHealth
 import com.abc.daodian.ai.ChatTurn
 import com.abc.daodian.ai.ParseEvent
 import com.abc.daodian.ai.ParseResult
+import com.abc.daodian.ai.Parsers
+import com.abc.daodian.ai.PingResult
 import com.abc.daodian.ai.ProviderProfile
-import com.abc.daodian.ai.StreamingReminderParser
-import com.abc.daodian.ai.ToolCallParser
+import com.abc.daodian.ai.ProviderStore
+import com.abc.daodian.ai.ProviderTest
 import com.abc.daodian.data.DaodianDatabase
 import com.abc.daodian.data.Reminder
 import com.abc.daodian.data.ReminderStatus
@@ -40,8 +43,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val db = DaodianDatabase.get(app)
     private val rescheduler = Rescheduler(app)
 
-    val profile = ProviderProfile.fromBuildConfig()
-    private val parser: StreamingReminderParser = ToolCallParser(profile)
+    /**
+     * 供应商配置。存在机器上、随时可改（[ProviderStore]），所以是一条流，不是一个常量 ——
+     * 顶栏那枚印、桌面速记、下一句话用哪个模型，都从这里取当时的值。
+     */
+    val profile = ProviderStore.flow(app)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ProviderStore.seed)
+
+    /** 上一次调用顺不顺，给印和纸签用。见 [ApiHealth] */
+    val apiState = ApiHealth.state
+
+    /** 解析器按当时的配置取，缓存在 [Parsers] 里 —— 配置没变就一直是同一个 */
+    private val parser get() = Parsers.of(profile.value)
 
     init {
         // app 内的增删改一律走 Room，所以盯住这一条流就够了 ——
@@ -160,8 +173,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 流走完了：先落库排期，再让卡片长在同一个回合里 */
     private suspend fun finishTurn(turnId: Long, rawInput: String, result: ParseResult?) {
+        result?.let { ApiHealth.record(it) }
         val reminderId = (result as? ParseResult.Ok)?.let {
-            PlanCommitter.commit(getApplication(), rawInput, it.plan, profile.model)
+            PlanCommitter.commit(getApplication(), rawInput, it.plan, profile.value.model)
         }
 
         _messages.value = _messages.value.map { m ->
@@ -200,6 +214,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 is ChatMessage.AssistantTurn -> m.historyText()?.let { ChatTurn(fromUser = false, text = it) }
             }
         }
+
+    // ---------------- 供应商配置（顶栏印章 → 纸签 → 配置页）----------------
+
+    /** 存完下一句话就用新的；上一家的成绩不算到新一家头上，所以状态清空 */
+    fun saveProvider(baseUrl: String, apiKey: String, model: String) = viewModelScope.launch {
+        ProviderStore.save(getApplication(), baseUrl, apiKey, model)
+        ApiHealth.reset()
+    }
+
+    /** 恢复成打包时那份（secrets.properties） */
+    fun resetProvider() = viewModelScope.launch {
+        ProviderStore.clear(getApplication())
+        ApiHealth.reset()
+    }
+
+    /** 测一下框里正在填的这份，不用先保存 */
+    suspend fun testProvider(baseUrl: String, apiKey: String, model: String): PingResult =
+        ProviderTest.run(
+            profile.value.copy(
+                baseUrl = ProviderStore.normalizeBaseUrl(baseUrl),
+                apiKey = apiKey.trim(),
+                model = model.trim()
+            )
+        )
 
     // ---------------- 提醒 / 日志（列表、编辑、体检、投递日志共用）----------------
 
