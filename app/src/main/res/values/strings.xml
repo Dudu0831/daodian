@@ -12,6 +12,8 @@
     <string name="widget_more">还有 %1$d 条</string>
     <!-- 小组件太矮、画不下「下一条」那一块时，把它压成脚上的一行小字：「下一条 · 明天 15:00 交房租」 -->
     <string name="widget_next">下一条 · %1$s %2$s</string>
+    <!-- 时间表里只写钟点，「还有多久」挪到脚上：「下一条 · 25 分钟后」 -->
+    <string name="widget_next_in">下一条 · %1$s</string>
 
     <!-- 选择器预览用的示例文案，不会出现在真实小组件上 -->
     <string name="widget_preview_count">1 条待提醒</string>

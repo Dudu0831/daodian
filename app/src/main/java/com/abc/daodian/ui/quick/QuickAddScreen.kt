@@ -172,6 +172,7 @@ fun QuickAddScreen(
     val shadow = colors.ink.copy(alpha = 0.45f)
     // 纸在窗口里的纵坐标。排版时写、画外形时读 —— 墨印的位置要换算成纸自己的坐标
     val sheetY = remember { mutableIntStateOf(0) }
+    val sheetX = remember { mutableIntStateOf(margin) }
     // 纸上那枚墨印落定后在窗口里的位置。展开途中，小组件上的墨印从右下角一路飞到这里、放大成它
     var sealBounds by remember { mutableStateOf<Rect?>(null) }
     // 飞行中：纸上的印先藏着，由飞着的那枚代替。纸已经落定、或者纸上已经没有印（落印之后、语音用不了）就不飞
@@ -188,7 +189,7 @@ fun QuickAddScreen(
                     Modifier
                         .graphicsLayer {
                             val e = Motion.Expand.transform(grow.value)
-                            shape = RevealShape(e, anchor?.translate(-margin.toFloat(), -sheetY.intValue.toFloat()), anchorCorner, corner)
+                            shape = RevealShape(e, anchor?.translate(-sheetX.intValue.toFloat(), -sheetY.intValue.toFloat()), anchorCorner, corner)
                             clip = true
                             // 投影等纸色盖实了再出：纸还半透明时，投影会从纸底下透上来，框里一圈灰
                             shadowElevation = 18.dp.toPx() * e * ((grow.value - 0.2f) / 0.3f).coerceIn(0f, 1f)
@@ -224,7 +225,9 @@ fun QuickAddScreen(
                             alpha = if (leaving) ((grow.value - 0.75f) / 0.25f).coerceIn(0f, 1f)
                             else ((grow.value - 0.3f) / 0.5f).coerceIn(0f, 1f)
                         }
-                        .animateContentSize(Motion.flow(Motion.LONG))
+                        .animateContentSize(Motion.flow(Motion.LONG)),
+                    // 小组件比纸上的内容还高时（3×3、4×4），纸按小组件的框铺开，内容居中放
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
                 ) {
                     SheetContent(
                         vm, onVoice, { leave("collapse") }, onEdit, onManual, onOpenApp,
@@ -236,9 +239,16 @@ fun QuickAddScreen(
         ) { measurables, constraints ->
             val w = constraints.maxWidth
             val h = constraints.maxHeight
-            val sheetW = (w - 2 * margin).coerceAtLeast(0)
+            // 纸至少和小组件一样大：拖成 4 格宽、3×3 / 4×4 的小组件本来就比纸的默认尺寸大，
+            // 纸从它里面「长」出来时不能反倒缩一圈。宽盖住整块，高不低于整块
+            val left = anchor?.let { minOf(margin, it.left.roundToInt().coerceAtLeast(0)) } ?: margin
+            val right = anchor?.let { maxOf(w - margin, it.right.roundToInt().coerceAtMost(w)) } ?: (w - margin)
+            val sheetW = (right - left).coerceAtLeast(0)
             val maxH = (h - topInset - bottomInset - 2 * margin).coerceAtLeast(0)
-            val sheet = measurables.first().measure(Constraints(minWidth = sheetW, maxWidth = sheetW, maxHeight = maxH))
+            val minH = anchor?.height?.roundToInt()?.coerceIn(0, maxH) ?: 0
+            val sheet = measurables.first().measure(
+                Constraints(minWidth = sheetW, maxWidth = sheetW, minHeight = minH, maxHeight = maxH)
+            )
             // 底边和小组件底边齐、往上长；顶到状态栏了才往下让
             val floor = h - bottomInset - margin
             val wantBottom = anchor?.let { it.bottom.roundToInt().coerceAtMost(floor) } ?: floor
@@ -247,7 +257,8 @@ fun QuickAddScreen(
                 QuickTrace.log(context, "screen place y=$y h=${sheet.height} w=$w wantBottom=$wantBottom anchor=$anchor")
             }
             sheetY.intValue = y
-            layout(w, h) { sheet.place(margin, y) }
+            sheetX.intValue = left
+            layout(w, h) { sheet.place(left, y) }
         }
 
         // 飞着的墨印：小组件右下角那枚，跟着纸框一起走到纸上墨印的位置、从 44dp 放大到 64dp。

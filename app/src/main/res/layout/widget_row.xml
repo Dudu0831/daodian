@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 「下一条」之后的一条，一行装完。整行点开＝编辑，右边的 ✓＝直接完成 -->
+<!--
+  一条提醒，一行装完：两三条挤在 3×2 / 4×2 里时一行一条，或者排在大字时钟下面。
+  整行点开＝编辑，右边的 ✓＝直接完成。
+  高 26dp 和 WidgetRenderer.ROW_DP 对得上：3×2 的内容区只有 83dp，三行得塞得下。
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/row_root"
     android:layout_width="match_parent"
-    android:layout_height="32dp"
+    android:layout_height="26dp"
     android:orientation="horizontal"
     android:gravity="center_vertical">
 
