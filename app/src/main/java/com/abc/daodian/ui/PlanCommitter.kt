@@ -5,6 +5,7 @@ import com.abc.daodian.ai.PlanValidator
 import com.abc.daodian.ai.ReminderPlan
 import com.abc.daodian.data.DaodianDatabase
 import com.abc.daodian.data.Reminder
+import com.abc.daodian.schedule.DayTasks
 import com.abc.daodian.schedule.Rescheduler
 import java.time.ZoneId
 import kotlinx.coroutines.NonCancellable
@@ -30,7 +31,7 @@ object PlanCommitter {
             val dao = DaodianDatabase.get(app).reminderDao()
             val now = System.currentTimeMillis()
             val zone = ZoneId.systemDefault()
-            val reminder = Reminder(
+            val reminder = if (plan.allDay) dayTask(app, rawInput, plan, parsedBy, zone, now) else Reminder(
                 title = plan.title,
                 note = plan.note,
                 rawInput = rawInput,
@@ -47,4 +48,29 @@ object PlanCommitter {
             dao.byId(id)?.let { Rescheduler(app).schedule(it) }
             id
         }
+
+    /**
+     * 当天事项：日期取模型给的，钟点换成收尾时刻。一律墙钟锚定 —— 「晚上八点提醒」到哪个时区都该是当地八点。
+     * 见 DESIGN.md §4.3
+     */
+    private suspend fun dayTask(
+        context: Context, rawInput: String, plan: ReminderPlan, parsedBy: String, zone: ZoneId, now: Long
+    ): Reminder {
+        val check = DayTasks.checkTime(context)
+        val due = PlanValidator.dueDayOf(plan)
+        return Reminder(
+            title = plan.title,
+            note = plan.note,
+            rawInput = rawInput,
+            nextTriggerAt = DayTasks.triggerFor(due, check, zone, now),
+            rrule = plan.rrule,
+            zoneId = zone.id,
+            localTime = check.toString(),
+            wallClockAnchored = true,
+            parsedBy = parsedBy,
+            dueDay = due.toString(),
+            createdAt = now,
+            updatedAt = now
+        )
+    }
 }

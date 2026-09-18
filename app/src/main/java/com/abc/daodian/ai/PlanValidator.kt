@@ -2,6 +2,7 @@ package com.abc.daodian.ai
 
 import com.abc.daodian.recur.Rrule
 import java.time.Instant
+import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -22,8 +23,17 @@ object PlanValidator {
                 return ParseResult.Failed("时间解析不了：${plan.firstTriggerAt}", it)
             }
 
-        // 最常见的错误形态：模型算出了一个过去的时间
-        if (!at.isAfter(now.toInstant())) {
+        // 当天事项只看日期：「今天把报销交了」的 00:00 早就过了，那不是错
+        if (plan.allDay) {
+            val day = dueDayOf(plan)
+            if (day.isBefore(now.toLocalDate())) {
+                return ParseResult.NeedsClarification(
+                    "算出来是 ${day.monthValue}月${day.dayOfMonth}日，已经过去了（依据：${plan.basis}），你是指哪天？",
+                    plan.firstTriggerAt
+                )
+            }
+        } else if (!at.isAfter(now.toInstant())) {
+            // 最常见的错误形态：模型算出了一个过去的时间
             return ParseResult.NeedsClarification(
                 "算出来的时间在过去了（${plan.firstTriggerAt}，依据：${plan.basis}），你是指什么时候？",
                 plan.firstTriggerAt
@@ -59,6 +69,9 @@ object PlanValidator {
     /** 校验通过后，把 plan 转成本地时区下的触发时刻 */
     fun triggerMillis(plan: ReminderPlan): Long =
         OffsetDateTime.parse(plan.firstTriggerAt).toInstant().toEpochMilli()
+
+    /** 当天事项的那一天。取模型写的日期本身（它带的偏移就是用户的），不换算时区 —— 换算会把 00:00 挪到前一天 */
+    fun dueDayOf(plan: ReminderPlan): LocalDate = OffsetDateTime.parse(plan.firstTriggerAt).toLocalDate()
 
     fun localTimeOf(plan: ReminderPlan, zone: ZoneId): String =
         ZonedDateTime.ofInstant(Instant.ofEpochMilli(triggerMillis(plan)), zone)

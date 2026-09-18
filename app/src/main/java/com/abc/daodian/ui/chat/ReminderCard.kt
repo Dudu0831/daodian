@@ -272,15 +272,21 @@ private fun CardBody(
     val colors = DaodianColors.current
     val collapsed = phase == CardPhase.Collapsed
     val triggerMillis = remember(plan) { plan?.let { runCatching { PlanValidator.triggerMillis(it) }.getOrNull() } }
+    val dueDay = remember(plan) { plan?.takeIf { it.allDay }?.let { runCatching { PlanValidator.dueDayOf(it) }.getOrNull() } }
     val rruleText = remember(plan?.rrule) { Format.humanRrule(plan?.rrule) }
     val title = plan?.title ?: draft.title
-    // 重复的报「每天 08:00」，一次性的报完整日期 —— 重复的那条写全日期没意义
+    // 重复的报「每天 08:00」，一次性的报完整日期 —— 重复的那条写全日期没意义。
+    // 当天事项没有钟点：报「9月18日 周五 · 今天之内」/「每天 · 当天之内」
     val whenText = when {
+        dueDay != null && rruleText != null -> "$rruleText · 当天之内"
+        dueDay != null -> "${Format.humanDay(dueDay)} · ${Format.dayTaskWhen(dueDay)}"
         triggerMillis == null -> draft.whenText
         rruleText != null -> "$rruleText ${Format.clock(triggerMillis)}"
         else -> Format.humanDateTime(triggerMillis)
     }
     val shortWhen = when {
+        dueDay != null && rruleText != null -> "$rruleText · 当天"
+        dueDay != null -> Format.dayTaskWhen(dueDay)
         triggerMillis == null -> ""
         rruleText != null -> "$rruleText ${Format.clock(triggerMillis)}"
         else -> Format.humanDateTimeShort(triggerMillis)
@@ -361,7 +367,16 @@ private fun CardDetails(
     val colors = DaodianColors.current
     val nowMillis = remember { System.currentTimeMillis() }
     Column {
-        if (triggerMillis != null) {
+        if (plan.allDay) {
+            // 当天事项没有「还有多久」：交代清楚它会怎么提醒就够了
+            Stagger(0, fresh) {
+                Text(
+                    "没说几点 · 那天晚上提醒一次，没做完顺延到第二天",
+                    style = DaodianType.caption, color = colors.muted,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+        } else if (triggerMillis != null) {
             Stagger(0, fresh) {
                 Text(
                     if (rruleText != null) "下一次 · ${Format.relative(triggerMillis, nowMillis)}"
@@ -375,8 +390,9 @@ private fun CardDetails(
             Stagger(1, fresh) {
                 Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     RepeatBadge(rruleText)
-                    // 时区锚定是「每天早上 8 点吃药」和「9月2号15:00的会」的分水岭，必须能看见
-                    OutlineBadge(if (plan.wallClockAnchored) "跟着所在时区" else "固定这一瞬间")
+                    // 时区锚定是「每天早上 8 点吃药」和「9月2号15:00的会」的分水岭，必须能看见。
+                    // 当天事项没有钟点，这个分水岭对它没意义
+                    if (!plan.allDay) OutlineBadge(if (plan.wallClockAnchored) "跟着所在时区" else "固定这一瞬间")
                 }
             }
         }

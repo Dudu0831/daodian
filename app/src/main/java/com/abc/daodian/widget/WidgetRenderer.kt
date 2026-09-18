@@ -10,9 +10,12 @@ import android.widget.RemoteViews
 import com.abc.daodian.R
 import com.abc.daodian.data.DaodianDatabase
 import com.abc.daodian.data.Reminder
+import com.abc.daodian.data.dueDate
+import com.abc.daodian.data.isAllDay
 import com.abc.daodian.ui.common.Format
 import com.abc.daodian.ui.quick.QuickAddActivity
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
@@ -68,9 +71,9 @@ object WidgetRenderer {
         if (widgetIds.isEmpty()) return
 
         val dao = DaodianDatabase.get(context).reminderDao()
-        val upcoming = dao.upcoming(1 + MAX_ROWS)
-        val total = dao.countScheduled()
         val now = System.currentTimeMillis()
+        val upcoming = ordered(dao.allScheduled(), now).take(1 + MAX_ROWS)
+        val total = dao.countScheduled()
         val freshId = fresh?.takeIf { it.second > now }?.first
 
         val views = RemoteViews(
@@ -79,6 +82,20 @@ object WidgetRenderer {
             }
         )
         widgetIds.forEach { manager.updateAppWidget(it, views) }
+    }
+
+    /**
+     * 桌面上的先后：定时提醒按钟点；当天事项排在它那一天的最前面（今天的、拖过来的都算今天）——
+     * 早上看一眼桌面就该知道今天有哪几件事要做，这也是它不另外发早上提醒的理由。见 DESIGN.md §4.3
+     */
+    private fun ordered(all: List<Reminder>, now: Long): List<Reminder> {
+        val zone = ZoneId.systemDefault()
+        val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        return all.sortedBy { r ->
+            val due = r.dueDate()
+            if (due == null) r.nextTriggerAt
+            else maxOf(due, today).atStartOfDay(zone).toInstant().toEpochMilli()
+        }
     }
 
     /**
@@ -177,8 +194,10 @@ object WidgetRenderer {
                 // 只有大字时钟那一条：「明天 · 23 小时后」写在脚上，和墨印并排
                 fit.shape == Shape.Hero -> heroWhen(next, now, next.id == freshId)
                 hidden > 0 -> context.getString(R.string.widget_more, hidden)
-                // 时间表里只写了钟点，「还有多久」挪到脚上
-                fit.shape == Shape.Rows -> context.getString(R.string.widget_next_in, Format.relative(next.nextTriggerAt, now))
+                // 时间表里只写了钟点，「还有多久」挪到脚上。当天事项没有「还有多久」，数的是下一个定时的
+                fit.shape == Shape.Rows -> (items.firstOrNull { !it.isAllDay } ?: next).let {
+                    context.getString(R.string.widget_next_in, Format.relative(it.nextTriggerAt, now))
+                }
                 else -> ""
             }
         )
@@ -193,7 +212,11 @@ object WidgetRenderer {
         val views = RemoteViews(context.packageName, R.layout.widget_hero)
         val isFresh = reminder.id == freshId
 
-        views.setTextViewText(R.id.hero_time, Format.clock(reminder.nextTriggerAt))
+        // 当天事项没有钟点，大字写「今天」「明天」
+        views.setTextViewText(
+            R.id.hero_time,
+            reminder.dueDate()?.let { dayLabelOf(maxOf(it, today(now)), now) } ?: Format.clock(reminder.nextTriggerAt)
+        )
         views.setTextViewText(R.id.hero_title, reminder.title)
         if (full) {
             views.setTextViewText(R.id.hero_when, heroWhen(reminder, now, isFresh))
@@ -230,6 +253,14 @@ object WidgetRenderer {
     /** 「刚记下 · 明天 · 每天 · 23 小时后」 */
     private fun heroWhen(reminder: Reminder, now: Long, fresh: Boolean): String = buildString {
         if (fresh) append("刚记下 · ")
+        reminder.dueDate()?.let { due ->
+            // 「今天之内 · 20:00 提醒」「拖了 1 天 · 今晚 20:00 再提醒」
+            append(Format.dayTaskWhen(due, today(now)))
+            Format.humanRrule(reminder.rrule)?.let { append(" · ").append(it) }
+            append(" · ").append(dayLabel(reminder.nextTriggerAt, now)).append(' ')
+            append(Format.clock(reminder.nextTriggerAt)).append(" 提醒")
+            return@buildString
+        }
         append(dayLabel(reminder.nextTriggerAt, now))
         Format.humanRrule(reminder.rrule)?.let { append(" · ").append(it) }
         append(" · ")
@@ -252,6 +283,9 @@ object WidgetRenderer {
 
     /** 行尾那一小段：重复的写「每天 10:00」，一次性的写「明天 15:00」 */
     private fun whenShort(reminder: Reminder, now: Long): String {
+        reminder.dueDate()?.let { due ->
+            return Format.humanRrule(reminder.rrule)?.let { "$it · 当天" } ?: Format.dayTaskWhen(due, today(now))
+        }
         val clock = Format.clock(reminder.nextTriggerAt)
         return Format.humanRrule(reminder.rrule)?.let { "$it $clock" }
             ?: "${dayLabel(reminder.nextTriggerAt, now)} $clock"
@@ -260,10 +294,13 @@ object WidgetRenderer {
     private val weekdays = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
     /** 「今天 / 明天 / 后天 / 周五 / 9月20日」—— 桌面上一眼要看懂的是哪天，不是几号 */
-    private fun dayLabel(at: Long, now: Long): String {
-        val zone = ZoneId.systemDefault()
-        val day = Instant.ofEpochMilli(at).atZone(zone).toLocalDate()
-        val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+    private fun dayLabel(at: Long, now: Long): String =
+        dayLabelOf(Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).toLocalDate(), now)
+
+    private fun today(now: Long): LocalDate = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault()).toLocalDate()
+
+    private fun dayLabelOf(day: LocalDate, now: Long): String {
+        val today = today(now)
         return when (ChronoUnit.DAYS.between(today, day)) {
             0L -> "今天"
             1L -> "明天"

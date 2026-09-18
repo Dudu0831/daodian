@@ -55,6 +55,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.abc.daodian.data.Reminder
 import com.abc.daodian.data.ReminderStatus
+import com.abc.daodian.data.dueDate
+import com.abc.daodian.data.isAllDay
 import com.abc.daodian.ui.MainViewModel
 import com.abc.daodian.ui.common.CheckIcon
 import com.abc.daodian.ui.common.ChevronRightIcon
@@ -197,7 +199,9 @@ private enum class Kind {
     Overdue,
     /** 现在线下第一条 */
     Next,
-    Upcoming
+    Upcoming,
+    /** 当天事项：没有钟点，排在它那一天的最上面。今天的（含拖过来的）在「今天」抬头底下 */
+    DayTask
 }
 
 private sealed interface Line {
@@ -261,24 +265,38 @@ private fun buildTimeline(
         }
 
     val scheduled = all.filter { it.status == ReminderStatus.SCHEDULED }.sortedBy { it.nextTriggerAt }
-    val overdue = scheduled.filter { it.nextTriggerAt <= now }.map { Line.Entry(it, Kind.Overdue, armed = true) }
-    val future = scheduled.filter { it.nextTriggerAt > now }.mapIndexed { i, r ->
+
+    // 当天事项按「算哪天的」摆，不按闹钟挂在哪 —— 顺延过的闹钟在明晚，人还得今天看见它。
+    // 拖得最久的排最前
+    val dayTasks = scheduled.filter { it.isAllDay }
+        .sortedWith(compareBy({ it.dueDay }, { it.createdAt }))
+        .map { Line.Entry(it, Kind.DayTask, armed = it.nextTriggerAt <= now || isArmed(it.id)) }
+    val (dayTasksToday, dayTasksLater) = dayTasks.partition { !(it.r.dueDate() ?: today).isAfter(today) }
+
+    val timed = scheduled.filterNot { it.isAllDay }
+    val overdue = timed.filter { it.nextTriggerAt <= now }.map { Line.Entry(it, Kind.Overdue, armed = true) }
+    val future = timed.filter { it.nextTriggerAt > now }.mapIndexed { i, r ->
         Line.Entry(r, if (i == 0) Kind.Next else Kind.Upcoming, armed = isArmed(r.id))
     }
 
-    if (past.isEmpty() && overdue.isEmpty() && future.isEmpty()) return Timeline(emptyList(), 0)
+    if (past.isEmpty() && overdue.isEmpty() && future.isEmpty() && dayTasks.isEmpty()) return Timeline(emptyList(), 0)
 
+    val laterByDay = dayTasksLater.groupBy { it.r.dueDate() ?: today }
+    val futureByDay = future.groupBy { dateOf(it.r.nextTriggerAt, zone) }
     val lines = buildList {
         add(dayLine(today, today, first = true))
+        addAll(dayTasksToday)
         addAll(past)
         addAll(overdue)
         add(Line.Now(now))
-        future.groupBy { dateOf(it.r.nextTriggerAt, zone) }.forEach { (date, entries) ->
-            if (date != today) add(dayLine(date, today, first = false))
-            addAll(entries)
+        addAll(futureByDay[today].orEmpty())
+        (laterByDay.keys + futureByDay.keys).filter { it.isAfter(today) }.sorted().forEach { date ->
+            add(dayLine(date, today, first = false))
+            addAll(laterByDay[date].orEmpty())
+            addAll(futureByDay[date].orEmpty())
         }
     }
-    return Timeline(lines, unarmed = future.count { !it.armed })
+    return Timeline(lines, unarmed = (future + dayTasks).count { !it.armed })
 }
 
 // ---------------- 轴 ----------------
@@ -384,6 +402,47 @@ private fun EntryRow(e: Line.Entry, now: Long, onClick: () -> Unit, onComplete: 
                     modifier = Modifier.padding(top = 4.dp)
                 )
                 EntryNotes(rrule = rrule, armed = e.armed)
+            }
+        }
+
+        Kind.DayTask -> {
+            val today = LocalDate.now()
+            val due = r.dueDate() ?: today
+            val carried = due.isBefore(today)
+            // 闹钟本该在收尾时刻响过、却还挂在过去 —— 和定时提醒的「过点没响」同一个告警
+            val missed = r.nextTriggerAt <= now
+            AxisRow(
+                time = if (carried) "拖${today.toEpochDay() - due.toEpochDay()}天" else "当天",
+                timeStyle = DaodianType.axisTime,
+                timeColor = if (carried) colors.ink else colors.muted,
+                timeTop = 12.dp,
+                node = { HollowNode(14.dp, if (missed) colors.red else if (carried) colors.ink2 else colors.rule2) },
+                onNode = onComplete,
+                onClick = onClick
+            ) {
+                Column(Modifier.padding(top = 10.dp, bottom = 12.dp)) {
+                    Text(r.title, style = DaodianType.rowTitle, color = colors.ink)
+                    when {
+                        missed -> Text(
+                            "晚上该提醒的那次没有响", style = DaodianType.caption, color = colors.red,
+                            modifier = Modifier.padding(top = 3.dp)
+                        )
+                        // 今晚不会再响了（提醒过了，或者是过了收尾时刻才记的）：说一声下次什么时候，不然像是被漏掉了
+                        due == today && dateOf(r.nextTriggerAt, ZoneId.systemDefault()).isAfter(today) && r.rrule == null -> Text(
+                            "今晚不再提醒，没做完明晚 ${Format.clock(r.nextTriggerAt)} 提醒",
+                            style = DaodianType.caption, color = colors.muted,
+                            modifier = Modifier.padding(top = 3.dp)
+                        )
+                        carried -> Text(
+                            "${due.monthValue}月${due.dayOfMonth}日的事，" +
+                                (if (dateOf(r.nextTriggerAt, ZoneId.systemDefault()) == today) "今晚" else "明晚") +
+                                " ${Format.clock(r.nextTriggerAt)} 再提醒",
+                            style = DaodianType.caption, color = colors.muted,
+                            modifier = Modifier.padding(top = 3.dp)
+                        )
+                    }
+                    EntryNotes(rrule = rrule, armed = e.armed)
+                }
             }
         }
 

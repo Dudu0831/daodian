@@ -19,12 +19,15 @@ import com.abc.daodian.data.DaodianDatabase
 import com.abc.daodian.data.Reminder
 import com.abc.daodian.data.ReminderStatus
 import com.abc.daodian.notify.Notifier
+import com.abc.daodian.schedule.DayTasks
 import com.abc.daodian.schedule.Rescheduler
 import com.abc.daodian.ui.chat.ChatMessage
 import com.abc.daodian.ui.chat.finished
 import com.abc.daodian.ui.chat.historyText
 import com.abc.daodian.ui.chat.patched
 import com.abc.daodian.widget.WidgetUpdater
+import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import kotlin.coroutines.cancellation.CancellationException
@@ -251,37 +254,72 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val nonAlarmCount = db.fireLogDao().observeNonAlarmCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    /** 手动建 / 改一条提醒 —— 逃生舱，必须能完全脱离 AI 用。见 DESIGN.md §05 */
+    /** 当天事项晚上几点提醒。设置页改它 */
+    val dayCheckTime = DayTasks.checkTimeFlow(app)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, DayTasks.DEFAULT_CHECK)
+
+    fun setDayCheckTime(time: LocalTime) = viewModelScope.launch { DayTasks.setCheckTime(getApplication(), time) }
+
+    /**
+     * 手动建 / 改一条提醒 —— 逃生舱，必须能完全脱离 AI 用。见 DESIGN.md §05
+     *
+     * [dueDay] 不为 null 就是当天事项：[triggerAt] 不看，换成那天的收尾时刻，一律墙钟锚定。
+     */
     fun upsertManual(
         id: Long?,
         title: String,
         note: String?,
         triggerAt: Long,
         rrule: String?,
-        wallClockAnchored: Boolean
+        wallClockAnchored: Boolean,
+        dueDay: LocalDate? = null
     ) = viewModelScope.launch {
         val now = System.currentTimeMillis()
         val zone = ZoneId.systemDefault()
+        if (dueDay != null) {
+            val check = DayTasks.checkTime(getApplication())
+            upsert(
+                id, title, note, rrule,
+                triggerAt = DayTasks.triggerFor(dueDay, check, zone, now),
+                localTime = check.toString(), wallClockAnchored = true, dueDay = dueDay.toString(), now = now
+            )
+            return@launch
+        }
         val localTime = if (wallClockAnchored) {
             java.time.Instant.ofEpochMilli(triggerAt).atZone(zone).toLocalTime()
                 .withSecond(0).withNano(0).toString()
         } else null
+        upsert(id, title, note, rrule, triggerAt, localTime, wallClockAnchored, dueDay = null, now = now)
+    }
+
+    private suspend fun upsert(
+        id: Long?,
+        title: String,
+        note: String?,
+        rrule: String?,
+        triggerAt: Long,
+        localTime: String?,
+        wallClockAnchored: Boolean,
+        dueDay: String?,
+        now: Long
+    ) {
+        val zone = ZoneId.systemDefault()
 
         if (id == null) {
             val reminder = Reminder(
                 title = title, note = note, rawInput = title,
                 nextTriggerAt = triggerAt, rrule = rrule, zoneId = zone.id,
-                localTime = localTime, wallClockAnchored = wallClockAnchored,
+                localTime = localTime, wallClockAnchored = wallClockAnchored, dueDay = dueDay,
                 createdAt = now, updatedAt = now
             )
             val newId = db.reminderDao().insert(reminder)
             db.reminderDao().byId(newId)?.let { rescheduler.schedule(it) }
         } else {
-            val existing = db.reminderDao().byId(id) ?: return@launch
+            val existing = db.reminderDao().byId(id) ?: return
             rescheduler.cancel(id)
             val updated = existing.copy(
                 title = title, note = note, nextTriggerAt = triggerAt, rrule = rrule,
-                localTime = localTime, wallClockAnchored = wallClockAnchored,
+                localTime = localTime, wallClockAnchored = wallClockAnchored, dueDay = dueDay,
                 status = ReminderStatus.SCHEDULED, updatedAt = now
             )
             db.reminderDao().update(updated)
@@ -324,6 +362,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun markDone(r: Reminder) = viewModelScope.launch {
+        // 当天事项有自己的「完成」：重复的只算今天这一次。见 DayTasks.complete
+        if (DayTasks.complete(getApplication(), r)) return@launch
         rescheduler.cancel(r.id)
         Notifier.cancel(getApplication(), r.id)
         db.reminderDao().setStatus(r.id, ReminderStatus.DONE, System.currentTimeMillis())

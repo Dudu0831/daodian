@@ -22,9 +22,15 @@ object ReminderTool {
 
     private val PROPERTIES: Map<String, JsonValue> = linkedMapOf(
         "title" to s("简短动作，去掉「提醒我」这类壳。例如「喝水」「交房租」"),
-        "firstTriggerAt" to s("首次触发时刻，ISO-8601 带时区偏移，如 2026-09-03T19:40:00+08:00"),
+        "firstTriggerAt" to s(
+            "首次触发时刻，ISO-8601 带时区偏移，如 2026-09-03T19:40:00+08:00。" +
+                "allDay 为 true 时只看日期，钟点填 00:00:00"
+        ),
         "basis" to s("你的推算依据，如 now + 3min。必须填，方便用户核对你有没有算错"),
-        "note" to sNullable("补充说明，没有就 null"),
+        "note" to sNullable(
+            "用户自己给的补充说明（地点、要带的东西之类），他没说就 null。" +
+                "不要写你对这条提醒的解释（「当天事项，晚上统一提醒」这种）—— 那会原样出现在他的通知上"
+        ),
         "rrule" to sNullable(
             "重复规则 RFC 5545 子集，不重复就 null。只允许 FREQ/INTERVAL/BYDAY/BYMONTHDAY/COUNT/UNTIL"
         ),
@@ -32,6 +38,13 @@ object ReminderTool {
             mapOf(
                 "type" to "boolean",
                 "description" to "重复类提醒（每天早上8点）填 true，跟着用户所在时区走；一次性具体约会填 false"
+            )
+        ),
+        "allDay" to JsonValue.from(
+            mapOf(
+                "type" to "boolean",
+                "description" to "当天事项：用户只说了哪天、没说几点（「今天把报销交了」「明天记得买菜」「每天背单词」）填 true，" +
+                    "app 会在那天晚上提醒一次、没做完顺延；说了具体钟点的填 false"
             )
         )
     )
@@ -43,8 +56,8 @@ object ReminderTool {
         FunctionTool.builder()
             .name(NAME)
             .description(
-                "为用户创建一条定时提醒 —— 这会在他手机上真的排一个闹钟。" +
-                    "只有当他明确要求被提醒、且触发时刻能算得出来时才调用。" +
+                "为用户创建一条提醒 —— 这会在他手机上真的排一个闹钟。" +
+                    "只有当他明确要求被提醒、且能确定是哪一天（说了钟点更好，没说就是当天事项）时才调用。" +
                     "闲聊、提问、只是话里提到某个时间，都不要调。"
             )
             .strict(true)

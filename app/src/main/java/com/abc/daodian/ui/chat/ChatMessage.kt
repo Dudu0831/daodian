@@ -135,7 +135,7 @@ fun ChatMessage.AssistantTurn.historyText(): String? {
         }
         plan?.let { plan ->
             if (isNotEmpty()) append(" ")
-            append("（已建好提醒：「${plan.title}」，${plan.firstTriggerAt}")
+            append("（已建好${if (plan.allDay) "当天事项" else "提醒"}：「${plan.title}」，${plan.firstTriggerAt}")
             plan.rrule?.let { append("，重复 $it") }
             append("。这条已经落库排期了，不要重复建）")
         }

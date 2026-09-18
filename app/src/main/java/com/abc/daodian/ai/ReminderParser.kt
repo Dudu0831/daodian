@@ -28,6 +28,11 @@ data class ReminderPlan(
     val basis: String = "",
     val rrule: String? = null,
     val wallClockAnchored: Boolean = true,
+    /**
+     * 当天事项：只说了哪天、没说几点。这时 [firstTriggerAt] 只取日期，钟点换成设置里的收尾时刻。
+     * 见 DESIGN.md §4.3
+     */
+    val allDay: Boolean = false,
     val confidence: Double = 1.0,
     val clarifyingQuestion: String? = null
 )

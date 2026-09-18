@@ -38,6 +38,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
+import com.abc.daodian.data.dueDate
+import com.abc.daodian.data.isAllDay
 import com.abc.daodian.ui.MainViewModel
 import com.abc.daodian.ui.common.ScreenTopBar
 import com.abc.daodian.ui.theme.DaodianColors
@@ -69,12 +71,15 @@ fun EditReminderScreen(vm: MainViewModel, reminderId: Long?, onBack: () -> Unit)
 
     val zone = ZoneId.systemDefault()
     val defaultDateTime = remember { ZonedDateTime.now().plusHours(1).withMinute(0).withSecond(0) }
+    // 当天事项的日期是它「算哪天的」（顺延过的也还是原来那天），不是闹钟挂在哪天
     var date by rememberSaveable(existing) {
         mutableStateOf(
-            existing?.let { Instant.ofEpochMilli(it.nextTriggerAt).atZone(zone).toLocalDate() }
+            existing?.let { it.dueDate() ?: Instant.ofEpochMilli(it.nextTriggerAt).atZone(zone).toLocalDate() }
                 ?: defaultDateTime.toLocalDate()
         )
     }
+    var allDay by rememberSaveable(existing) { mutableStateOf(existing?.isAllDay ?: false) }
+    val checkTime by vm.dayCheckTime.collectAsState()
     var time by rememberSaveable(existing) {
         mutableStateOf(
             existing?.let { Instant.ofEpochMilli(it.nextTriggerAt).atZone(zone).toLocalTime() }
@@ -109,7 +114,8 @@ fun EditReminderScreen(vm: MainViewModel, reminderId: Long?, onBack: () -> Unit)
                     note = note.ifBlank { null },
                     triggerAt = triggerAt,
                     rrule = buildRrule(),
-                    wallClockAnchored = wallClockAnchored
+                    wallClockAnchored = wallClockAnchored,
+                    dueDay = if (allDay) date else null
                 )
                 onBack()
             }) { Text("保存", color = colors.accent) }
@@ -127,9 +133,20 @@ fun EditReminderScreen(vm: MainViewModel, reminderId: Long?, onBack: () -> Unit)
             Spacer(Modifier.height(28.dp))
 
             FieldLabel("时间")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ChoiceChip("具体时间", selected = !allDay, onClick = { allDay = false })
+                ChoiceChip("当天之内", selected = allDay, onClick = { allDay = true })
+            }
+            Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ChoiceChip(date.toString(), selected = false, onClick = { showDatePicker = true })
-                ChoiceChip(time.toString().take(5), selected = false, onClick = { showTimePicker = true })
+                if (!allDay) ChoiceChip(time.toString().take(5), selected = false, onClick = { showTimePicker = true })
+            }
+            if (allDay) {
+                Text(
+                    "不定钟点。那天晚上 ${checkTime.toString().take(5)} 提醒一次，没做完顺延到第二天。",
+                    style = DaodianType.caption, color = colors.muted, modifier = Modifier.padding(top = 10.dp)
+                )
             }
             Spacer(Modifier.height(28.dp))
 
@@ -144,7 +161,8 @@ fun EditReminderScreen(vm: MainViewModel, reminderId: Long?, onBack: () -> Unit)
             }
             Spacer(Modifier.height(20.dp))
 
-            Row(
+            // 当天事项没有钟点，「跟着时区走」对它没意义（一律按当地晚上提醒）
+            if (!allDay) Row(
                 Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically

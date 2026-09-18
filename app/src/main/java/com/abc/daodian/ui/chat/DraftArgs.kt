@@ -19,11 +19,16 @@ data class DraftArgs(val title: String, val whenText: String?) {
         fun parse(raw: String): DraftArgs {
             if (raw.isEmpty()) return EMPTY
             val title = stringField(raw, "title")?.value.orEmpty()
-            // 时间必须等整串收全：半截 ISO 串没法变成人话，宁可先留占位条
+            // 时间必须等整串收全：半截 ISO 串没法变成人话，宁可先留占位条。
+            // 当天事项填的是那天 00:00 —— allDay 排在最后、这时多半还没流到，所以零点整一律先只写日期，
+            // 免得草稿上闪一下「00:00」。真要零点响的那条，落印时会换回带钟点的写法
             val whenText = stringField(raw, "firstTriggerAt")
                 ?.takeIf { it.closed }
                 ?.let { runCatching { OffsetDateTime.parse(it.value) }.getOrNull() }
-                ?.let { Format.humanDateTime(it.toInstant().toEpochMilli()) }
+                ?.let {
+                    if (it.hour == 0 && it.minute == 0) Format.humanDay(it.toLocalDate())
+                    else Format.humanDateTime(it.toInstant().toEpochMilli())
+                }
             return DraftArgs(title, whenText)
         }
 

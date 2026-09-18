@@ -1,6 +1,7 @@
 package com.abc.daodian.ui.common
 
 import java.time.Instant
+import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
 
@@ -18,6 +19,26 @@ object Format {
         val z = Instant.ofEpochMilli(epochMillis).atZone(zone)
         val wd = weekday[z.dayOfWeek.value - 1]
         return "%d月%d日 %s %02d:%02d".format(z.monthValue, z.dayOfMonth, wd, z.hour, z.minute)
+    }
+
+    /** 当天事项的「哪天」：「9月18日 周五」，不带钟点 */
+    fun humanDay(date: LocalDate): String =
+        "%d月%d日 %s".format(date.monthValue, date.dayOfMonth, weekday[date.dayOfWeek.value - 1])
+
+    /**
+     * 当天事项离今天多远：「今天之内」「明天之内」「9月20日之内」；已经过了就是「拖了 2 天」。
+     * 列表、卡片、小组件口径一致
+     */
+    fun dayTaskWhen(due: LocalDate, today: LocalDate = LocalDate.now()): String {
+        val days = due.toEpochDay() - today.toEpochDay()
+        return when {
+            days < 0 -> "拖了 ${-days} 天"
+            days == 0L -> "今天之内"
+            days == 1L -> "明天之内"
+            days == 2L -> "后天之内"
+            days in 3..6 -> weekday[due.dayOfWeek.value - 1] + "之内"
+            else -> "${due.monthValue}月${due.dayOfMonth}日之内"
+        }
     }
 
     /** 收起态、列表这类地方用的短写法：「9月2日 15:00」，不带星期 */

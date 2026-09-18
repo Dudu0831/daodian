@@ -29,7 +29,11 @@ class NotificationActionReceiver : BroadcastReceiver() {
                 val now = System.currentTimeMillis()
                 when (action) {
                     ACTION_DONE -> {
-                        db.reminderDao().setStatus(id, ReminderStatus.DONE, now)
+                        // 当天事项有自己的「完成」：重复的只算这一次。见 DayTasks.complete
+                        val r = db.reminderDao().byId(id)
+                        if (r == null || !DayTasks.complete(app, r)) {
+                            db.reminderDao().setStatus(id, ReminderStatus.DONE, now)
+                        }
                         Log.i(TAG, "标记完成 id=$id")
                     }
                     ACTION_SNOOZE -> {

@@ -7,6 +7,7 @@ import com.abc.daodian.data.FireLog
 import com.abc.daodian.data.FireSource
 import com.abc.daodian.data.Reminder
 import com.abc.daodian.data.ReminderStatus
+import com.abc.daodian.data.isAllDay
 import com.abc.daodian.notify.Notifier
 import com.abc.daodian.recur.Rrule
 import com.abc.daodian.widget.WidgetUpdater
@@ -50,7 +51,7 @@ object FireHandler {
             Log.e(TAG, "id=${reminder.id}「${reminder.title}」已触发但通知未送达用户 —— 去「体检」页查通知权限")
         }
 
-        // 3. 重复的算下次，一次性的收尾
+        // 3. 重复的算下次，一次性的收尾（当天事项例外：顺延）
         val zone = runCatching { ZoneId.of(reminder.zoneId) }.getOrDefault(ZoneId.systemDefault())
         val current = ZonedDateTime.ofInstant(Instant.ofEpochMilli(reminder.nextTriggerAt), zone)
         val next = Rrule.nextAfter(reminder.rrule, current, zone)
@@ -64,13 +65,25 @@ object FireHandler {
                 guard++
             }
             if (candidate != null) {
-                val at = candidate.toInstant().toEpochMilli()
-                db.reminderDao().setNextTrigger(reminder.id, at, firedAt)
-                db.reminderDao().byId(reminder.id)?.let { Rescheduler(context).schedule(it) }
+                if (reminder.isAllDay) {
+                    // 当天事项的「哪一天」要跟着翻，否则列表会把明天那次当成今天没做完的
+                    DayTasks.advanceRepeating(context, reminder, candidate, firedAt)
+                } else {
+                    val at = candidate.toInstant().toEpochMilli()
+                    db.reminderDao().setNextTrigger(reminder.id, at, firedAt)
+                    db.reminderDao().byId(reminder.id)?.let { Rescheduler(context).schedule(it) }
+                }
                 Log.i(TAG, "已排下一次: id=${reminder.id} at=$candidate")
                 WidgetUpdater.refresh(context)
                 return
             }
+        }
+
+        // 一次性的当天事项：响过不算完，没点「完成」就顺延到明天的收尾时刻。见 DayTasks
+        if (reminder.isAllDay) {
+            DayTasks.carryOver(context, reminder, firedAt)
+            WidgetUpdater.refresh(context)
+            return
         }
 
         db.reminderDao().setStatus(reminder.id, ReminderStatus.FIRED, firedAt)

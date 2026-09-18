@@ -22,6 +22,7 @@ object JsonExtract {
             basis = obj.optString("basis", ""),
             rrule = obj.optStringOrNull("rrule"),
             wallClockAnchored = obj.optBoolean("wallClockAnchored", true),
+            allDay = obj.optBoolean("allDay", false),
             confidence = obj.optDouble("confidence", 1.0).let { if (it.isNaN()) 1.0 else it },
             clarifyingQuestion = obj.optStringOrNull("clarifyingQuestion")
         )

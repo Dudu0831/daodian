@@ -21,13 +21,6 @@ interface ReminderDao {
     @Query("SELECT * FROM reminders WHERE status = 'SCHEDULED' ORDER BY nextTriggerAt ASC")
     suspend fun allScheduled(): List<Reminder>
 
-    /**
-     * 桌面小组件要显示的前几条：按时间正序，包含已过点还没响的（它们排在最前）。
-     * 只读，不参与排期。见 DESIGN.md §8.2
-     */
-    @Query("SELECT * FROM reminders WHERE status = 'SCHEDULED' ORDER BY nextTriggerAt ASC LIMIT :limit")
-    suspend fun upcoming(limit: Int): List<Reminder>
-
     /** 待提醒总条数 —— 小组件抬头的「还有 N 条」 */
     @Query("SELECT COUNT(*) FROM reminders WHERE status = 'SCHEDULED'")
     suspend fun countScheduled(): Int

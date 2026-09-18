@@ -7,6 +7,7 @@ import android.util.Log
 import com.abc.daodian.data.DaodianDatabase
 import com.abc.daodian.data.ReminderStatus
 import com.abc.daodian.notify.Notifier
+import com.abc.daodian.schedule.DayTasks
 import com.abc.daodian.schedule.Rescheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,10 +35,14 @@ class WidgetActionReceiver : BroadcastReceiver() {
 
         CoroutineScope(Dispatchers.Default).launch {
             try {
-                Rescheduler(app).cancel(id)
-                Notifier.cancel(app, id)
-                DaodianDatabase.get(app).reminderDao()
-                    .setStatus(id, ReminderStatus.DONE, System.currentTimeMillis())
+                val dao = DaodianDatabase.get(app).reminderDao()
+                // 当天事项有自己的「完成」：重复的只算今天这一次。见 DayTasks.complete
+                val r = dao.byId(id)
+                if (r == null || !DayTasks.complete(app, r)) {
+                    Rescheduler(app).cancel(id)
+                    Notifier.cancel(app, id)
+                    dao.setStatus(id, ReminderStatus.DONE, System.currentTimeMillis())
+                }
                 Log.i(TAG, "小组件标记完成 id=$id")
                 WidgetUpdater.refresh(app)
             } catch (t: Throwable) {

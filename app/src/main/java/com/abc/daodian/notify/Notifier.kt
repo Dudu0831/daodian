@@ -16,9 +16,15 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.abc.daodian.MainActivity
 import com.abc.daodian.data.Reminder
+import com.abc.daodian.data.dueDate
+import com.abc.daodian.data.isAllDay
 import com.abc.daodian.schedule.NotificationActionReceiver
 import com.abc.daodian.ui.common.Format
 import com.abc.daodian.ui.alarm.AlarmActivity
+import com.abc.daodian.widget.WidgetLaunch
+import com.abc.daodian.widget.WidgetTarget
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 
 object Notifier {
 
@@ -54,6 +60,7 @@ object Notifier {
 
     /** 到点了，响。返回是否真的送达用户 —— false 表示通知没出现在屏幕上。[lateBy] > 0 表示这是补发 */
     fun fire(context: Context, reminder: Reminder, lateBy: Long): Boolean {
+        if (reminder.isAllDay) return fireDayTask(context, reminder, lateBy)
         ensureChannel(context)
 
         val open = PendingIntent.getActivity(
@@ -132,7 +139,131 @@ object Notifier {
 
     fun cancel(context: Context, reminderId: Long) {
         NotificationManagerCompat.from(context).cancel(reminderId.toInt())
+        // 可能是一组当天事项里的一条：组头的「还有 N 件」跟着改，最后一条没了组头也收掉
+        refreshDaySummary(context, alert = false)
     }
+
+    // ---------------- 当天事项：晚上收尾时安静地提一次 ----------------
+
+    /**
+     * 当天事项自己的渠道：普通通知的声音、不弹全屏、不循环 —— 它是「今天还有事没做」，不是闹钟。
+     * 用户要是嫌吵，可以在系统设置里单独关掉这一个渠道，定时提醒不受影响。
+     */
+    const val DAY_CHANNEL_ID = "day_tasks_v1"
+    private const val DAY_GROUP = "com.abc.daodian.DAY_TASKS"
+    /** 组头的通知 id。提醒 id 是从 1 往上长的，取个负数撞不上 */
+    private const val DAY_SUMMARY_ID = -20
+    /** 组头这么久以前发的，就当成是上一晚的，这一次要重新出声 */
+    private const val DAY_REALERT_MS = 30 * 60 * 1000L
+
+    private fun ensureDayChannel(context: Context) {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        if (nm.getNotificationChannel(DAY_CHANNEL_ID) != null) return
+        nm.createNotificationChannel(
+            NotificationChannel(DAY_CHANNEL_ID, "当天事项", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "只说了哪天、没说几点的事。晚上收尾时提一次，没做完的顺延到明天。"
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+        )
+    }
+
+    /**
+     * 每条一个通知（各带自己的「完成」），挂在同一组下面；只有组头出声 ——
+     * 收尾时刻几条同时到点，响一下就够了，不是一条响一下。
+     */
+    private fun fireDayTask(context: Context, reminder: Reminder, lateBy: Long): Boolean {
+        ensureDayChannel(context)
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.e(TAG, "通知权限被拒，当天事项 id=${reminder.id}「${reminder.title}」没能送达用户！去「体检」页处理")
+            return false
+        }
+
+        val body = buildString {
+            val due = reminder.dueDate()
+            val today = LocalDate.now()
+            val carried = due?.let { ChronoUnit.DAYS.between(it, today) } ?: 0
+            append(if (carried > 0) "从 ${due!!.monthValue}月${due.dayOfMonth}日 拖过来的，第 ${carried + 1} 天" else "今天的事，还没做")
+            reminder.note?.let { append(" · ").append(it) }
+            if (lateBy > 60_000) append(" · 补发，迟了 ${lateBy / 60_000} 分钟")
+        }
+        val child = NotificationCompat.Builder(context, DAY_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentTitle(reminder.title)
+            .setContentText(body)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setGroup(DAY_GROUP)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+            .setAutoCancel(true)
+            .setContentIntent(openList(context))
+            .addAction(0, "完成", actionIntent(context, reminder.id, NotificationActionReceiver.ACTION_DONE))
+            .build()
+
+        return try {
+            NotificationManagerCompat.from(context).notify(reminder.id.toInt(), child)
+            refreshDaySummary(context, alert = true)
+            true
+        } catch (e: SecurityException) {
+            Log.e(TAG, "发通知被系统拒绝，当天事项 id=${reminder.id}", e)
+            false
+        }
+    }
+
+    /**
+     * 组头：「今天还有 N 件没做」+ 逐条标题。条目从通知栏里现有的子通知数，不查库 ——
+     * 通知栏上挂着什么，组头就写什么，两边对不上的情况不存在。
+     *
+     * [alert]：这一晚第一次发要出声；同一晚后面几条跟着到点，只是静静地把数字改掉。
+     */
+    private fun refreshDaySummary(context: Context, alert: Boolean) {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        val active = runCatching { nm.activeNotifications }.getOrNull() ?: return
+        val children = active.filter { it.notification.group == DAY_GROUP && it.id != DAY_SUMMARY_ID }
+        if (children.isEmpty()) {
+            nm.cancel(DAY_SUMMARY_ID)
+            return
+        }
+        val existing = active.firstOrNull { it.id == DAY_SUMMARY_ID }
+        if (!alert && existing == null) return
+        // 昨晚那个组头还挂着没划掉：先收掉，不然 onlyAlertOnce 会让今晚这一次不出声
+        if (alert && existing != null && System.currentTimeMillis() - existing.postTime > DAY_REALERT_MS) {
+            nm.cancel(DAY_SUMMARY_ID)
+        }
+
+        val titles = children.mapNotNull { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() }
+        val headline = "还有 ${children.size} 件当天的事没做"
+        val style = NotificationCompat.InboxStyle().setBigContentTitle(headline)
+        titles.take(6).forEach { style.addLine(it) }
+        val summary = NotificationCompat.Builder(context, DAY_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentTitle(headline)
+            .setContentText(titles.joinToString("、"))
+            .setStyle(style)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setGroup(DAY_GROUP)
+            .setGroupSummary(true)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+            .setOnlyAlertOnce(true)
+            .setSilent(!alert)
+            .setAutoCancel(true)
+            .setContentIntent(openList(context))
+            .build()
+        try {
+            NotificationManagerCompat.from(context).notify(DAY_SUMMARY_ID, summary)
+        } catch (e: SecurityException) {
+            Log.e(TAG, "当天事项组头发不出去", e)
+        }
+    }
+
+    /** 点当天事项的通知进列表页：它们在列表最上面那一块 */
+    private fun openList(context: Context): PendingIntent =
+        PendingIntent.getActivity(
+            context,
+            DAY_SUMMARY_ID,
+            WidgetLaunch.intent(context, WidgetTarget.List),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
 
     private fun actionIntent(context: Context, reminderId: Long, action: String): PendingIntent {
         val intent = Intent(context, NotificationActionReceiver::class.java)
