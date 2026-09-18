@@ -1,8 +1,8 @@
 package com.abc.daodian.ui
 
 import android.content.Context
-import com.abc.daodian.ai.PlanValidator
-import com.abc.daodian.ai.ReminderPlan
+import com.abc.daodian.harness.builtin.reminder.PlanValidator
+import com.abc.daodian.harness.builtin.reminder.ReminderPlan
 import com.abc.daodian.data.DaodianDatabase
 import com.abc.daodian.data.Reminder
 import com.abc.daodian.schedule.DayTasks
@@ -12,8 +12,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
 /**
- * 模型建出来的一条提醒「落库 → 排闹钟」。对话页（MainViewModel）和桌面速记（ui/quick）都走这里 ——
- * ParseEvent 那边写死过：没有第二条落库路径。
+ * 模型建出来的一条提醒「落库 → 排闹钟」。`create_reminder` 工具执行时调它（接线在 [Agents]），
+ * 对话页和桌面速记都经由那里 —— 没有第二条落库路径。
  *
  * 只调 Rescheduler 的公开入口，不碰 schedule/ 和 data/ 的内部。
  */

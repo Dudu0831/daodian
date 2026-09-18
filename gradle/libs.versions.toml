@@ -11,6 +11,7 @@ work = "2.9.1"
 datastore = "1.1.1"
 openai = "4.54.0"
 navigation = "2.8.4"
+junit = "4.13.2"
 
 [libraries]
 androidx-core-ktx           = { group = "androidx.core",             name = "core-ktx",                 version.ref = "coreKtx" }
@@ -30,6 +31,7 @@ androidx-room-compiler      = { group = "androidx.room",             name = "roo
 androidx-work-runtime       = { group = "androidx.work",             name = "work-runtime-ktx",         version.ref = "work" }
 androidx-datastore-prefs    = { group = "androidx.datastore",        name = "datastore-preferences",    version.ref = "datastore" }
 openai-java                 = { group = "com.openai",                name = "openai-java",              version.ref = "openai" }
+junit                       = { group = "junit",                     name = "junit",                    version.ref = "junit" }
 androidx-navigation-compose = { group = "androidx.navigation",       name = "navigation-compose",       version.ref = "navigation" }
 
 [plugins]

@@ -7,21 +7,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.abc.daodian.ai.ChatTurn
-import com.abc.daodian.ai.ParseEvent
-import com.abc.daodian.ai.ParseResult
-import com.abc.daodian.ai.ApiHealth
-import com.abc.daodian.ai.Parsers
-import com.abc.daodian.ai.ProviderProfile
-import com.abc.daodian.ai.ProviderStore
-import com.abc.daodian.ui.PlanCommitter
+import com.abc.daodian.harness.AgentEvent
+import com.abc.daodian.harness.Session
+import com.abc.daodian.harness.permission.PermissionGate
+import com.abc.daodian.harness.permission.PermissionStore
+import com.abc.daodian.harness.provider.ApiHealth
+import com.abc.daodian.harness.provider.ProviderProfile
+import com.abc.daodian.harness.provider.ProviderStore
+import com.abc.daodian.ui.Agents
 import com.abc.daodian.ui.chat.ChatMessage
-import com.abc.daodian.ui.chat.finished
-import com.abc.daodian.ui.chat.historyText
 import com.abc.daodian.ui.chat.patched
 import com.abc.daodian.widget.WidgetUpdater
 import java.time.ZonedDateTime
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -30,8 +29,8 @@ import kotlinx.coroutines.launch
  * 桌面速记：从小组件右下角那枚墨印拉起来的一小张纸。见 DESIGN.md §8.3
  *
  * **只有语音。** 要聊天、要改字，回 app 的对话页 —— 这里不做第二个输入框。
- * 其余和对话页是同一套东西的缩小版：同一个解析器、同一套回合规则（[patched] / [finished]）、
- * 同一条落库路径（[PlanCommitter]）。只摆最近一问一答，不留对话流。
+ * 其余和对话页是同一套东西的缩小版：同一个 agent（[Agents]）、同一套回合规则（[patched]）、
+ * 同一个授权模式。只摆最近一问一答，不留对话流。
  */
 class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -71,10 +70,12 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     /** 喂给下一轮的历史。模型反问之后接着答，得看得见上文 */
-    private val history = mutableListOf<ChatTurn>()
+    private val session = Session()
     private var turnIds = 0L
     private var job: Job? = null
     private var stoppedByUser = false
+    /** 卡片停在「要记下吗」时，循环挂在这上面等 [answerApproval] */
+    private var pendingApproval: CompletableDeferred<Boolean>? = null
 
     fun startListening() {
         if (aiBusy || savedId != null) return
@@ -114,59 +115,62 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
     private fun send(text: String) {
         val said = text.trim()
         if (said.isBlank() || aiBusy) return
-        val prior = history.toList()
         asked = said
         note = null
         job = viewModelScope.launch {
             var t = ChatMessage.AssistantTurn(turnIds++, streaming = true)
             turn = t
             aiBusy = true
-            var result: ParseResult? = null
+            val app = getApplication<Application>()
+            val gate = PermissionGate(PermissionStore.flow(app).first()) { _, _ ->
+                CompletableDeferred<Boolean>().also { pendingApproval = it }.await()
+            }
             var askBack = false
-            val profile = profile()
             try {
-                Parsers.of(profile).parseStream(said, ZonedDateTime.now(), prior).collect { event ->
-                    if (event is ParseEvent.Done) {
-                        result = event.result
-                    } else {
-                        t = t.patched(event)
-                        turn = t
-                    }
+                Agents.of(app, profile()).run(session, said, ZonedDateTime.now(), gate).collect { event ->
+                    t = t.patched(event)
+                    turn = t
+                    if (event is AgentEvent.Finished || event is AgentEvent.Failed) ApiHealth.record(event)
                 }
-                result?.let { ApiHealth.record(it) }
-                val reminderId = (result as? ParseResult.Ok)?.let {
-                    PlanCommitter.commit(getApplication(), said, it.plan, profile.model)
-                }
-                t = t.finished(result, reminderId)
-                turn = t
-                // 失败的回合不进历史，理由同 MainViewModel.retryLast
-                if (!t.isError) {
-                    history += ChatTurn(fromUser = true, text = said)
-                    t.historyText()?.let { history += ChatTurn(fromUser = false, text = it) }
-                }
+                val reminderId = t.reminderId
                 if (reminderId != null) {
                     savedId = reminderId
                     // app 多半压根没开着，MainViewModel 盯的那条 observeAll 兜不到这里 —— 自己喊
-                    WidgetUpdater.announce(getApplication(), reminderId)
+                    WidgetUpdater.announce(app, reminderId)
                 } else {
                     // 没建成也没出错 = 模型在反问（或闸门要确认）。纯语音就该一路说下去：自动接着听
                     askBack = !t.isError
                 }
             } catch (c: CancellationException) {
-                turn = null
-                asked = null
-                if (stoppedByUser) note = "停了。点一下，重说"
+                if (t.reminderId == null) {
+                    turn = null
+                    asked = null
+                    session.discardLastTurn()
+                    if (stoppedByUser) note = "停了。点一下，重说"
+                } else {
+                    turn = t.copy(streaming = false, toolRunning = false)
+                }
                 throw c
             } finally {
                 aiBusy = false
                 stoppedByUser = false
+                pendingApproval = null
             }
             if (askBack) startListening()
         }
     }
 
+    /** 卡片上的「记下」/「不要」 */
+    fun answerApproval(approved: Boolean) {
+        pendingApproval?.complete(approved)
+        pendingApproval = null
+    }
+
+    /** 失败后重说同一句：失败那一轮从模型的记录里拿掉，理由同 MainViewModel.retryLast */
     fun retry() {
-        asked?.let(::send)
+        val said = asked ?: return
+        session.discardLastTurn()
+        send(said)
     }
 
     /** 「停」：掐断这条流，纸回到待命 */

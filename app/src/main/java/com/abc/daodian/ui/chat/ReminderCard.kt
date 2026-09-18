@@ -48,8 +48,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.abc.daodian.ai.PlanValidator
-import com.abc.daodian.ai.ReminderPlan
+import com.abc.daodian.harness.builtin.reminder.PlanValidator
+import com.abc.daodian.harness.builtin.reminder.ReminderPlan
 import com.abc.daodian.ui.common.CheckIcon
 import com.abc.daodian.ui.common.Format
 import com.abc.daodian.ui.common.OutlineBadge
@@ -64,13 +64,16 @@ import kotlinx.coroutines.launch
  * 工具行和回执卡片是同一个元素。见 DESIGN.md 决策 6.2 / 6.3。
  *
  * 在建提醒（工具行）→ 起稿（虚线框，标题逐字落定）→ 落印（已记下）→ 收起（一行）；
- * 校验闸门没放行时退回成「没记下」的工具行。外形全由 [CardPhase] 决定。
+ * 默认授权模式下，起稿之后先停在「要记下吗」（还是虚线框，底下「记下 / 不要」），点了才落印。
+ * 没建成（闸门拦下、你点了「不要」）时退回成「没记下」的工具行。外形全由 [CardPhase] 决定。
  */
-enum class CardPhase { Running, Draft, Stamped, Collapsed, Rejected }
+enum class CardPhase { Running, Draft, Pending, Stamped, Collapsed, Rejected }
 
 fun cardPhaseOf(msg: ChatMessage.AssistantTurn, draft: DraftArgs): CardPhase? = when {
     msg.plan != null -> if (msg.cardCollapsed) CardPhase.Collapsed else CardPhase.Stamped
     msg.toolName == null -> null
+    msg.toolRejected -> CardPhase.Rejected
+    msg.awaitingApproval -> CardPhase.Pending
     msg.streaming -> if (draft.isEmpty) CardPhase.Running else CardPhase.Draft
     else -> CardPhase.Rejected
 }
@@ -86,17 +89,20 @@ fun ReminderCard(
     plan: ReminderPlan?,
     stampedAt: Long,
     onCollapse: () -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onApprove: () -> Unit,
+    onDeny: () -> Unit
 ) {
     val colors = DaodianColors.current
-    val boxed = phase == CardPhase.Draft || phase == CardPhase.Stamped || phase == CardPhase.Collapsed
+    val drafting = phase == CardPhase.Draft || phase == CardPhase.Pending
+    val boxed = drafting || phase == CardPhase.Stamped || phase == CardPhase.Collapsed
     val filled = phase == CardPhase.Stamped || phase == CardPhase.Collapsed
 
     // 工具行没有框；一起稿，框从零描出来 —— 内边距、底色、描边都是渐变过去的，不是换一张卡
     val padH by animateDpAsState(if (boxed) 18.dp else 0.dp, Motion.settle(Motion.LONG), label = "padH")
     val padTop by animateDpAsState(
         when (phase) {
-            CardPhase.Draft -> 14.dp
+            CardPhase.Draft, CardPhase.Pending -> 14.dp
             CardPhase.Stamped -> 16.dp
             CardPhase.Collapsed -> 13.dp
             else -> 0.dp
@@ -105,7 +111,7 @@ fun ReminderCard(
     )
     val padBottom by animateDpAsState(
         when (phase) {
-            CardPhase.Draft -> 16.dp
+            CardPhase.Draft, CardPhase.Pending -> 16.dp
             CardPhase.Stamped -> 18.dp
             CardPhase.Collapsed -> 13.dp
             else -> 0.dp
@@ -117,15 +123,15 @@ fun ReminderCard(
     )
     val edge by animateColorAsState(
         when (phase) {
-            CardPhase.Draft -> colors.rule2
+            CardPhase.Draft, CardPhase.Pending -> colors.rule2
             CardPhase.Stamped -> colors.rule
             CardPhase.Collapsed -> colors.ruleSoft
             else -> colors.rule2.copy(alpha = 0f)
         },
         Motion.flow(), label = "edge"
     )
-    // 草稿是虚线：还没落库，框里的字随时会变
-    val dashed = phase == CardPhase.Draft
+    // 草稿是虚线：还没落库。等你点头的那张也还是虚线 —— 它确实还没记下
+    val dashed = drafting
 
     Column(
         Modifier
@@ -166,7 +172,7 @@ fun ReminderCard(
             enter = expandVertically(Motion.settle(Motion.LONG)) + fadeIn(Motion.flow()),
             exit = shrinkVertically(Motion.flow(), shrinkTowards = Alignment.Top) + fadeOut(Motion.exit())
         ) {
-            CardBody(phase, draft, plan, stampedAt, onCollapse, onEdit)
+            CardBody(phase, draft, plan, stampedAt, onCollapse, onEdit, onApprove, onDeny)
         }
     }
 }
@@ -178,6 +184,7 @@ private fun CardHead(phase: CardPhase, toolName: String, stampedAt: Long) {
     val label = when (phase) {
         CardPhase.Stamped, CardPhase.Collapsed -> "已记下"
         CardPhase.Rejected -> "没记下"
+        CardPhase.Pending -> "要记下吗"
         else -> "在建提醒"
     }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -267,7 +274,9 @@ private fun CardBody(
     plan: ReminderPlan?,
     stampedAt: Long,
     onCollapse: () -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onApprove: () -> Unit,
+    onDeny: () -> Unit
 ) {
     val colors = DaodianColors.current
     val collapsed = phase == CardPhase.Collapsed
@@ -350,6 +359,18 @@ private fun CardBody(
             exit = shrinkVertically(Motion.flow(), shrinkTowards = Alignment.Top) + fadeOut(Motion.exit())
         ) {
             if (plan != null) CardDetails(plan, triggerMillis, rruleText, isFresh(stampedAt), onCollapse, onEdit)
+        }
+
+        // 默认授权模式：还没落库，点「记下」才排闹钟
+        AnimatedVisibility(
+            visible = phase == CardPhase.Pending,
+            enter = expandVertically(Motion.settle(Motion.MID)) + fadeIn(Motion.flow()),
+            exit = shrinkVertically(Motion.flow(), shrinkTowards = Alignment.Top) + fadeOut(Motion.exit())
+        ) {
+            Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                PillButton("记下", PillStyle.Solid, onApprove)
+                PillButton("不要", PillStyle.Outline, onDeny)
+            }
         }
     }
 }

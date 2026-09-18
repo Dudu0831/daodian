@@ -42,8 +42,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
-import com.abc.daodian.ai.ApiState
-import com.abc.daodian.ai.ProviderProfile
+import com.abc.daodian.harness.provider.ApiState
+import com.abc.daodian.harness.provider.ProviderProfile
 import com.abc.daodian.ui.theme.DaodianColors
 import com.abc.daodian.ui.theme.DaodianType
 import com.abc.daodian.ui.theme.Motion

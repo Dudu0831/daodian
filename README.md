@@ -46,15 +46,17 @@ M1 的出口条件不是「点一下能响」，是 48 小时放置测试 ——
 
 ---
 
-## AI 解析：工具调用，不是 JSON 输出
+## AI：agent 循环 + 工具调用
 
-设计文档 §6 写的是「让模型输出 JSON」，实测下来换成了**工具调用**（`create_reminder` 函数）：
+设计文档 §6 最早写的是「让模型输出 JSON」，实测换成了**工具调用**（`create_reminder` 函数）；
+后来又从「一句话解析出一条提醒」升级成了 **agent 循环**（`harness/`，DESIGN.md §6.8）：
 
-- `response_format: json_object` 那档测试时模型会自己发明字段名（`{summary, details:{...}}`），对不上我们要的 schema
-- 工具调用把参数 schema 交给服务端强制，模型只能按 `ReminderTool` 定义的字段回来，不会跑偏
-- 反问之后的多轮对话是**客户端拼文本**（`ai/ChatTurn.kt`），不依赖 `previous_response_id` 这类服务端会话状态 —— 第三方 OpenAI 兼容接口大概率没实现那个
-
-`ai/OpenAiCompatParser.kt`（JSON 输出模式的实现）和 `ai/PlanSchema.kt` 已经删除，`ToolCallParser` 是唯一在用的解析器。
+- `response_format: json_object` 那档测试时模型会自己发明字段名（`{summary, details:{...}}`），对不上我们要的 schema；
+  工具调用把参数 schema 交给服务端强制，不会跑偏
+- 循环：调模型 → 执行工具 → 结果回传 → 再调，直到模型只说话不调工具。每个工具自带 schema，循环不认识具体工具
+- 历史**保留完整结构**（之前轮次的工具调用和结果原样重放），客户端每次带全，不依赖 `previous_response_id` 这类服务端会话状态；
+  最近 10 轮之外的裁掉
+- 授权模式：默认会改东西的工具先问你（卡片上点「记下」），设置页能放开
 
 ---
 
@@ -72,7 +74,8 @@ app/src/main/java/com/abc/daodian/
 │   └── SweepWorker.kt              6h 兜底巡检（第二道网，不是保险）
 ├── notify/        通知渠道与构建（到点全屏页从这里的 fullScreenIntent 拉起）
 ├── recur/         RRULE 子集求值
-├── ai/            解析层 —— ToolCallParser + ReminderTool（schema）+ ChatTurn（多轮历史）
+├── harness/       agent 框架 —— 循环、工具、授权、上下文裁剪、供应商配置（DESIGN.md §6.8）
+│   └── builtin/     具体工具，现在只有 create_reminder（+ 校验闸门）
 └── ui/
     ├── theme/       色板 + 字体角色（DaodianColors / DaodianType）
     ├── chat/        对话页 —— app 主屏，含五种状态的组件
@@ -138,10 +141,10 @@ org.gradle.java.home=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/H
 ```properties
 LLM_BASE_URL=https://api.openai.com/v1     # 写到 /v1 为止
 LLM_API_KEY=
-LLM_MODEL=gpt-4o-mini
-LLM_API_STYLE=RESPONSES                     # 目前 ToolCallParser 只实现了 RESPONSES 这档
-LLM_JSON_MODE=JSON_OBJECT                   # 工具调用路径下这个字段目前不生效，留着给 fallback 用
+LLM_MODEL=gpt-4o-mini                       # 网关要支持 Responses API（POST /responses）
 ```
+
+这只是**种子**：app 配置页里存过一次之后，以 app 里的为准。
 
 缺这个文件也能正常编译安装 —— 缺省是空字符串，AI 相关功能会在界面上报「还没配置供应商」，
 不影响手动建提醒那条路。**如果服务地址是 `http://` 明文**（不是 `https://`），已经在 Manifest 里加了
@@ -216,7 +219,7 @@ ROM 确实在大规模延迟别的 app 的闹钟，我们的没进那个队列�
 冒烟测试只证明链路是通的，**不能替代下面的放置测试** —— 前者在插着 USB、屏幕亮着的情况下跑，
 后者才检验深度 Doze 下的表现。
 
-**M2（AI 解析）真机测试**：`ToolCallParser` 在真机上验证过 —— openai-java 编译、dex、运行时、
+**M2（AI 解析）真机测试**：当时的 `ToolCallParser`（现已被 `harness/` 取代）在真机上验证过 —— openai-java 编译、dex、运行时、
 工具调用全部走通（`java/net/http` 引用为 0，Android 上不会因为缺 `HttpClient` 而崩），模型正确调用
 `create_reminder`，字段名和时间推算都对，反问/失败两条路径也各自触发过一次。
 

@@ -112,7 +112,7 @@ private fun BreathingDot(color: Color) {
 /**
  * 助手的一个回合。见 DESIGN.md §6.7、决策 6.2 / 6.3。
  *
- * 按这个顺序摞：墨条 → 思考 → 卡片 → 闸门说明 → 正文 → 出路。每一块都是展开着进场、
+ * 按这个顺序摞：墨条 → 思考 → 卡片 → 正文 → 出路。每一块都是展开着进场、
  * 收起着退场，一个回合在原地长大，中间没有硬切。
  * 卡片在正文上面：两者同时流时，卡片的高度起稿就定了，正文在它下面长，谁也不推谁。
  */
@@ -122,6 +122,8 @@ fun AssistantTurnRow(
     onToggleReasoning: () -> Unit,
     onCollapseCard: () -> Unit,
     onEditReminder: () -> Unit,
+    onApprove: () -> Unit,
+    onDeny: () -> Unit,
     onManualAdd: () -> Unit,
     onRetry: () -> Unit
 ) {
@@ -162,14 +164,12 @@ fun AssistantTurnRow(
                         plan = msg.plan,
                         stampedAt = msg.stampedAt,
                         onCollapse = onCollapseCard,
-                        onEdit = onEditReminder
+                        onEdit = onEditReminder,
+                        onApprove = onApprove,
+                        onDeny = onDeny
                     )
                 }
             }
-            Reveal(msg.gateNote != null) {
-                Text(msg.gateNote.orEmpty(), style = DaodianType.bodySmall.copy(lineHeight = 22.sp), color = colors.ink2)
-            }
-
             Reveal(msg.text.isNotBlank()) {
                 InkText(msg.text, streaming = msg.streaming, style = DaodianType.prose, color = colors.ink, caret = msg.streaming)
             }

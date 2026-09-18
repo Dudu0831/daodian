@@ -89,6 +89,8 @@ fun ChatScreen(
 ) {
     val colors = DaodianColors.current
     val messages by vm.messages.collectAsState()
+    // 卡片停在「要记下吗」：输入框的提示语改成指路，不然像是卡住了
+    val awaiting = (messages.lastOrNull() as? ChatMessage.AssistantTurn)?.awaitingApproval == true
     val profile by vm.profile.collectAsState()
     val apiState by vm.apiState.collectAsState()
     var input by remember { mutableStateOf("") }
@@ -228,6 +230,8 @@ fun ChatScreen(
                                         onToggleReasoning = { vm.toggleReasoning(msg.id) },
                                         onCollapseCard = { vm.collapseCard(msg.id) },
                                         onEditReminder = { msg.reminderId?.let(onEditReminder) },
+                                        onApprove = { vm.answerApproval(true) },
+                                        onDeny = { vm.answerApproval(false) },
                                         onManualAdd = onManualAdd,
                                         onRetry = { vm.retryLast() }
                                     )
@@ -292,6 +296,7 @@ fun ChatScreen(
                 placeholder = when {
                     listening -> "在听，说吧——"
                     voiceNote != null -> voiceNote.orEmpty()
+                    awaiting -> "点卡片上的「记下」或「不要」"
                     vm.aiBusy -> "正在说……"
                     messages.isEmpty() -> "说一句话……"
                     else -> "再说点什么……"

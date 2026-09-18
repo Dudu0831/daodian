@@ -1,4 +1,4 @@
-package com.abc.daodian.ai
+package com.abc.daodian.harness.provider
 
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -17,8 +17,6 @@ private val Context.providerDataStore by preferencesDataStore("provider")
  * 存过一次之后一律以这里为准。好处是卸载重装 / 换新机不用在手机上重敲 key。
  *
  * 不加密：`allowBackup="false"`，文件在 app 私有目录里，个人自用的取舍。
- * [ApiStyle] / [JsonMode] 不落盘 —— 实际路径只走 [ToolCallParser] 的工具调用，
- * 那两档现在不起作用，放出来只会让人以为能调。
  */
 object ProviderStore {
 

@@ -1,5 +1,7 @@
-package com.abc.daodian.ai
+package com.abc.daodian.harness.provider
 
+import com.abc.daodian.harness.AgentEvent
+import com.abc.daodian.harness.llm.LlmException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,21 +33,23 @@ object ApiHealth {
     val state: StateFlow<ApiState> = _state.asStateFlow()
 
     /**
-     * 一次解析的终局。
+     * 一轮的终局。
      *
-     * **只有网络/服务端的失败才算数**（[ParseResult.Failed] 带着 `cause`，或者模型侧报的错）。
-     * 校验闸门拦下来的、模型自己跑偏的都不改状态 —— 那是这句话的问题，不是这条链路的问题。
+     * **只有模型调用本身的失败才算数**（[LlmException]：网络、鉴权、服务端报错）。
+     * 闸门拦下、用户不同意、模型跑偏都不改状态 —— 那是这句话的问题，不是这条链路的问题。
      * 用户点「停」走的是 CancellationException，压根到不了这儿。
      */
-    fun record(result: ParseResult) {
-        when (result) {
-            is ParseResult.Ok, is ParseResult.NeedsClarification -> _state.value = ApiState.Ok
-            is ParseResult.Failed -> {
-                val serverSide = result.cause != null ||
-                    result.reason.startsWith("模型侧失败") || result.reason.startsWith("流错误")
-                if (serverSide) _state.value = ApiState.Down(humanize(result), result.reason)
-            }
+    fun record(end: AgentEvent) {
+        when (end) {
+            is AgentEvent.Finished -> _state.value = ApiState.Ok
+            is AgentEvent.Failed -> if (end.cause is LlmException) recordDown(end.cause)
+            else -> Unit
         }
+    }
+
+    fun recordDown(e: LlmException) {
+        val raw = e.message.orEmpty()
+        _state.value = ApiState.Down(humanize(raw, e), raw)
     }
 
     fun recordOk() {
@@ -60,8 +64,8 @@ object ApiHealth {
     /**
      * 异常翻成人话。认不出来的就把异常类名摆出来 —— 宁可看着糙，也别猜错了误导人。
      */
-    fun humanize(result: ParseResult.Failed): String {
-        val text = (result.reason + " " + (result.cause?.message ?: "")).lowercase()
+    fun humanize(reason: String, cause: Throwable?): String {
+        val text = (reason + " " + (cause?.cause?.message ?: "")).lowercase()
         return when {
             "401" in text || "unauthorized" in text || "invalid api key" in text -> "key 不对"
             "403" in text || "forbidden" in text -> "这个 key 没有权限"
@@ -71,8 +75,8 @@ object ApiHealth {
             "timeout" in text || "timed out" in text -> "服务器没回，超时了"
             "connect" in text || "network" in text -> "网络不通"
             "500" in text || "502" in text || "503" in text || "504" in text -> "网关自己出错了"
-            result.reason.startsWith("模型侧失败") || result.reason.startsWith("流错误") -> "服务端报错"
-            else -> result.cause?.javaClass?.simpleName ?: "没连上"
+            "模型侧失败" in reason || "流错误" in reason -> "服务端报错"
+            else -> cause?.cause?.javaClass?.simpleName ?: "没连上"
         }
     }
 }

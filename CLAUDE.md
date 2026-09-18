@@ -5,7 +5,7 @@
 ## 现状（2026-09，下面这行过时了就更新它）
 
 - **M1 调度内核**：代码完成，真机冒烟测试通过（零漂移），**48 小时放置测试没跑过**——这是唯一还没拿到的硬证据。
-- **M2 AI 解析**：用的是**工具调用**（`ToolCallParser` + `ReminderTool`），不是让模型输出 JSON。真机测试成功：模型正确调用 `create_reminder`，字段名、时间推算都对。多轮对话（反问后接得上）已实现（`ChatTurn` 客户端拼历史），**还没在新 UI 上做端到端真机验证**。
+- **M2 AI 解析**：用的是**工具调用**（`create_reminder`），不是让模型输出 JSON。真机测试成功：模型正确调用工具，字段名、时间推算都对。**2026-09-18 起整层换成了 `harness/` agent 循环**（见下面 harness 那条），这一条及下面流式、「停」、思考开关几条里提到的 `ToolCallParser` 已删除，机制由 `harness/llm/ResponsesClient` 继承。
 - **M3 UI**：八块 Compose 屏幕（对话/卡片/到点全屏/列表/编辑/设置/日志）全部写完、编译通过、lint 干净。
 - **视觉改版（墨宋）**：整套 UI 按新视觉稿重画完，规范见 DESIGN.md §8.1。真机确认过：空状态、对话、解析骨架、卡片、收起态、设置体检页（截图），到点全屏页（用户肉眼在锁屏上看到并点了「完成」，我没截到图）。
 - **"喝水"全链路真机跑通了**（2026-09-04）：点例句 → 模型调 `create_reminder` → 落库排期 → `dumpsys alarm` 有闹钟 → 10:03:49.259 准点响，漂移 259ms，通知 `not_intercepted`。
@@ -18,7 +18,7 @@
   这个工具调用块是**流式独有的**，一次性路径画不出来 —— 所以它就是「真的在流」的判据。
   **那家供应商不发 `reasoning*` 事件**（普通模型，不是推理模型），所以思考块暂时看不到，界面在没有它时长得正常。
   还差一条没验：断网/坏 key 的回退。
-  **「停」半天没反应**（2026-09-11 已修）：原来阻塞 HTTP 包在 `withContext(IO)` 里、close 挂在 `invokeOnCompletion` 上，Job 卡在阻塞调用里完成不了，回调永远来不及触发 —— 骨架阶段点「停」要等到首个 token。现在走 `ToolCallParser.detached`，见 DESIGN.md §6.7 坑 1。真机验过：骨架阶段点「停」，下一张截图（几百毫秒内）回合已经在淡出、原话已回到输入框，`dumpsys alarm` 没多出闹钟。
+  **「停」半天没反应**（2026-09-11 已修）：原来阻塞 HTTP 包在 `withContext(IO)` 里、close 挂在 `invokeOnCompletion` 上，Job 卡在阻塞调用里完成不了，回调永远来不及触发 —— 骨架阶段点「停」要等到首个 token。现在走 `detached`（今天在 `ResponsesClient`），见 DESIGN.md §6.7 坑 1。真机验过：骨架阶段点「停」，下一张截图（几百毫秒内）回合已经在淡出、原话已回到输入框，`dumpsys alarm` 没多出闹钟。
   另外这台 ROM 屏蔽第三方 logcat，`Log.i` 一行都看不到，别指望用日志判断流式有没有跑 —— 只能看界面。
 - **对话动效改版「一句话，到一枚印」**（2026-09-11）：工具行就地长成卡片（在建提醒 → 虚线起稿 → 落印 → 收起），墨条洇染、正文逐字淡入、流式逐帧贴底、喊停后原话退回输入框；落印**不震动**（用户明确说聊天里震动很怪）。规则见 DESIGN.md 决策 6.2 / 6.3，时长曲线只从 `ui/theme/Motion.kt` 取，动效稿：<https://claude.ai/code/artifact/c0493995-43b7-4220-8a00-35adb5990804>。
   **真机连拍验过**：发送 → 墨条洇染 + 圆点呼吸 + 「停」；起稿态（虚线框、`在建提醒 create_reminder`、标题逐字、时间换成人话「9月16日 周三 15:00」）；落印态（印 + 已记下、依据、两个按钮，卡片**展开**着出来）→ `dumpsys alarm` `origWhen=2026-09-16 15:00:00`；点「就这样」变形成一行；只有正文的回合（模型没调工具）。
@@ -34,7 +34,7 @@
 - **图标和开屏**（2026-09-11）：墨绿气泡 + 钟面 + 三道响声，照用户给的参考图描的（上一版朱砂印被用户换掉了）；开屏是同一个图形弹出来、钟响一下。规则见 DESIGN.md §8.1「图标与开屏」。`ic_launcher_foreground` / `ic_launcher_monochrome` / `splash_logo` 三个文件是同一套 path，改一个要三个一起改。
 - **模型服务搬进 app**（2026-09-13）：顶栏那枚印能点了 —— 印带状态（朱砂好着 / 墨灰上次没连上 / 虚线还没配置），点开垂下一条纸签写模型名和网关，出问题才在纸签顶上压一条告警带（人话 + 原始异常），末行「改配置」进配置页（网关地址 / key / 模型 + 「测一下」）。配置存 DataStore，`secrets.properties` 降级成种子（一个字段都没存过时才用它）。规范见 DESIGN.md §8.4，设计稿：<https://claude.ai/code/artifact/03cc5792-4cef-4e61-8eec-55409437cd3a>。
   **只编译过，一条真机证据都还没有** —— 写完那天手机没连上（`adb devices` 空的）。要验的六件事：印章三态长什么样、纸签排版、点「改配置」跳得过去、改完 key 保存后下一句话真用新配置、「测一下」连得上（顺带确认 `ProviderTest` 走的是真路）、飞行模式下发一句话印章变墨灰、恢复联网后重新盖回朱砂。
-  **思考开关**（2026-09-18）：配置页加了「先想一想再答」，存 DataStore（`thinking`，默认关）。开 = `reasoning.effort=medium` + `summary=auto`，关 = `effort=none`，在 `ToolCallParser.reasoning()`。**装上了、没验**：还不知道这个网关收不收 `reasoning` 参数、开了之后有没有思考流出来。
+  **思考开关**（2026-09-18）：配置页加了「先想一想再答」，存 DataStore（`thinking`，默认关）。开 = `reasoning.effort=medium` + `summary=auto`，关 = `effort=none`，在 `ResponsesClient.reasoning()`。**装上了、没验**：还不知道这个网关收不收 `reasoning` 参数、开了之后有没有思考流出来。
 
 - **提醒列表改成时间轴**（2026-09-18，设计稿方向 B：<https://claude.ai/code/artifact/4de04ade-2aa5-4486-b1b7-293ff283f00d>）：一根竖线 + 朱砂「现在」横线，线上是今天已过去的（淡掉、写落定时刻），线下第一条放大成「下一条」；轴上的圈 = 完成，点行 = 编辑，左滑 = 删除，都给 5 秒墨色「撤销」条。没有单独的已完成区 —— 今天以前的完成记录不再出现在列表里。删除是当场真删，撤销 = `vm.restore()` 原样插回并重排闹钟。
   **真机验过**：时间轴排版；点圈完成 → `dumpsys alarm` 里那条消失 → 1 秒内点撤销 → 闹钟回来（`origWhen=2026-09-18 23:00`）；左滑删除后无残留闹钟；空状态。
@@ -45,6 +45,13 @@
 - **设置页 + 编辑页改版「一本账」**（2026-09-18，设计稿方向 A：<https://claude.ai/artifact/UdcBGTTx5quxPfsnR5Akq7>）：设置页顶上一句体检结论 + 四组纸，从系统设置回来自动重查；编辑页宋体标题 + 人话复述 + 三组纸 + 底部「记下」，几点是自绘滚轮、重复写成具体规则、已有的能在页内删。复杂重复规则（模型建的「每周一、三」）以前一存就被压扁成「每周」，现在原样保留。
   **真机验过**：设置页排版、漂移写人话（「+2 小时 4 分」）；编辑页新建 → 滚轮点常用钟点一口气滚到 21:30、手拖吸附 → 重复底纸 → 存 → `dumpsys alarm` `origWhen=2026-09-18 23:30` → 列表点进去「删掉这条」→ 闹钟消失。
   **没验**：权限缺项时的红字 / 「去开」回来变对勾、深色、「当天之内」切换后的样子、CUSTOM 规则的保留、日期选择（还是 Material 的 DatePicker，没重画）。
+- **harness（agent 框架）**（2026-09-18）：`harness/` 包，ReAct 循环 + 工具接口 + 授权模式（ASK 默认问、AUTO 直接跑）+ `LastTurns(10)` 裁剪，规矩见 DESIGN.md §6.8。**对话页和桌面速记已迁过去**（接线在 `ui/Agents.kt`），`ai/` 目录已删；供应商配置搬到 `harness/provider/`，提醒工具 + 闸门在 `harness/builtin/reminder/`。设置页加了「建提醒前先问我」（默认开），卡片多了「要记下吗 · 记下 / 不要」一态。
+  **验过（JVM）**：`./gradlew :app:testDebugUnitTest` 9 条离线单测；打真网关（环境变量覆盖供应商，不落文件）：
+  `DAODIAN_LIVE=1 DAODIAN_BASE_URL=… DAODIAN_KEY=… DAODIAN_MODEL=… ./gradlew :app:testDebugUnitTest --tests '*LiveGatewayTest*' -i`。
+  `deepseek-flash`（旧网关）和火山方舟 `deepseek-v4.1-flash`（`https://ark.cn-beijing.volces.com/api/plan/v3`）都过：流式调工具 → 结果回传 → 收尾，下一轮重放工具调用也认。
+  **迁移后一条真机证据都还没有**：要验的是默认模式下「要记下吗」→ 点「记下」→ `dumpsys alarm` 有闹钟；点「不要」→ 没闹钟、模型说一句；设置里关掉后直接落印；「停」在等点头时按下；桌面速记同样一遍。
+  **注意**：`secrets.properties` 里的 `gpt-5.6-sol` 旧网关已经不给了（503），app 里要在配置页换成能用的供应商。
+  **对话落盘**（2026-09-18）：对话页的对话存 `data/chat/` 里单独的 `chat.db`（`DaodianDatabase` 没动），重启读回最近 100 轮、接着聊，规矩见 DESIGN.md §6.8。桌面速记不落盘（用户定的）。**只编译 + 单测过，没上真机**：要验重启后对话还在、历史卡片是收起的、重启后第一句话模型接得上上文；`adb shell run-as com.abc.daodian.debug ls databases/` 应该能看到 `chat.db`。
 - **全屏页在锁屏上确实会弹**（2026-09-04 关屏实测，用户肉眼确认，点「完成」后闹钟正常取消、无残留排期）。
   别被 adb 骗了：`AlarmActivity` 是 `exported=false`，`am start` 起不来；关屏后隔几十秒截图也只会拍到黑屏 ——
   用户已经把它关掉了，`screencap` 拍的是关掉之后的状态。`appops` 里那条 `USE_FULL_SCREEN_INTENT rejectTime`
@@ -74,8 +81,8 @@ export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 ## 这一路上做过的、容易被遗忘的决定
 
 - **openai-java 官方 SDK，不是手写 HTTP 客户端**（DESIGN.md 决策 3.1）。代价是包体：R8 之后从 2.2MB 涨到 35MB（+33MB，全是 Jackson + kotlin-reflect + victools）。这是接受了的权衡，不是 bug。
-- **工具调用（Responses API `tools`），不是 `response_format: json_object`**。后者测试时模型会自己发明字段名（`{summary, details:{...}}`），工具调用把 schema 交给服务端强制，稳得多。`STRICT_SCHEMA`/`JSON_OBJECT` 那两档 JSON 输出模式代码留着当 fallback，但实际路径走的是 `ToolCallParser`。
-- **多轮对话是客户端拼文本，不用 `previous_response_id`**。第三方 OpenAI 兼容服务大概率没实现服务端会话状态，`ChatTurn` 列表在每次请求里把历史文本拼进 `Prompt.user()`，对任何后端都成立。
+- **工具调用（Responses API `tools`），不是 `response_format: json_object`**。后者测试时模型会自己发明字段名（`{summary, details:{...}}`），工具调用把 schema 交给服务端强制，稳得多。JSON 输出那几档（`jsonMode` / `apiStyle`）已经连代码带 BuildConfig 字段删掉了。
+- **多轮历史客户端自己带，不用 `previous_response_id`**。第三方 OpenAI 兼容服务大概率没实现服务端会话状态。现在是 `harness/Session` 保存完整结构（含工具调用和结果），每步按 `ContextPolicy` 选轮次原样重放；每句用户话自带说话时刻。
 - **字体用系统泛型（`FontFamily.Serif`/`Default`/`Monospace`），没打包视觉稿里的 Google Fonts**。理由同样是包体——Noto Serif SC 全字重能再吃掉大几 MB 到十几 MB，personal app 性价比存疑。想要像素级还原字体，需要往 `res/font/` 里塞真实字重文件，这是已知的、故意留下的差距，不是疏漏。「墨宋」这套视觉靠宋体挑大梁，系统衬体的中文 fallback 好不好看直接决定观感 —— 真机上第一眼要盯的就是这个。
 - 通知全屏页是独立的 `AlarmActivity`，不是 `MainActivity` 借用 `showWhenLocked`——这样"到点响铃"和"正常打开 app"两件事不会互相污染。
 

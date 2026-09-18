@@ -36,8 +36,6 @@ android {
         buildConfigField("String", "LLM_BASE_URL",  "\"${secret("LLM_BASE_URL")}\"")
         buildConfigField("String", "LLM_API_KEY",   "\"${secret("LLM_API_KEY")}\"")
         buildConfigField("String", "LLM_MODEL",     "\"${secret("LLM_MODEL")}\"")
-        buildConfigField("String", "LLM_API_STYLE", "\"${secret("LLM_API_STYLE", "CHAT_COMPLETIONS")}\"")
-        buildConfigField("String", "LLM_JSON_MODE", "\"${secret("LLM_JSON_MODE", "JSON_OBJECT")}\"")
     }
 
     buildTypes {
@@ -108,4 +106,7 @@ dependencies {
     // 桌面速记的本地语音识别，见 DESIGN.md 决策 8.3。官方只发 GitHub Releases 的 AAR，没有 Maven 坐标。
     // 用的是 onnxruntime 静态链接那版：arm64 只有一个 24MB 的 .so，不和别的 onnxruntime 撞
     implementation(files("libs/sherpa-onnx-static-link-onnxruntime-1.13.8.aar"))
+
+    // harness 的 JVM 单测。harness 核心不碰 Android API，所以不需要 Robolectric
+    testImplementation(libs.junit)
 }

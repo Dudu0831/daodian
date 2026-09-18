@@ -6,25 +6,26 @@ import androidx.lifecycle.viewModelScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.abc.daodian.ai.ApiHealth
-import com.abc.daodian.ai.ChatTurn
-import com.abc.daodian.ai.ParseEvent
-import com.abc.daodian.ai.ParseResult
-import com.abc.daodian.ai.Parsers
-import com.abc.daodian.ai.PingResult
-import com.abc.daodian.ai.ProviderProfile
-import com.abc.daodian.ai.ProviderStore
-import com.abc.daodian.ai.ProviderTest
+import com.abc.daodian.harness.AgentEvent
+import com.abc.daodian.harness.Session
+import com.abc.daodian.harness.permission.PermissionGate
+import com.abc.daodian.harness.permission.PermissionMode
+import com.abc.daodian.harness.permission.PermissionStore
+import com.abc.daodian.harness.provider.ApiHealth
+import com.abc.daodian.harness.provider.PingResult
+import com.abc.daodian.harness.provider.ProviderProfile
+import com.abc.daodian.harness.provider.ProviderStore
+import com.abc.daodian.harness.provider.ProviderTest
 import com.abc.daodian.data.DaodianDatabase
+import com.abc.daodian.data.chat.ChatStore
 import com.abc.daodian.data.Reminder
 import com.abc.daodian.data.ReminderStatus
 import com.abc.daodian.notify.Notifier
 import com.abc.daodian.schedule.DayTasks
 import com.abc.daodian.schedule.Rescheduler
 import com.abc.daodian.ui.chat.ChatMessage
-import com.abc.daodian.ui.chat.finished
-import com.abc.daodian.ui.chat.historyText
 import com.abc.daodian.ui.chat.patched
+import com.abc.daodian.ui.chat.restoredMessages
 import com.abc.daodian.widget.WidgetUpdater
 import java.time.LocalDate
 import java.time.LocalTime
@@ -33,6 +34,9 @@ import java.time.ZonedDateTime
 import kotlin.coroutines.cancellation.CancellationException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -56,8 +60,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 上一次调用顺不顺，给印和纸签用。见 [ApiHealth] */
     val apiState = ApiHealth.state
 
-    /** 解析器按当时的配置取，缓存在 [Parsers] 里 —— 配置没变就一直是同一个 */
-    private val parser get() = Parsers.of(profile.value)
+    /** 授权模式：默认先问（[PermissionMode.ASK]），设置页能放开。见 DESIGN.md §6.8 */
+    val permissionMode = PermissionStore.flow(app)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, PermissionMode.ASK)
+
+    fun setPermissionMode(mode: PermissionMode) = viewModelScope.launch {
+        PermissionStore.save(getApplication(), mode)
+    }
 
     init {
         // app 内的增删改一律走 Room，所以盯住这一条流就够了 ——
@@ -76,6 +85,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
+    /**
+     * 喂给模型的历史（完整结构），落盘在 `data/chat/`，重启接着聊。
+     * [_messages] 是画面、这里是模型看到的，两者各管各的；启动时画面从它重建一次。
+     * 读库要一会儿，用到它的地方都先 await —— 读完之前说的第一句话也不会丢上文。
+     */
+    private val session: Deferred<Session> = viewModelScope.async {
+        val store = ChatStore.get(app)
+        val turns = store.load()
+        _messages.value = restoredMessages(turns, ::newId) + _messages.value
+        Session(turns, store)
+    }
+
     var aiBusy by mutableStateOf(false)
         private set
 
@@ -86,17 +107,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 最后一句用户说的话，失败后「重试」用得上 */
     private var lastUserInput: String? = null
 
-    /** 当前那条流。「停」和「换一句」都靠它掐断 */
+    /** 当前那一轮。「停」靠它掐断 */
     private var streamJob: Job? = null
 
     /** 这次取消是用户按的「停」，不是离开页面之类 */
     private var stoppedByUser = false
 
+    /** 卡片停在「要记下吗」时，循环挂在这上面等 [answerApproval] */
+    private var pendingApproval: CompletableDeferred<Boolean>? = null
+
     /**
-     * 一句话 → 模型 → 校验闸门 → 落库 → 排闹钟。见 DESIGN.md §6.1
+     * 一句话 → agent 循环。见 DESIGN.md §6.8
      *
-     * 工具调用一旦成功就已经建好了，卡片是回执不是待确认表单 ——
-     * 「就这样」只是收起，「改一下」跳编辑页微调。
+     * 提醒由 `create_reminder` 工具在循环里落库（[Agents] 里接的 [PlanCommitter]）。
+     * 放开模式下卡片是回执；默认模式下卡片先停在草稿上，你点「记下」工具才执行。
      */
     fun sendMessage(text: String) {
         val trimmed = text.trim()
@@ -108,85 +132,84 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 it.copy(cardCollapsed = true)
             } else it
         }
-        val history = historyOf(collapsedPrev)
 
         lastUserInput = trimmed
         _messages.value = collapsedPrev + ChatMessage.UserText(newId(), trimmed)
-        parseAndReply(trimmed, history)
+        runTurn(trimmed)
     }
 
     /**
-     * 解析失败后的「重试」。失败那一整个回合会被抹掉、也不进历史 ——
-     * 不然下一轮模型会看到自己说过「连不上服务器」，然后顺着这个话头往下编。
-     * 思考过程跟着一起走（它是上一次跑偏的痕迹），因为现在它就长在那个回合里。
+     * 失败后的「重试」。失败那一整个回合会被抹掉，模型那边的记录也一起拿掉 ——
+     * 不然下一轮模型会看到自己上一次跑偏的痕迹，顺着往下编。
      */
     fun retryLast() {
         val trimmed = lastUserInput ?: return
         if (aiBusy) return
-
-        val kept = _messages.value.filterNot { it is ChatMessage.AssistantTurn && it.isError }
-        val last = kept.lastOrNull()
-        val prior = if (last is ChatMessage.UserText && last.text == trimmed) kept.dropLast(1) else kept
-
-        _messages.value = kept
-        parseAndReply(trimmed, historyOf(prior))
+        _messages.value = _messages.value.filterNot { it is ChatMessage.AssistantTurn && it.isError }
+        runTurn(trimmed, retry = true)
     }
 
     /**
-     * 流式解析。见 DESIGN.md §6.7。
-     *
-     * 一个回合**原地长大**：思考 → 卡片 → 正文，中途不换消息类型。
-     * 终局仍然是 [ParseResult]，底下「落库 → 排闹钟」那一段和非流式时代一模一样，
-     * 没有第二条落库路径。
+     * 跑一轮。一个回合**原地长大**：思考 → 卡片 → 正文，中途不换消息类型。见 DESIGN.md §6.7
      */
-    private fun parseAndReply(text: String, history: List<ChatTurn>) {
+    private fun runTurn(text: String, retry: Boolean = false) {
         streamJob = viewModelScope.launch {
+            val session = session.await()
+            if (retry) session.discardLastTurn()
             val turnId = newId()
             _messages.value = _messages.value + ChatMessage.AssistantTurn(turnId, streaming = true)
             aiBusy = true
 
-            var result: ParseResult? = null
+            val gate = PermissionGate(permissionMode.value) { _, _ ->
+                CompletableDeferred<Boolean>().also { pendingApproval = it }.await()
+            }
             try {
-                parser.parseStream(text, ZonedDateTime.now(), history).collect { event ->
-                    if (event is ParseEvent.Done) result = event.result else patchTurn(turnId, event)
-                }
-                finishTurn(turnId, text, result)
+                Agents.of(getApplication(), profile.value)
+                    .run(session, text, ZonedDateTime.now(), gate)
+                    .collect { event ->
+                        patchTurn(turnId, event)
+                        if (event is AgentEvent.Finished || event is AgentEvent.Failed) ApiHealth.record(event)
+                    }
             } catch (t: CancellationException) {
-                // 用户点了「停」：这一回合连同半截字撤掉，那句话也撤下来、退回输入框 ——
-                // 气泡改不了，留在对话里没用；退回去改两个字就能重发。见 DESIGN.md 决策 6.3
-                val msgs = _messages.value
-                val asked = msgs.getOrNull(msgs.indexOfFirst { it.id == turnId } - 1) as? ChatMessage.UserText
-                val takeBackId = asked?.takeIf { stoppedByUser && it.text == text }?.id
-                _messages.value = msgs.filterNot { it.id == turnId || it.id == takeBackId }
-                if (takeBackId != null) restoredInput = text
+                val turn = _messages.value.firstOrNull { it.id == turnId } as? ChatMessage.AssistantTurn
+                if (turn?.plan != null) {
+                    // 提醒已经建了：回合留着（卡片是真的），只是不再往下长
+                    _messages.value = _messages.value.map {
+                        if (it.id == turnId && it is ChatMessage.AssistantTurn) it.copy(streaming = false, toolRunning = false) else it
+                    }
+                } else {
+                    // 什么都还没办成：这一回合连同半截字撤掉，那句话也撤下来、退回输入框 ——
+                    // 气泡改不了，留在对话里没用；退回去改两个字就能重发。见 DESIGN.md 决策 6.3
+                    val msgs = _messages.value
+                    val asked = msgs.getOrNull(msgs.indexOfFirst { it.id == turnId } - 1) as? ChatMessage.UserText
+                    val takeBackId = asked?.takeIf { stoppedByUser && it.text == text }?.id
+                    _messages.value = msgs.filterNot { it.id == turnId || it.id == takeBackId }
+                    if (takeBackId != null) restoredInput = text
+                    session.discardLastTurn()
+                }
                 throw t
             } finally {
                 aiBusy = false
                 stoppedByUser = false
+                pendingApproval = null
             }
         }
     }
 
-    /** 把一个过程事件叠到那个回合上。规则本身在 ChatMessage.kt，桌面速记也用同一份 */
-    private fun patchTurn(turnId: Long, event: ParseEvent) {
+    /** 卡片上的「记下」/「不要」 */
+    fun answerApproval(approved: Boolean) {
+        pendingApproval?.complete(approved)
+        pendingApproval = null
+    }
+
+    /** 把一个事件叠到那个回合上。规则本身在 ChatMessage.kt，桌面速记也用同一份 */
+    private fun patchTurn(turnId: Long, event: AgentEvent) {
         _messages.value = _messages.value.map { m ->
             if (m.id == turnId && m is ChatMessage.AssistantTurn) m.patched(event) else m
         }
     }
 
-    /** 流走完了：先落库排期，再让卡片长在同一个回合里 */
-    private suspend fun finishTurn(turnId: Long, rawInput: String, result: ParseResult?) {
-        result?.let { ApiHealth.record(it) }
-        val reminderId = (result as? ParseResult.Ok)?.let {
-            PlanCommitter.commit(getApplication(), rawInput, it.plan, profile.value.model)
-        }
-
-        _messages.value = _messages.value.map { m ->
-            if (m.id == turnId && m is ChatMessage.AssistantTurn) m.finished(result, reminderId) else m
-        }
-    }
-
-    /** 「停」。流被取消时 StreamResponse 会被 close 掉，见 ToolCallParser.parseStream */
+    /** 「停」。流被取消时 StreamResponse 会被 close 掉，见 ResponsesClient.step */
     fun stopStreaming() {
         stoppedByUser = true
         streamJob?.cancel()
@@ -208,15 +231,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (it.id == id && it is ChatMessage.AssistantTurn) it.copy(cardCollapsed = true) else it
         }
     }
-
-    /** 把对话压成喂给下一轮的文本历史。助手回合怎么压（含已建提醒的回执）见 [historyText] */
-    private fun historyOf(snapshot: List<ChatMessage>): List<ChatTurn> =
-        snapshot.mapNotNull { m ->
-            when (m) {
-                is ChatMessage.UserText -> ChatTurn(fromUser = true, text = m.text)
-                is ChatMessage.AssistantTurn -> m.historyText()?.let { ChatTurn(fromUser = false, text = it) }
-            }
-        }
 
     // ---------------- 供应商配置（顶栏印章 → 纸签 → 配置页）----------------
 

@@ -262,6 +262,10 @@ data class FireLog(
 
 整层可以被一个手动编辑页完全替代 —— 这是设计它的前提，不是妥协。
 
+> **已被 §6.8 取代（2026-09-18）**：「一句话 → 一个 `ReminderPlan`」的解析器已经整个换成 `harness/` 里的
+> agent 循环，`ai/` 目录已删除。下面 §6.1–6.7 保留作为决策记录；类名（`ToolCallParser`、`ParseResult`、
+> `ChatTurn` 等）都已不存在，机制上还成立的部分（工具调用、校验闸门、流式 / 回退 / 「停」）由 §6.8 继承。
+
 > **已修订（真机测试后）**：下面 §6.2-6.3 描述的是「让模型输出 JSON」这条路，实际写代码时验证下来
 > 走了**工具调用**（`create_reminder` 函数）而不是 `response_format`。原因很直接：`json_object` 档
 > 实测时模型会自己发明字段名（`{summary, details:{...}}`），根本不按我们要的 schema 走；工具调用把
@@ -387,7 +391,7 @@ data class ReminderPlan(
    （首个 token 之前都在等），`stream()` 的迭代也是阻塞的。以前包在 `withContext(IO)` 里、
    把 `close` 挂在 `invokeOnCompletion` 上 —— 那个回调要 Job **完成**才触发，Job 卡在阻塞调用里
    完成不了，于是点「停」得等下一个事件（骨架阶段就是等首个 token，回退路径要等整段回完）。
-   现在阻塞活放在不随调用方取消的 IO 协程里（`ToolCallParser.detached`），调用方只挂起等结果：
+   现在阻塞活放在不随调用方取消的 IO 协程里（今天在 `ResponsesClient.detached`），调用方只挂起等结果：
    取消时立刻返回，顺手 `close()` 已连上的流；还没连上的由它连上后自己查到取消再关。
    SDK 异步版不能替代：`AsyncStreamResponse.close()` 不取消底下的请求。
 2. **思考过程可能压根没有**。`reasoning*` 事件只有推理模型才发。界面在「没有思考块」时
@@ -432,6 +436,57 @@ data class ReminderPlan(
 
 顶栏那枚 wordmark 换成了朱砂小印：左上角的「到点」和每条回复前面的「· 到点」重复，
 说话人标记留在对话里（它就在说话人的位置上），品牌位缩成一枚不占字的印。
+
+### 6.8 harness：从解析器到 agent
+
+§6.1 的解析器是「一句话 → 一个 `ReminderPlan`」，工具结果从不回给模型，做不了多步。
+`harness/` 是它的继任者：一个 ReAct 循环 + 可插拔的工具 + 授权闸门 + 上下文策略。
+对话页和桌面速记都跑在它上面（接线在 `ui/Agents.kt`），旧的 `ai/` 目录已删除。
+
+| 包 | 职责 |
+|---|---|
+| `harness/`（`AgentLoop` `Session` `Transcript` `AgentEvent`） | 循环：调模型 → 执行工具 → `function_call_output` 回传 → 再调，直到只说话不调工具或撞步数上限（默认 6） |
+| `harness/llm/` | 只管调一次模型。`ResponsesClient` 继承 §6.7 的流式 / 回退 / 「停」的规矩，不认识任何具体工具 |
+| `harness/tool/` | `Tool` 接口（schema + 执行 + `READ`/`WRITE`）和注册表 |
+| `harness/permission/` | 授权模式：`ASK`（默认，`WRITE` 工具执行前经 `Approver` 问用户）/ `AUTO`（直接跑）。拒绝作为工具结果回给模型 |
+| `harness/context/` | 每步喂哪些轮次。现在是 `LastTurns(10)`，以后的摘要压缩、token 预算都是换实现 |
+| `harness/prompt/` | agent 的 system |
+| `harness/provider/` | 供应商配置（DataStore）、`ApiHealth`、「测一下」。决策 8.4 |
+| `harness/builtin/reminder/` | `create_reminder` + `ReminderPlan` + §6.5 闸门。拦下的原因回给模型去问用户；落库函数由接线方传入（`PlanCommitter`），harness 不依赖 `ui/` |
+
+几条定下来的规矩：
+
+- **历史保留完整结构**：之前轮次的 function_call / output 原样重放，不压成人话回执（§6.1 的做法作废）。
+  思考条目不重放。每句用户话自带说话时刻 `[2026-09-18 21:03 周五 +08:00]`，历史里的「明天」不会按今天重算。
+- **裁剪只按整轮**：切在一轮中间会切出没有调用的调用结果，网关直接拒。裁剪只影响喂给模型的，不删 `Session` 里的记录。
+- **边跑边记**：每一项一发生就写进 `Session`。中途喊停，已执行的工具调用留在记录里；没轮到的调用补一条「用户叫停了」的结果，保证下一次请求合法。
+- **工具不抛业务错**：参数不对、闸门拦下都返回 `ok=false` 的结果；只有真意外才抛，循环兜成一条错误结果回给模型。
+
+**对话落盘**（`data/chat/`，单独的 `chat.db`，和提醒的 `daodian.db` 互不牵连 —— 对话表出岔子最坏丢聊天记录，连累不到闹钟）：
+
+- `Session` 不管存储，每次变动把**整轮快照**交给 `Session.Listener`；`ChatStore` 按轮整轮覆盖写库，写盘排在一条单线程上，
+  保证「覆盖 → 拿掉」按发生顺序落地。页面关了照样写完。
+- 一张表 `chat_items`，一行一项（用户话 / 回复 / 工具调用 / 工具结果），用户话连说话时刻和时区一起存。
+- 工具结果多存两样模型看不到的：`ok`（办成没有）和 `ref`（办成后指向的记录，比如提醒 id）—— 重启后重建卡片靠它们。
+- 启动读回最近 100 轮；喂给模型的仍按 `ContextPolicy` 裁。画面从这些轮重建：卡片一律收起、不盖印、气泡不升起，
+  画的是当时建的样子（提醒后来改了删了，对话里不跟着变 —— 它是记录，不是列表）。
+- 只有对话页落盘。桌面速记仍是一次性的，不进这段对话。
+
+界面上（决策 6.2 的延伸）：
+
+- **授权模式存 DataStore**（`harness/permission/PermissionStore.kt`），设置页「建提醒前先问我」，默认开。
+  开着时卡片起稿后停在「要记下吗」（还是虚线框），底下「记下 / 不要」；点「记下」工具才执行、才落印。
+  点「不要」卡片退成「没记下」，模型收到「用户没同意」后自己说一句。
+- **闸门拦下不再单独出一行说明**：原因作为工具结果回给模型，由它在正文里问。卡片只退成「没记下」。
+- **一个回合只有一张卡**：同一轮里模型建了第二条，卡片停在第一条，第二条由正文交代。多卡片等真有需要再做。
+- **喊停**：什么都还没办成 → 回合和原话一起撤、原话退回输入框、`Session` 里这一轮也拿掉（同决策 6.3）；
+  提醒已经落了 → 回合留着，只是不再往下长。
+- **重试**：失败那一轮连同 `Session` 里的记录一起拿掉再跑。提醒已经落了、收尾那步才断的，不挂「重试」——
+  重跑等于再建一条。
+
+**验过的**：JVM 单测 9 条（剧本模型，覆盖回传、授权拒绝 / 同意、闸门拦截、步数上限、失败、裁剪、喊停补结果）；
+打真网关（`LiveGatewayTest`，`DAODIAN_LIVE=1` 才跑）：`deepseek-flash` 流式调 `create_reminder` → 结果回传 → 收尾一句话，
+下一轮带着上一轮的工具调用重放，网关认、模型答得出「交房租，明天周六 15:00」。
 
 ---
 
@@ -608,7 +663,7 @@ debug 包里可以慢放看接缝：`adb shell run-as com.abc.daodian.debug sh -
 - release 包必须 `-keep class com.k2fsa.sherpa.onnx.**` —— JNI 按名字读配置类的字段，AAR 自带的 proguard.txt 是空的。
 - 模型不出标点；开口前的环境音偶尔会被认成几个乱字（真机测过一次）。送去解析的就是这串字，模型一般看得懂。
 
-**没有第二条落库路径。** 桌面速记和对话页共用 `ToolCallParser`、`ChatMessage.kt` 里的回合规则（`patched` / `finished` / `historyText`）和 `PlanCommitter.commit()`。`commit` 整段 `NonCancellable`：插完库、闹钟还没排上的一瞬间被取消（纸被 Home 掉），会留下一条没有闹钟的 SCHEDULED 记录。
+**没有第二条落库路径。** 桌面速记和对话页共用同一个 agent（`ui/Agents.kt`）、`ChatMessage.kt` 里的回合规则（`patched`）和 `PlanCommitter.commit()`。`commit` 整段 `NonCancellable`：插完库、闹钟还没排上的一瞬间被取消（纸被 Home 掉），会留下一条没有闹钟的 SCHEDULED 记录。
 
 ---
 
@@ -630,13 +685,13 @@ debug 包里可以慢放看接缝：`adb shell run-as com.abc.daodian.debug sh -
 
 （早先画过「朱砂圆点 + 『连得上』三个字」的写法，2026-09-13 被否：那行字右边永远空着，怎么排都难看，而且印章已经说过一遍了。）
 
-**状态只在内存里**（`ApiHealth`，`ApiState.Unknown/Ok/Down`）。杀掉重开回到 Unknown。存下来会误报 —— 昨晚的失败不代表现在连不上。只有**网络/服务端**的失败才算数：`ParseResult.Failed` 带着 `cause`，或者模型侧报的错。校验闸门拦下的、模型跑偏的都不改状态，那是这句话的问题，不是这条链路的问题；点「停」走的是 `CancellationException`，压根到不了这儿。
+**状态只在内存里**（`ApiHealth`，`ApiState.Unknown/Ok/Down`）。杀掉重开回到 Unknown。存下来会误报 —— 昨晚的失败不代表现在连不上。只有**网络/服务端**的失败才算数：一轮以 `AgentEvent.Failed` 收尾、原因是 `LlmException`。校验闸门拦下的、模型跑偏的都不改状态，那是这句话的问题，不是这条链路的问题；点「停」走的是 `CancellationException`，压根到不了这儿。
 
-**配置存 DataStore**（`ai/ProviderStore.kt`），三项：网关地址、key、模型。`apiStyle` / `jsonMode` 不落盘也不上界面 —— 实际路径只走工具调用，那两档不起作用，摆出来会让人以为调得动。`secrets.properties` 降级成**种子**：一个字段都没存过时用它，存过之后以 DataStore 为准。key 不加密：`allowBackup="false"` + app 私有目录，个人自用的取舍。
+**配置存 DataStore**（`harness/provider/ProviderStore.kt`），三项：网关地址、key、模型（外加思考开关）。`apiStyle` / `jsonMode` 两档已经连同 BuildConfig 字段一起删掉。`secrets.properties` 降级成**种子**：一个字段都没存过时用它，存过之后以 DataStore 为准。key 不加密：`allowBackup="false"` + app 私有目录，个人自用的取舍。
 
-**解析器按配置缓存**（`ai/Parsers.kt`）。配置可变之后不能再在 ViewModel 里建一次就不管，但也不能每句话新建一个 —— 每个 `ToolCallParser` 自带一个 OkHttp 客户端，一句话一个连接池等于白扔 keep-alive。对话页和桌面速记共用这一份缓存，改完配置两边同时换过去；桌面速记每次说话前现读一次配置（那张纸是从桌面直接拉起来的，构造函数里抢读会跟第一句话赛跑）。
+**agent 按配置缓存**（`ui/Agents.kt`）。配置可变之后不能再在 ViewModel 里建一次就不管，但也不能每句话新建一个 —— 每个 `ResponsesClient` 自带一个 OkHttp 客户端，一句话一个连接池等于白扔 keep-alive。对话页和桌面速记共用这一份缓存，改完配置两边同时换过去；桌面速记每次说话前现读一次配置（那张纸是从桌面直接拉起来的，构造函数里抢读会跟第一句话赛跑）。
 
-**「测一下」走真路**（`ai/ProviderTest.kt`）：同一个解析器、同一把 key、同一个模型名，只换成一句最短的话。不拿 `/models` 之类的接口试探 —— 第三方网关不一定实现它，测通了也不代表正式调用能通，那种绿灯比没有还坏。测的是框里**正在填**的值，不是已保存的；**测没过也能保存**，有些网关对这句测试话挑刺、正式调用反而是通的，拦死了就没法绕过去。
+**「测一下」走真路**（`harness/provider/ProviderTest.kt`）：同一个 `ResponsesClient`、同一份 system、同样挂着工具，只换成一句最短的话、只调一步。不拿 `/models` 之类的接口试探 —— 第三方网关不一定实现它，测通了也不代表正式调用能通，那种绿灯比没有还坏。测的是框里**正在填**的值，不是已保存的；**测没过也能保存**，有些网关对这句测试话挑刺、正式调用反而是通的，拦死了就没法绕过去。
 
 配置页（`ui/settings/ProviderScreen.kt`）三格 + 「测一下」+ 右上角「保存」。key 默认遮住、可点「显示」，输入法关掉联想和自动大写（免得 key 进词库）。有未保存改动时返回会拦一下（保存 / 丢掉）—— 手打一遍 key 很烦。设置页原来那四行只读信息合成一行去处，点进来是同一页。
 
@@ -719,3 +774,6 @@ MagicOS 各版本菜单名有出入，按关键词找：
 | v1.4 | §8.1 新增：视觉语言换成「墨宋」（宣纸底 / 墨色实心块 / 朱砂点缀 / 宋体标题），八块界面照新视觉稿重画；到点全屏页改成直接读主题色板（仍钉死深色），通知副行补上「什么时候的事」和补发标记 |
 | v1.5 | §4.3 新增：当天事项（只说了哪天、没说几点）。`dueDay` 一列 + 收尾时刻，调度层不改；晚上合成一组安静通知，没做完顺延 |
 | v1.5 | §8.4 新增：供应商配置搬进 app（DataStore，`secrets.properties` 降级成种子）；顶栏印章带状态（朱砂/墨灰/虚线），点开是状态纸签，末行进配置页；`ApiHealth` 只在内存里记上一次调用；「测一下」走真实解析路径 |
+| v1.6 | §6.8 新增：`harness/` —— ReAct 循环、工具接口、授权模式（ASK / AUTO）、按整轮裁剪的上下文策略；历史改为保留完整工具结构 |
+| v1.8 | 对话落盘：`data/chat/` 单独一个 `chat.db`，`Session.Listener` 整轮快照写库，重启后重建画面接着聊；工具结果多存 ok / ref |
+| v1.7 | 迁移完成：对话页和桌面速记改跑 harness，`ai/` 删除（供应商配置等搬到 `harness/provider/`，提醒工具和闸门搬到 `harness/builtin/reminder/`）；`apiStyle` / `jsonMode` 连同 BuildConfig 字段删除；设置页加授权模式开关，卡片加「要记下吗」态 |

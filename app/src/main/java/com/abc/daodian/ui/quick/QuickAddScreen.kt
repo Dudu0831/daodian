@@ -316,6 +316,8 @@ private fun SheetContent(
                 onToggleReasoning = vm::toggleReasoning,
                 onCollapseCard = onCollapse,
                 onEditReminder = { turn.reminderId?.let(onEdit) },
+                onApprove = { vm.answerApproval(true) },
+                onDeny = { vm.answerApproval(false) },
                 onManualAdd = onManual,
                 onRetry = vm::retry
             )

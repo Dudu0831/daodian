@@ -1,15 +1,22 @@
 package com.abc.daodian.ui.chat
 
-import com.abc.daodian.ai.ParseEvent
-import com.abc.daodian.ai.ParseResult
-import com.abc.daodian.ai.ReminderPlan
+import com.abc.daodian.harness.AgentEvent
+import com.abc.daodian.harness.Item
+import com.abc.daodian.harness.StopReason
+import com.abc.daodian.harness.Turn
+import com.abc.daodian.harness.builtin.reminder.CreateReminderTool
+import com.abc.daodian.harness.builtin.reminder.ReminderPlan
+import com.abc.daodian.harness.llm.LlmEvent
 
 /**
  * 对话流里的一条消息。见 DESIGN.md §02 / §6.7，设计稿见 CLAUDE.md 里的画布链接。
  *
  * 只有两类：用户说的话，和助手的一个回合。
  * 助手回合是**原地长大**的 —— 从「一个字都没有」一路长到「正文 + 卡片」，
- * 中途不换消息类型、不清屏。上一版是流式占位消失、卡片另起一条，正文被丢掉了。
+ * 中途不换消息类型、不清屏。一个回合里 agent 可能调好几次模型（调工具 → 看结果 → 再说话），
+ * 在界面上仍然是同一个回合接着长。
+ *
+ * 这里只是画面的状态；喂给模型的历史在 [com.abc.daodian.harness.Session] 里，两者各管各的。
  */
 sealed interface ChatMessage {
     val id: Long
@@ -26,7 +33,9 @@ sealed interface ChatMessage {
      * 思考 → 卡片 → 正文（→ 出错时的出路）。
      *
      * 卡片和工具行是同一个元素，形态由 [cardPhaseOf] 从这里的字段推出来：
-     * 在建提醒 → 起稿 → 落印 → 收起；闸门拦下时退回成「没记下」的工具行。见决策 6.2。
+     * 在建提醒 → 起稿 →（等你点头）→ 落印 → 收起；没建成时退回成「没记下」的工具行。见决策 6.2。
+     *
+     * 一个回合只有一张卡：同一回合里模型要是建了第二条，卡片停在第一条，第二条由它自己在正文里交代。
      */
     data class AssistantTurn(
         override val id: Long,
@@ -41,20 +50,25 @@ sealed interface ChatMessage {
         val toolRunning: Boolean = false,
         /** 工具参数的原始 JSON 片段。不上屏，只拿来抠草稿卡的标题和时间，见 [DraftArgs] */
         val toolArgs: String = "",
+        /** 默认授权模式下，卡片停在草稿上等你点「记下」/「不要」 */
+        val awaitingApproval: Boolean = false,
+        /** 工具跑完了但没建成：闸门拦下，或者你点了「不要」。为什么，由模型在正文里说 */
+        val toolRejected: Boolean = false,
         /** 建成的提醒。null = 这一回合没建出东西 */
         val reminderId: Long? = null,
         val plan: ReminderPlan? = null,
         val cardCollapsed: Boolean = false,
         /** 落印的时刻。印只在刚落下时盖一次 —— 列表滚回来重组时不能再盖一遍 */
         val stampedAt: Long = 0,
-        /** 工具跑了、但校验闸门没放行（时间在过去、要确认）：为什么没记 */
-        val gateNote: String? = null,
         /** 解析失败，挂「手动填一条 / 重试」 */
         val isError: Boolean = false,
         /** 还在流 —— 决定要不要画光标 */
         val streaming: Boolean = false,
         /** 流式没走通，正在走一次性请求 —— 墨条上方挂一行小字 */
         val fellBack: Boolean = false,
+        /** 当前是这一轮的第几次模型调用，和这一步的正文从 [text] 的哪里开始。回退时只擦这一步的字 */
+        val step: Int = 0,
+        val stepTextFrom: Int = 0,
         val startedAt: Long = System.currentTimeMillis()
     ) : ChatMessage {
 
@@ -65,51 +79,75 @@ sealed interface ChatMessage {
         /** 思考块折成一行「想了 N 秒」：思考流完（后面的内容来了），或者整个回合结束 */
         val reasoningFolded: Boolean
             get() = !streaming || thoughtMillis != null
+
+        /** 卡片已经有了结局（建成 / 没建成），后面再来的工具调用不再改它 */
+        val cardSettled: Boolean
+            get() = plan != null || toolRejected
     }
 }
 
 /*
- * 一个回合怎么随着流长大。对话页（MainViewModel）和桌面速记（ui/quick）共用 ——
+ * 一个回合怎么随着 agent 的事件长大。对话页（MainViewModel）和桌面速记（ui/quick）共用 ——
  * 同一句话在两处长得一模一样，靠的就是这几条规则只有一份。
  */
 
-/** 把一个过程事件叠到这个回合上 */
-fun ChatMessage.AssistantTurn.patched(event: ParseEvent): ChatMessage.AssistantTurn = when (event) {
-    is ParseEvent.Reasoning -> copy(reasoning = reasoning + event.delta)
-    is ParseEvent.Text -> copy(text = text + event.delta).settleThought()
-    is ParseEvent.ToolStarted -> copy(toolName = event.name, toolRunning = true, toolArgs = "").settleThought()
-    // 参数本身不上屏，只从里面抠草稿卡的标题和时间（见 DraftArgs）
-    is ParseEvent.ToolArgs -> copy(toolArgs = toolArgs + event.delta)
-    // 回退了：吐出来的半截全部作废，退回墨条。
-    // 留着的话，等下一次性结果一到，同一句话会像是被说了两遍
-    ParseEvent.FellBack -> ChatMessage.AssistantTurn(id, streaming = true, fellBack = true)
-    is ParseEvent.Done -> this
+/** 把一个事件叠到这个回合上 */
+fun ChatMessage.AssistantTurn.patched(event: AgentEvent): ChatMessage.AssistantTurn = when (event) {
+    is AgentEvent.Model -> enteringStep(event.step).patchedModel(event.event)
+    is AgentEvent.AwaitingApproval -> copy(awaitingApproval = true)
+    is AgentEvent.ToolDenied -> if (cardSettled) this else copy(awaitingApproval = false, toolRunning = false, toolRejected = true)
+    is AgentEvent.ToolFinished -> if (cardSettled) this else {
+        val created = event.outcome.payload as? CreateReminderTool.Created
+        if (created != null) {
+            copy(
+                awaitingApproval = false, toolRunning = false,
+                reminderId = created.reminderId, plan = created.plan,
+                stampedAt = System.currentTimeMillis()
+            )
+        } else {
+            copy(awaitingApproval = false, toolRunning = false, toolRejected = true)
+        }
+    }
+    is AgentEvent.Finished -> copy(
+        streaming = false, toolRunning = false,
+        // 撞到步数上限多半是模型在原地打转，一句话都没留下时替它交代一声
+        text = if (event.stop == StopReason.STEP_LIMIT && text.isBlank()) "绕了几圈也没办成，换个说法试试？" else text
+    ).settleThought()
+    // 提醒已经建了、收尾那步才断：不挂「重试」—— 重试等于把这句话再办一遍，会建出第二条
+    is AgentEvent.Failed -> if (plan != null) copy(
+        streaming = false, toolRunning = false,
+        text = text.take(stepTextFrom).ifBlank { "提醒建好了，后面的话没说完就断了。" }
+    ) else copy(
+        // 第二句「你可以自己填一条」由 UI 补，见 AssistantTurnRow
+        streaming = false, toolRunning = false, awaitingApproval = false, isError = true,
+        text = "连不上服务器，这句话没能解析。"
+    ).settleThought()
 }
 
-/** 流走完了：卡片长在同一个回合里，正文按各自的规则留下。[reminderId] 是落库后的 id，没建成就是 null */
-fun ChatMessage.AssistantTurn.finished(result: ParseResult?, reminderId: Long?): ChatMessage.AssistantTurn =
-    when (result) {
-        is ParseResult.Ok -> copy(
-            streaming = false, toolRunning = false,
-            reminderId = reminderId, plan = result.plan,
-            stampedAt = System.currentTimeMillis()
+/** 进入新的一步：记下这一步的正文从哪开始 */
+private fun ChatMessage.AssistantTurn.enteringStep(step: Int) =
+    if (step == this.step) this else copy(step = step, stepTextFrom = text.length)
+
+private fun ChatMessage.AssistantTurn.patchedModel(event: LlmEvent): ChatMessage.AssistantTurn = when (event) {
+    is LlmEvent.Reasoning -> copy(reasoning = reasoning + event.delta)
+    is LlmEvent.Text -> copy(text = text + event.delta).settleThought()
+    is LlmEvent.ToolStarted ->
+        if (cardSettled) settleThought()
+        else copy(toolName = event.name, toolRunning = true, toolArgs = "").settleThought()
+    // 参数本身不上屏，只从里面抠草稿卡的标题和时间（见 DraftArgs）
+    is LlmEvent.ToolArgs -> if (cardSettled) this else copy(toolArgs = toolArgs + event.delta)
+    // 回退了：这一步吐出来的半截全部作废。留着的话，等下一次性结果一到，同一句话会像是被说了两遍。
+    // 第一步回退就整个退回墨条；后面的步骤回退，前面已经落定的卡片和正文留着
+    LlmEvent.FellBack ->
+        if (step == 0) ChatMessage.AssistantTurn(id, streaming = true, fellBack = true)
+        else copy(
+            text = text.take(stepTextFrom),
+            toolName = if (cardSettled) toolName else null,
+            toolArgs = if (cardSettled) toolArgs else "",
+            toolRunning = false
         )
-        // 工具跑了、闸门没放行：卡片退回「没记下」，下面说清原因
-        is ParseResult.NeedsClarification -> if (toolName != null) {
-            copy(streaming = false, toolRunning = false, gateNote = result.question)
-        } else {
-            copy(
-                streaming = false, toolRunning = false,
-                // 流里已经逐字吐过这句话了，别再覆盖一遍
-                text = text.ifBlank { result.question }
-            )
-        }
-        // 第二句「你可以自己填一条」由 UI 补，见 AssistantTurnRow
-        is ParseResult.Failed, null -> copy(
-            streaming = false, toolRunning = false, isError = true,
-            text = "连不上服务器，这句话没能解析。"
-        )
-    }.settleThought()
+    is LlmEvent.Done -> this
+}
 
 /** 思考之后的第一块内容到了（或者整个回合结束）：「想了 N 秒」就定格在这一刻 */
 private fun ChatMessage.AssistantTurn.settleThought() =
@@ -118,27 +156,34 @@ private fun ChatMessage.AssistantTurn.settleThought() =
     } else this
 
 /**
- * 这个回合喂给下一轮的文本，没东西可喂就是 null。见 ChatTurn 的说明。
+ * 从存下来的轮次重建画面（重启后打开对话页）。见 DESIGN.md §6.8
  *
- * 已建的提醒必须以「回执」的形式留在历史里：否则模型看到的是
- * 「用户：三分钟后提醒我喝水 / 用户：谢谢」—— 上一句请求像是没人应，
- * 它会好心再建一遍。真机上就是这么冒出重复提醒的。
+ * 只还原落定的样子：卡片一律收起、不再盖印，气泡不再升起，思考过程本来就不存。
+ * 卡片靠 `create_reminder` 的参数 + 结果里的 ok / ref 还原；那条提醒后来被改过、删过，
+ * 这里画的仍是当时建的样子 —— 它是对话记录，不是提醒列表。
+ * 只剩用户一句话的轮（当时失败了、没重试）只画气泡。
  */
-fun ChatMessage.AssistantTurn.historyText(): String? {
-    // 思考过程不进历史：把模型自己的思考喂回给它没有意义，只会挤掉真正的上下文
-    val said = buildString {
-        append(text.trim())
-        // 闸门问的那句也要进历史，否则用户下一句回答在模型眼里没有上文
-        gateNote?.let {
-            if (isNotEmpty()) append(" ")
-            append(it)
-        }
-        plan?.let { plan ->
-            if (isNotEmpty()) append(" ")
-            append("（已建好${if (plan.allDay) "当天事项" else "提醒"}：「${plan.title}」，${plan.firstTriggerAt}")
-            plan.rrule?.let { append("，重复 $it") }
-            append("。这条已经落库排期了，不要重复建）")
-        }
-    }
-    return said.takeIf { it.isNotBlank() }
+fun restoredMessages(turns: List<Turn>, newId: () -> Long): List<ChatMessage> = turns.flatMap { turn ->
+    val user = ChatMessage.UserText(newId(), turn.input.text, sentAt = 0)
+    val text = turn.items.filterIsInstance<Item.AssistantMessage>().joinToString("") { it.text }
+    val call = turn.items.filterIsInstance<Item.ToolCall>().firstOrNull()
+    if (text.isEmpty() && call == null) return@flatMap listOf(user)
+
+    val result = call?.let { c -> turn.items.firstOrNull { it is Item.ToolResult && it.callId == c.callId } as? Item.ToolResult }
+    val plan = call?.takeIf { result?.ok == true && result.ref != null }
+        ?.let { CreateReminderTool.planOf(it.arguments) }
+    listOf(
+        user,
+        ChatMessage.AssistantTurn(
+            id = newId(),
+            text = text,
+            toolName = call?.name,
+            toolArgs = call?.arguments.orEmpty(),
+            toolRejected = call != null && plan == null,
+            reminderId = if (plan != null) result?.ref else null,
+            plan = plan,
+            cardCollapsed = true,
+            startedAt = 0
+        )
+    )
 }

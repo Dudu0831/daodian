@@ -16,8 +16,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.abc.daodian.ai.ApiState
-import com.abc.daodian.ai.ProviderProfile
+import com.abc.daodian.harness.provider.ApiState
+import com.abc.daodian.harness.provider.ProviderProfile
 import com.abc.daodian.ui.theme.DaodianColors
 import com.abc.daodian.ui.theme.DaodianType
 

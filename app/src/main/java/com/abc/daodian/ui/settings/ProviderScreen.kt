@@ -41,8 +41,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import com.abc.daodian.ai.PingResult
-import com.abc.daodian.ai.ProviderStore
+import com.abc.daodian.harness.provider.PingResult
+import com.abc.daodian.harness.provider.ProviderStore
 import com.abc.daodian.ui.MainViewModel
 import com.abc.daodian.ui.common.ScreenTopBar
 import com.abc.daodian.ui.theme.DaodianColors
@@ -52,9 +52,7 @@ import kotlinx.coroutines.launch
 /**
  * 模型服务配置页 —— 顶栏那枚印 → 纸签末行「改配置」进来的地方。见 DESIGN.md 决策 8.4
  *
- * 三格 + 一个开关：网关地址、key、模型，外加「先想一想再答」（[com.abc.daodian.ai.ProviderProfile.thinking]）。`apiStyle` / `jsonMode` 不放出来 ——
- * 实际路径只走 [com.abc.daodian.ai.ToolCallParser] 的工具调用，那两档现在不起作用，
- * 摆在界面上只会让人以为调得动。
+ * 三格 + 一个开关：网关地址、key、模型，外加「先想一想再答」（[com.abc.daodian.harness.provider.ProviderProfile.thinking]）。
  *
  * 「测一下」用框里**正在填**的值，不用先保存。测没过也能存 ——
  * 有些网关对这句测试话会挑刺，正式调用反而是通的，拦死了就没法绕过去了。

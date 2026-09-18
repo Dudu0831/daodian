@@ -22,6 +22,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,7 +43,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import com.abc.daodian.ai.ApiState
+import com.abc.daodian.harness.permission.PermissionMode
+import com.abc.daodian.harness.provider.ApiState
 import com.abc.daodian.data.FireLog
 import com.abc.daodian.ledger.PaySamples
 import com.abc.daodian.ui.HealthCheck
@@ -84,6 +87,7 @@ fun SettingsScreen(
     val logs by vm.logs.collectAsState()
     val nonAlarm by vm.nonAlarmCount.collectAsState()
     val checkTime by vm.dayCheckTime.collectAsState()
+    val permission by vm.permissionMode.collectAsState()
     var pickingCheckTime by remember { mutableStateOf(false) }
 
     var items by remember { mutableStateOf(HealthCheck.run(context)) }
@@ -142,6 +146,29 @@ fun SettingsScreen(
                     titleColor = if (profile.model.isBlank()) colors.hint else colors.ink,
                     onClick = onOpenProvider
                 ) { ChevronRightIcon(size = 13.dp, tint = colors.muted) }
+                LedgerRule()
+                // 授权模式。见 DESIGN.md §6.8：默认先问，关掉就说完直接排上
+                val asking = permission == PermissionMode.ASK
+                val toggle = { vm.setPermissionMode(if (asking) PermissionMode.AUTO else PermissionMode.ASK) }
+                SettingRow(
+                    title = "建提醒前先问我",
+                    note = if (asking) "卡片先起个草稿，点「记下」才排闹钟"
+                    else "说完直接排上，卡片只是回执",
+                    onClick = { toggle() }
+                ) {
+                    Switch(
+                        checked = asking,
+                        onCheckedChange = { toggle() },
+                        colors = SwitchDefaults.colors(
+                            checkedTrackColor = colors.solid,
+                            checkedThumbColor = colors.onSolid,
+                            checkedBorderColor = colors.solid,
+                            uncheckedTrackColor = colors.surfaceAlt,
+                            uncheckedThumbColor = colors.rule2,
+                            uncheckedBorderColor = colors.rule2
+                        )
+                    )
+                }
             }
 
             // ---- 系统权限 ----
