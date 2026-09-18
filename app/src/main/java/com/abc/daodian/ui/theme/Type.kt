@@ -197,6 +197,48 @@ object DaodianType {
         letterSpacing = 0.06.em
     )
 
+    // ---- 设置页 ----
+
+    /** 页头那句结论「都就绪了 / 还差 2 项」，比页头标题大一档 */
+    val verdict = TextStyle(
+        fontFamily = DaodianFonts.serif,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 28.sp,
+        lineHeight = 36.sp,
+        letterSpacing = 0.04.em
+    )
+
+    /** 行尾的值（收尾时刻 20:00），宋体数字 */
+    val settingValue = TextStyle(
+        fontFamily = DaodianFonts.serif,
+        fontSize = 20.sp,
+        letterSpacing = 0.04.em
+    )
+
+    /** 设置行里的小字说明，比 caption 多一点行距，折两行时不挤 */
+    val settingNote = TextStyle(
+        fontFamily = DaodianFonts.body,
+        fontSize = 12.5.sp,
+        lineHeight = 19.sp
+    )
+
+    // ---- 编辑页 ----
+
+    /** 标题输入，宋体大字写在一道横线上，跟卡片标题一个路数 */
+    val editTitle = TextStyle(
+        fontFamily = DaodianFonts.serif,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 26.sp,
+        lineHeight = 36.sp
+    )
+
+    /** 时间滚轮正中那一格 */
+    val wheel = TextStyle(
+        fontFamily = DaodianFonts.serif,
+        fontSize = 30.sp,
+        lineHeight = 36.sp
+    )
+
     // ---- 到点全屏页 ----
 
     /** 「九月二日 · 周三」 */
