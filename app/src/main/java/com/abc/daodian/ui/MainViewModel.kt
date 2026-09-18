@@ -335,6 +335,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         db.reminderDao().delete(r)
     }
 
+    /**
+     * 列表页的「撤销」：把完成 / 删除之前那一整条原样放回去。
+     * 删除是当场真删的（不是等撤销过期再删）—— 进程在这几秒里被杀，结果也只是「删了」，
+     * 不会留下一条库里有、闹钟没有的记录。放回来之后照常排闹钟；已经过点的交给巡检补发。
+     */
+    fun restore(r: Reminder) = viewModelScope.launch {
+        if (db.reminderDao().byId(r.id) != null) db.reminderDao().update(r) else db.reminderDao().insert(r)
+        if (r.status == ReminderStatus.SCHEDULED && r.nextTriggerAt > System.currentTimeMillis()) {
+            rescheduler.schedule(r)
+        }
+    }
+
     fun rescheduleAll() = viewModelScope.launch { rescheduler.rescheduleAll() }
 
     fun clearLogs() = viewModelScope.launch { db.fireLogDao().clear() }

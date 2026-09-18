@@ -42,6 +42,20 @@ object Format {
         }
     }
 
+    /** 一段时长的人话，精确到分：「1 小时 17 分」「2 天 3 小时」。列表页「下一条」和「过点多久」用 */
+    fun span(millis: Long): String {
+        val mins = millis.coerceAtLeast(0) / 60_000
+        return when {
+            mins < 1 -> "不到 1 分钟"
+            mins < 60 -> "$mins 分钟"
+            mins < 60 * 24 -> if (mins % 60 == 0L) "${mins / 60} 小时" else "${mins / 60} 小时 ${mins % 60} 分"
+            else -> {
+                val h = mins % (60 * 24) / 60
+                if (h == 0L) "${mins / (60 * 24)} 天" else "${mins / (60 * 24)} 天 $h 小时"
+            }
+        }
+    }
+
     /** RFC 5545 子集 → 「每周二」这类人话。超出 §7.2 支持范围的一律显示「重复」 */
     fun humanRrule(rrule: String?): String? {
         if (rrule.isNullOrBlank()) return null

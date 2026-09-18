@@ -169,6 +169,34 @@ object DaodianType {
         lineHeight = 17.sp
     )
 
+    // ---- 提醒列表 · 时间轴 ----
+
+    /** 轴左边的时刻 */
+    val axisTime = TextStyle(
+        fontFamily = DaodianFonts.serif,
+        fontSize = 15.sp
+    )
+
+    /** 「下一条」那一行的时刻，放大一档 */
+    val axisTimeNext = TextStyle(
+        fontFamily = DaodianFonts.serif,
+        fontSize = 20.sp,
+        lineHeight = 26.sp
+    )
+
+    /** 已经过去的那几条：不加粗，退成背景 */
+    val axisTitlePast = TextStyle(
+        fontFamily = DaodianFonts.serif,
+        fontSize = 15.sp
+    )
+
+    /** 朱砂「现在」横线旁的钟点 */
+    val nowTime = TextStyle(
+        fontFamily = DaodianFonts.body,
+        fontSize = 11.sp,
+        letterSpacing = 0.06.em
+    )
+
     // ---- 到点全屏页 ----
 
     /** 「九月二日 · 周三」 */
