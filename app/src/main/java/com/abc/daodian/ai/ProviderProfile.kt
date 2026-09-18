@@ -36,7 +36,12 @@ data class ProviderProfile(
     val apiKey: String,
     val model: String,
     val apiStyle: ApiStyle,
-    val jsonMode: JsonMode
+    val jsonMode: JsonMode,
+    /**
+     * 让模型先想再答。开：`reasoning.effort=medium` + `summary=auto`（要了摘要才会发思考流）；
+     * 关：`effort=none`。默认关 —— 建提醒这种短句，多想一轮换来的是多等几秒。
+     */
+    val thinking: Boolean = false
 ) {
     /** 没填 key 或 baseUrl 就别去打网络了，直接走手动录入那条逃生舱路径 */
     val isConfigured: Boolean
@@ -44,7 +49,7 @@ data class ProviderProfile(
 
     /** 日志/界面上展示用，绝不能打印完整 key */
     fun redacted(): String =
-        "ProviderProfile(baseUrl=$baseUrl, model=$model, style=$apiStyle, json=$jsonMode, " +
+        "ProviderProfile(baseUrl=$baseUrl, model=$model, style=$apiStyle, json=$jsonMode, thinking=$thinking, " +
             "key=${if (apiKey.isBlank()) "<未填>" else "***" + apiKey.takeLast(4)})"
 
     companion object {

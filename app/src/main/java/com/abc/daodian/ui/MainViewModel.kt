@@ -221,8 +221,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------- 供应商配置（顶栏印章 → 纸签 → 配置页）----------------
 
     /** 存完下一句话就用新的；上一家的成绩不算到新一家头上，所以状态清空 */
-    fun saveProvider(baseUrl: String, apiKey: String, model: String) = viewModelScope.launch {
-        ProviderStore.save(getApplication(), baseUrl, apiKey, model)
+    fun saveProvider(baseUrl: String, apiKey: String, model: String, thinking: Boolean) = viewModelScope.launch {
+        ProviderStore.save(getApplication(), baseUrl, apiKey, model, thinking)
         ApiHealth.reset()
     }
 
@@ -233,12 +233,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** 测一下框里正在填的这份，不用先保存 */
-    suspend fun testProvider(baseUrl: String, apiKey: String, model: String): PingResult =
+    suspend fun testProvider(baseUrl: String, apiKey: String, model: String, thinking: Boolean): PingResult =
         ProviderTest.run(
             profile.value.copy(
                 baseUrl = ProviderStore.normalizeBaseUrl(baseUrl),
                 apiKey = apiKey.trim(),
-                model = model.trim()
+                model = model.trim(),
+                thinking = thinking
             )
         )
 

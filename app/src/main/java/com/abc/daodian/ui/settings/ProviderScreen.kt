@@ -14,12 +14,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,7 +52,7 @@ import kotlinx.coroutines.launch
 /**
  * 模型服务配置页 —— 顶栏那枚印 → 纸签末行「改配置」进来的地方。见 DESIGN.md 决策 8.4
  *
- * 三格就够了：网关地址、key、模型。`apiStyle` / `jsonMode` 不放出来 ——
+ * 三格 + 一个开关：网关地址、key、模型，外加「先想一想再答」（[com.abc.daodian.ai.ProviderProfile.thinking]）。`apiStyle` / `jsonMode` 不放出来 ——
  * 实际路径只走 [com.abc.daodian.ai.ToolCallParser] 的工具调用，那两档现在不起作用，
  * 摆在界面上只会让人以为调得动。
  *
@@ -66,6 +69,7 @@ fun ProviderScreen(vm: MainViewModel, onBack: () -> Unit) {
     var baseUrl by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
     var model by remember { mutableStateOf("") }
+    var thinking by remember { mutableStateOf(false) }
     var keyShown by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
     var ping by remember { mutableStateOf<PingResult?>(null) }
@@ -77,15 +81,17 @@ fun ProviderScreen(vm: MainViewModel, onBack: () -> Unit) {
             baseUrl = profile.baseUrl
             apiKey = profile.apiKey
             model = profile.model
+            thinking = profile.thinking
             loaded = true
         }
     }
 
     val dirty = loaded &&
-        (baseUrl != profile.baseUrl || apiKey != profile.apiKey || model != profile.model)
+        (baseUrl != profile.baseUrl || apiKey != profile.apiKey || model != profile.model ||
+            thinking != profile.thinking)
 
     fun save() {
-        vm.saveProvider(baseUrl, apiKey, model)
+        vm.saveProvider(baseUrl, apiKey, model, thinking)
         onBack()
     }
 
@@ -137,6 +143,33 @@ fun ProviderScreen(vm: MainViewModel, onBack: () -> Unit) {
             FieldLabel("模型")
             Field(model, { model = it; ping = null }, "gpt-4.1-mini")
             Help("照网关里的名字填")
+            Spacer(Modifier.height(22.dp))
+
+            Row(
+                Modifier.fillMaxWidth().clickable { thinking = !thinking; ping = null },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("先想一想再答", style = DaodianType.body, color = colors.ink)
+                    Help(
+                        if (thinking) "会多等几秒，想的过程在对话里能展开看；模型不支持就会报错"
+                        else "直接答，最快。说得绕的句子可能推错时间"
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Switch(
+                    checked = thinking,
+                    onCheckedChange = { thinking = it; ping = null },
+                    colors = SwitchDefaults.colors(
+                        checkedTrackColor = colors.solid,
+                        checkedThumbColor = colors.onSolid,
+                        checkedBorderColor = colors.solid,
+                        uncheckedTrackColor = colors.surfaceAlt,
+                        uncheckedThumbColor = colors.rule2,
+                        uncheckedBorderColor = colors.rule2
+                    )
+                )
+            }
             Spacer(Modifier.height(26.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -147,7 +180,7 @@ fun ProviderScreen(vm: MainViewModel, onBack: () -> Unit) {
                             testing = true
                             ping = null
                             scope.launch {
-                                ping = vm.testProvider(baseUrl, apiKey, model)
+                                ping = vm.testProvider(baseUrl, apiKey, model, thinking)
                                 testing = false
                             }
                         }
@@ -196,6 +229,7 @@ fun ProviderScreen(vm: MainViewModel, onBack: () -> Unit) {
                     baseUrl = seed.baseUrl
                     apiKey = seed.apiKey
                     model = seed.model
+                    thinking = seed.thinking
                     ping = null
                 }
             )

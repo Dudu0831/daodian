@@ -1,6 +1,7 @@
 package com.abc.daodian.ai
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -24,13 +25,15 @@ object ProviderStore {
     private val BASE_URL = stringPreferencesKey("base_url")
     private val API_KEY = stringPreferencesKey("api_key")
     private val MODEL = stringPreferencesKey("model")
+    private val THINKING = booleanPreferencesKey("thinking")
 
     /** 打包时那份。设置页的「恢复成打包时的配置」把三格填回它 */
     val seed: ProviderProfile get() = ProviderProfile.fromBuildConfig()
 
     fun flow(context: Context): Flow<ProviderProfile> =
         context.applicationContext.providerDataStore.data.map { p ->
-            if (p.contains(BASE_URL) || p.contains(API_KEY) || p.contains(MODEL)) {
+            // 思考开关不算「存过配置」：只拨了开关时，三格照样用种子
+            val base = if (p.contains(BASE_URL) || p.contains(API_KEY) || p.contains(MODEL)) {
                 seed.copy(
                     baseUrl = p[BASE_URL].orEmpty(),
                     apiKey = p[API_KEY].orEmpty(),
@@ -39,13 +42,15 @@ object ProviderStore {
             } else {
                 seed
             }
+            base.copy(thinking = p[THINKING] ?: seed.thinking)
         }
 
-    suspend fun save(context: Context, baseUrl: String, apiKey: String, model: String) {
+    suspend fun save(context: Context, baseUrl: String, apiKey: String, model: String, thinking: Boolean) {
         context.applicationContext.providerDataStore.edit { p ->
             p[BASE_URL] = normalizeBaseUrl(baseUrl)
             p[API_KEY] = apiKey.trim()
             p[MODEL] = model.trim()
+            p[THINKING] = thinking
         }
     }
 

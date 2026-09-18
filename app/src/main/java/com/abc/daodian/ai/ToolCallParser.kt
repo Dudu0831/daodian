@@ -5,6 +5,8 @@ import com.openai.client.OpenAIClient
 import com.openai.client.okhttp.OpenAIOkHttpClient
 import com.openai.core.http.StreamResponse
 import com.openai.models.responses.Response
+import com.openai.models.Reasoning
+import com.openai.models.ReasoningEffort
 import com.openai.models.responses.ResponseCreateParams
 import com.openai.models.responses.ResponseStreamEvent
 import com.openai.models.responses.ToolChoiceOptions
@@ -197,7 +199,16 @@ class ToolCallParser(private val profile: ProviderProfile) : StreamingReminderPa
             .input(Prompt.user(input, now, history))
             .addTool(ReminderTool.definition())
             .toolChoice(ToolChoiceOptions.AUTO)
+            .reasoning(reasoning())
             .build()
+
+    /** 思考开关。见 [ProviderProfile.thinking] */
+    private fun reasoning(): Reasoning =
+        if (profile.thinking) {
+            Reasoning.builder().effort(ReasoningEffort.MEDIUM).summary(Reasoning.Summary.AUTO).build()
+        } else {
+            Reasoning.builder().effort(ReasoningEffort.NONE).build()
+        }
 
     companion object {
         const val TAG = "Daodian/ToolCall"
