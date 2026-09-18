@@ -2,6 +2,7 @@ package com.abc.daodian
 
 import android.app.Application
 import android.util.Log
+import com.abc.daodian.ledger.PaySamples
 import com.abc.daodian.notify.Notifier
 import com.abc.daodian.schedule.Rescheduler
 import com.abc.daodian.schedule.SweepWorker
@@ -16,6 +17,7 @@ class DaodianApp : Application() {
         super.onCreate()
         Notifier.ensureChannel(this)
         SweepWorker.enqueue(this)
+        PaySamples.rebind(this)
 
         // 冷启动也当作一次重排触发源 —— 被强杀后用户点开 app 就是最好的自愈时机
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {

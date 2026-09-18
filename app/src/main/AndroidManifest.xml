@@ -116,5 +116,19 @@
             </intent-filter>
         </receiver>
 
+        <!--
+            记账调研：支付宝 / 招行 / 掌上生活的通知原样存下来，一周后看样子再设计。
+            exported 必须 true（系统来绑），BIND_NOTIFICATION_LISTENER_SERVICE 保证只有系统绑得上。
+        -->
+        <service
+            android:name=".ledger.PaySampler"
+            android:exported="true"
+            android:label="到点 · 支付通知采样"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
     </application>
 </manifest>

@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.abc.daodian.ledger.PaySamples
 import com.abc.daodian.ui.HealthCheck
 import com.abc.daodian.ui.HealthItem
 import com.abc.daodian.ui.MainViewModel
@@ -107,6 +108,21 @@ fun SettingsScreen(
                 "MagicOS 的「应用启动管理」没有公开 API 可以检测，只能手动设 —— " +
                     "设置 → 应用启动管理 → 到点 → 关掉自动管理 → 三个开关全开。",
                 style = DaodianType.caption, color = colors.muted, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+            )
+
+            // 记账调研的采样器，不算进上面的体检 —— 它挂了不影响提醒响
+            Spacer(Modifier.height(32.dp))
+            SectionLabel("支付通知采样")
+            val sampling = remember { PaySamples.granted(context) }
+            val sampled = remember { PaySamples.count(context) }
+            HealthRow(
+                HealthItem(
+                    label = "通知使用权",
+                    ok = sampling,
+                    detail = if (sampling) "在录支付宝、招商银行、掌上生活的通知，已存 $sampled 条"
+                    else "没开就什么都录不到",
+                    fixIntent = PaySamples.grantIntent(context)
+                )
             )
 
             Spacer(Modifier.height(28.dp))
