@@ -7,6 +7,7 @@ import com.abc.daodian.harness.llm.LlmEvent
 import com.abc.daodian.harness.llm.LlmException
 import com.abc.daodian.harness.llm.LlmRequest
 import com.abc.daodian.harness.llm.StepOutput
+import com.abc.daodian.harness.permission.Approval
 import com.abc.daodian.harness.permission.PermissionGate
 import com.abc.daodian.harness.tool.ToolContext
 import com.abc.daodian.harness.tool.ToolOutcome
@@ -56,10 +57,15 @@ class AgentLoop(
                     emit(AgentEvent.Finished(session.current, StopReason.ANSWERED))
                     return@flow
                 }
-                // 先把这一步的调用全部记上，再逐个执行 —— 中途被停，没轮到的由 finally 统一补结果
+                // 先把这一步的调用全部记上，再逐个执行 —— 中途被停、改口，没轮到的由 finally 统一补结果
                 output.toolCalls.forEach(session::append)
                 output.toolCalls.forEach { call ->
-                    session.append(invoke(call, permissions, toolContext))
+                    val invoked = invoke(call, permissions, toolContext)
+                    session.append(invoked.result)
+                    if (invoked.redirected) {
+                        emit(AgentEvent.Finished(session.current, StopReason.REDIRECTED))
+                        return@flow
+                    }
                 }
             }
             emit(AgentEvent.Finished(session.current, StopReason.STEP_LIMIT))
@@ -83,18 +89,28 @@ class AgentLoop(
         return output ?: throw LlmException("模型调用结束了，但没有给出结果")
     }
 
-    /** 执行一个调用，返回要记进历史的结果 */
+    /** 一次调用的下场：要记进历史的结果，以及用户是不是借这次授权改了口（改口 = 这一轮就此收住） */
+    private class Invoked(val result: Item.ToolResult, val redirected: Boolean = false)
+
     private suspend fun FlowCollector<AgentEvent>.invoke(
         call: Item.ToolCall,
         permissions: PermissionGate,
         context: ToolContext
-    ): Item.ToolResult {
-        val tool = tools[call.name] ?: return Item.ToolResult(call.callId, "没有叫 ${call.name} 的工具。", ok = false)
+    ): Invoked {
+        val tool = tools[call.name]
+            ?: return Invoked(Item.ToolResult(call.callId, "没有叫 ${call.name} 的工具。", ok = false))
 
         if (permissions.needsApproval(tool)) emit(AgentEvent.AwaitingApproval(call))
-        if (!permissions.allows(call, tool)) {
-            emit(AgentEvent.ToolDenied(call))
-            return Item.ToolResult(call.callId, DENIED, ok = false)
+        when (permissions.decide(call, tool)) {
+            Approval.Approved -> Unit
+            Approval.Denied -> {
+                emit(AgentEvent.ToolDenied(call))
+                return Invoked(Item.ToolResult(call.callId, DENIED, ok = false))
+            }
+            is Approval.Redirected -> {
+                emit(AgentEvent.ToolDenied(call))
+                return Invoked(Item.ToolResult(call.callId, REDIRECTED, ok = false), redirected = true)
+            }
         }
 
         val outcome = try {
@@ -105,7 +121,7 @@ class AgentLoop(
             ToolOutcome("工具执行出错：${t.javaClass.simpleName}: ${t.message}", ok = false)
         }
         emit(AgentEvent.ToolFinished(call, outcome))
-        return Item.ToolResult(call.callId, outcome.output, outcome.ok, outcome.ref)
+        return Invoked(Item.ToolResult(call.callId, outcome.output, outcome.ok, outcome.ref))
     }
 
     companion object {
@@ -114,5 +130,6 @@ class AgentLoop(
         /** 回给模型的固定话术。写成它能照着往下接的样子 */
         const val DENIED = "用户没有同意这次操作，它没有执行。不要换个参数再试，除非用户自己改口。"
         const val ABORTED = "这次调用没有执行：用户中途叫停了这一轮。"
+        const val REDIRECTED = "用户没有同意这次操作，它没有执行 —— 他改口了，要怎么办见他的下一句话。"
     }
 }

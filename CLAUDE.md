@@ -46,13 +46,14 @@
 - **设置页 + 编辑页改版「一本账」**（2026-09-18，设计稿方向 A：<https://claude.ai/artifact/UdcBGTTx5quxPfsnR5Akq7>）：设置页顶上一句体检结论 + 四组纸，从系统设置回来自动重查；编辑页宋体标题 + 人话复述 + 三组纸 + 底部「记下」，几点是自绘滚轮、重复写成具体规则、已有的能在页内删。复杂重复规则（模型建的「每周一、三」）以前一存就被压扁成「每周」，现在原样保留。
   **真机验过**：设置页排版、漂移写人话（「+2 小时 4 分」）；编辑页新建 → 滚轮点常用钟点一口气滚到 21:30、手拖吸附 → 重复底纸 → 存 → `dumpsys alarm` `origWhen=2026-09-18 23:30` → 列表点进去「删掉这条」→ 闹钟消失。
   **没验**：权限缺项时的红字 / 「去开」回来变对勾、深色、「当天之内」切换后的样子、CUSTOM 规则的保留、日期选择（还是 Material 的 DatePicker，没重画）。
-- **harness（agent 框架）**（2026-09-18）：`harness/` 包，ReAct 循环 + 工具接口 + 授权模式（ASK 默认问、AUTO 直接跑）+ `LastTurns(10)` 裁剪，规矩见 DESIGN.md §6.8。**对话页和桌面速记已迁过去**（接线在 `ui/Agents.kt`），`ai/` 目录已删；供应商配置搬到 `harness/provider/`，提醒工具 + 闸门在 `harness/builtin/reminder/`。设置页加了「建提醒前先问我」（默认开），卡片多了「要记下吗 · 记下 / 不要」一态。
+- **harness（agent 框架）**（2026-09-18）：`harness/` 包，ReAct 循环 + 工具接口 + 授权模式（ASK 默认问、AUTO 直接跑）+ `LastTurns(10)` 裁剪，规矩见 DESIGN.md §6.8。**对话页和桌面速记已迁过去**（接线在 `ui/Agents.kt`），`ai/` 目录已删；供应商配置搬到 `harness/provider/`，提醒工具 + 闸门在 `harness/builtin/reminder/`。设置页加了「建提醒前先问我」（默认开）。**2026-09-19 授权改成钉在输入框上方的授权条**（`ApprovalDock`，设计稿 <https://claude.ai/artifact/5Lu9cTegZ6wC5LYViWhtmJ>），卡片只剩虚线「等你确认」；授权条亮着时打字发出去 = 「不」+ 改口，这一轮收住、那句话作为下一句重发。
   **验过（JVM）**：`./gradlew :app:testDebugUnitTest` 9 条离线单测；打真网关（环境变量覆盖供应商，不落文件）：
   `DAODIAN_LIVE=1 DAODIAN_BASE_URL=… DAODIAN_KEY=… DAODIAN_MODEL=… ./gradlew :app:testDebugUnitTest --tests '*LiveGatewayTest*' -i`。
   `deepseek-flash`（旧网关）和火山方舟 `deepseek-v4.1-flash`（`https://ark.cn-beijing.volces.com/api/plan/v3`）都过：流式调工具 → 结果回传 → 收尾，下一轮重放工具调用也认。
-  **迁移后一条真机证据都还没有**：要验的是默认模式下「要记下吗」→ 点「记下」→ `dumpsys alarm` 有闹钟；点「不要」→ 没闹钟、模型说一句；设置里关掉后直接落印；「停」在等点头时按下；桌面速记同样一遍。
+  **真机验过（2026-09-19，火山方舟 deepseek-v4.1-flash，英文句子）**：放开模式 → 直接落印、`dumpsys alarm` `origWhen=2026-09-20 15:00`；先问模式 → 授权条出现、卡片虚线「等你确认」→ 点「不」→「× 没记下」划掉 + 「好，不建了。」、没闹钟；授权条亮着时打字 → 缩成一行、朱砂边 → 发出去 → 旧卡划掉、新一轮按 9 点重问 → 点「好」→ 盖印、`origWhen=2026-09-20 09:00`；重装后对话还在、卡片收起。修过一次：授权条细节「不重复」被挤成两行。
+  **没验**：等点头时点「停」、桌面速记上的授权条、深色以外的浅色。
   **注意**：`secrets.properties` 里的 `gpt-5.6-sol` 旧网关已经不给了（503），app 里要在配置页换成能用的供应商。
-  **对话落盘**（2026-09-18）：对话页的对话存 `data/chat/` 里单独的 `chat.db`（`DaodianDatabase` 没动），重启读回最近 100 轮、接着聊，规矩见 DESIGN.md §6.8。桌面速记不落盘（用户定的）。**只编译 + 单测过，没上真机**：要验重启后对话还在、历史卡片是收起的、重启后第一句话模型接得上上文；`adb shell run-as com.abc.daodian.debug ls databases/` 应该能看到 `chat.db`。
+  **对话落盘**（2026-09-18）：对话页的对话存 `data/chat/` 里单独的 `chat.db`（`DaodianDatabase` 没动），重启读回最近 100 轮、接着聊，规矩见 DESIGN.md §6.8。桌面速记不落盘（用户定的）。真机验过：覆盖安装后对话还在、历史卡片收起，`databases/` 里有 `chat.db`。
 - **全屏页在锁屏上确实会弹**（2026-09-04 关屏实测，用户肉眼确认，点「完成」后闹钟正常取消、无残留排期）。
   别被 adb 骗了：`AlarmActivity` 是 `exported=false`，`am start` 起不来；关屏后隔几十秒截图也只会拍到黑屏 ——
   用户已经把它关掉了，`screencap` 拍的是关掉之后的状态。`appops` 里那条 `USE_FULL_SCREEN_INTENT rejectTime`

@@ -8,7 +8,9 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.abc.daodian.harness.AgentEvent
+import com.abc.daodian.harness.Item
 import com.abc.daodian.harness.Session
+import com.abc.daodian.harness.permission.Approval
 import com.abc.daodian.harness.permission.PermissionGate
 import com.abc.daodian.harness.permission.PermissionStore
 import com.abc.daodian.harness.provider.ApiHealth
@@ -74,8 +76,15 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
     private var turnIds = 0L
     private var job: Job? = null
     private var stoppedByUser = false
-    /** 卡片停在「要记下吗」时，循环挂在这上面等 [answerApproval] */
-    private var pendingApproval: CompletableDeferred<Boolean>? = null
+    /** 等你点头的那次调用。非空 = 纸上亮着授权条 */
+    var approvalCall by mutableStateOf<Item.ToolCall?>(null)
+        private set
+
+    /** 授权条亮着时，循环挂在这上面等 [answerApproval] */
+    private var pendingApproval: CompletableDeferred<Approval>? = null
+
+    /** 这一轮你点了「不」：模型回一句就完，不再自动接着听 */
+    private var deniedThisTurn = false
 
     fun startListening() {
         if (aiBusy || savedId != null) return
@@ -122,8 +131,14 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
             turn = t
             aiBusy = true
             val app = getApplication<Application>()
-            val gate = PermissionGate(PermissionStore.flow(app).first()) { _, _ ->
-                CompletableDeferred<Boolean>().also { pendingApproval = it }.await()
+            deniedThisTurn = false
+            val gate = PermissionGate(PermissionStore.flow(app).first()) { call, _ ->
+                approvalCall = call
+                try {
+                    CompletableDeferred<Approval>().also { pendingApproval = it }.await()
+                } finally {
+                    approvalCall = null
+                }
             }
             var askBack = false
             try {
@@ -139,7 +154,7 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
                     WidgetUpdater.announce(app, reminderId)
                 } else {
                     // 没建成也没出错 = 模型在反问（或闸门要确认）。纯语音就该一路说下去：自动接着听
-                    askBack = !t.isError
+                    askBack = !t.isError && !deniedThisTurn
                 }
             } catch (c: CancellationException) {
                 if (t.reminderId == null) {
@@ -160,9 +175,10 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 卡片上的「记下」/「不要」 */
+    /** 授权条上的「好」/「不」 */
     fun answerApproval(approved: Boolean) {
-        pendingApproval?.complete(approved)
+        if (!approved) deniedThisTurn = true
+        pendingApproval?.complete(if (approved) Approval.Approved else Approval.Denied)
         pendingApproval = null
     }
 

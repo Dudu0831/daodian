@@ -7,7 +7,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.abc.daodian.harness.AgentEvent
+import com.abc.daodian.harness.Item
 import com.abc.daodian.harness.Session
+import com.abc.daodian.harness.permission.Approval
 import com.abc.daodian.harness.permission.PermissionGate
 import com.abc.daodian.harness.permission.PermissionMode
 import com.abc.daodian.harness.permission.PermissionStore
@@ -113,8 +115,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 这次取消是用户按的「停」，不是离开页面之类 */
     private var stoppedByUser = false
 
-    /** 卡片停在「要记下吗」时，循环挂在这上面等 [answerApproval] */
-    private var pendingApproval: CompletableDeferred<Boolean>? = null
+    /** 等你点头的那次调用。非空 = 输入框上方亮着授权条 */
+    var approvalCall by mutableStateOf<Item.ToolCall?>(null)
+        private set
+
+    /** 授权条亮着时，循环挂在这上面等 [answerApproval] / [redirect] */
+    private var pendingApproval: CompletableDeferred<Approval>? = null
+
+    /** 你借授权条改了口：这一轮收住后，把这句话作为下一句发出去 */
+    private var redirectTo: String? = null
 
     /**
      * 一句话 → agent 循环。见 DESIGN.md §6.8
@@ -160,9 +169,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _messages.value = _messages.value + ChatMessage.AssistantTurn(turnId, streaming = true)
             aiBusy = true
 
-            val gate = PermissionGate(permissionMode.value) { _, _ ->
-                CompletableDeferred<Boolean>().also { pendingApproval = it }.await()
+            val gate = PermissionGate(permissionMode.value) { call, _ ->
+                approvalCall = call
+                try {
+                    CompletableDeferred<Approval>().also { pendingApproval = it }.await()
+                } finally {
+                    approvalCall = null
+                }
             }
+            var next: String? = null
             try {
                 Agents.of(getApplication(), profile.value)
                     .run(session, text, ZonedDateTime.now(), gate)
@@ -192,13 +207,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 aiBusy = false
                 stoppedByUser = false
                 pendingApproval = null
+                next = redirectTo
+                redirectTo = null
             }
+            next?.let(::sendMessage)
         }
     }
 
-    /** 卡片上的「记下」/「不要」 */
+    /** 授权条上的「好」/「不」 */
     fun answerApproval(approved: Boolean) {
-        pendingApproval?.complete(approved)
+        pendingApproval?.complete(if (approved) Approval.Approved else Approval.Denied)
+        pendingApproval = null
+    }
+
+    /**
+     * 授权条亮着时在输入框里说的话：这次操作算「不」，这一轮收住，
+     * 这句话随后作为新的一句发出去（模型带着上文重办）。见 DESIGN.md §6.8
+     */
+    fun redirect(text: String) {
+        val trimmed = text.trim()
+        val pending = pendingApproval ?: return
+        if (trimmed.isBlank()) return
+        redirectTo = trimmed
+        pending.complete(Approval.Redirected(trimmed))
         pendingApproval = null
     }
 

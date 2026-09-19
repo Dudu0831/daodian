@@ -5,6 +5,10 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import com.abc.daodian.harness.Item
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -89,8 +93,9 @@ fun ChatScreen(
 ) {
     val colors = DaodianColors.current
     val messages by vm.messages.collectAsState()
-    // 卡片停在「要记下吗」：输入框的提示语改成指路，不然像是卡住了
-    val awaiting = (messages.lastOrNull() as? ChatMessage.AssistantTurn)?.awaitingApproval == true
+    // 授权条亮着：输入框照样能打字 —— 发出去就是「不」+ 你的话
+    val approvalCall = vm.approvalCall
+    val awaiting = approvalCall != null
     val profile by vm.profile.collectAsState()
     val apiState by vm.apiState.collectAsState()
     var input by remember { mutableStateOf("") }
@@ -183,9 +188,13 @@ fun ChatScreen(
     }
 
     fun send(text: String) {
-        if (text.isBlank() || vm.aiBusy) return
+        if (text.isBlank()) return
+        when {
+            awaiting -> vm.redirect(text)
+            vm.aiBusy -> return
+            else -> vm.sendMessage(text)
+        }
         cancelListening()
-        vm.sendMessage(text)
         input = ""
         follow = true
     }
@@ -230,8 +239,6 @@ fun ChatScreen(
                                         onToggleReasoning = { vm.toggleReasoning(msg.id) },
                                         onCollapseCard = { vm.collapseCard(msg.id) },
                                         onEditReminder = { msg.reminderId?.let(onEditReminder) },
-                                        onApprove = { vm.answerApproval(true) },
-                                        onDeny = { vm.answerApproval(false) },
                                         onManualAdd = onManualAdd,
                                         onRetry = { vm.retryLast() }
                                     )
@@ -271,6 +278,26 @@ fun ChatScreen(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 14.dp)
         ) {
+            // 授权条：钉在输入框上方，见 ApprovalDock。收走时和输入框之间不留空
+            AnimatedVisibility(
+                visible = approvalCall != null,
+                enter = expandVertically(Motion.settle(), expandFrom = Alignment.Bottom) + fadeIn(Motion.flow()),
+                exit = shrinkVertically(Motion.flow(), shrinkTowards = Alignment.Bottom) + fadeOut(Motion.exit())
+            ) {
+                // 退场那几帧 approvalCall 已经是 null 了，用最后一次的内容画完（普通数组，不是快照状态，组合时写它不触发重组）
+                val last = remember { arrayOfNulls<Item.ToolCall>(1) }
+                approvalCall?.let { last[0] = it }
+                last[0]?.let { call ->
+                    val summary = remember(call) { approvalSummaryOf(call) }
+                    ApprovalDock(
+                        summary = summary,
+                        typing = input.isNotBlank(),
+                        onApprove = { vm.answerApproval(true) },
+                        onDeny = { vm.answerApproval(false) },
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
+                }
+            }
             ChatInputBar(
                 text = input,
                 onTextChange = {
@@ -291,12 +318,13 @@ fun ChatScreen(
                 },
                 listening = listening,
                 level = level,
-                enabled = !vm.aiBusy,
+                enabled = !vm.aiBusy || awaiting,
                 onStop = { vm.stopStreaming() },
+                redirecting = awaiting && input.isNotBlank(),
                 placeholder = when {
                     listening -> "在听，说吧——"
                     voiceNote != null -> voiceNote.orEmpty()
-                    awaiting -> "点卡片上的「记下」或「不要」"
+                    awaiting -> "或者直接说要怎么改……"
                     vm.aiBusy -> "正在说……"
                     messages.isEmpty() -> "说一句话……"
                     else -> "再说点什么……"

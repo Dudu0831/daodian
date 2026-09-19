@@ -51,18 +51,21 @@ fun ChatInputBar(
     listening: Boolean = false,
     level: Float = 0f,
     onStop: (() -> Unit)? = null,
-    placeholder: String = "说一句话……"
+    placeholder: String = "说一句话……",
+    /** 授权条亮着、你在打字改口：描一圈朱砂，表示这句话走的是「不 + 怎么改」那条路 */
+    redirecting: Boolean = false
 ) {
     val colors = DaodianColors.current
     val canSend = text.isNotBlank() && enabled
     val shape = RoundedCornerShape(26.dp)
     val dim by animateFloatAsState(if (enabled) 1f else 0.55f, tween(Motion.SHORT), label = "inputDim")
+    val edge by animateColorAsState(if (redirecting) colors.accent else colors.rule, tween(Motion.SHORT), label = "inputEdge")
 
     Row(
         Modifier
             .fillMaxWidth()
             .background(colors.surface, shape)
-            .border(1.dp, colors.rule, shape)
+            .border(1.dp, edge, shape)
             .padding(start = 20.dp, end = 11.dp, top = 11.dp, bottom = 11.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

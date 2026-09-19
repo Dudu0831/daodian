@@ -7,6 +7,7 @@ import com.abc.daodian.harness.llm.LlmEvent
 import com.abc.daodian.harness.llm.LlmException
 import com.abc.daodian.harness.llm.LlmRequest
 import com.abc.daodian.harness.llm.StepOutput
+import com.abc.daodian.harness.permission.Approval
 import com.abc.daodian.harness.permission.Approver
 import com.abc.daodian.harness.permission.PermissionGate
 import com.abc.daodian.harness.permission.PermissionMode
@@ -71,7 +72,7 @@ class AgentLoopTest {
     @Test
     fun `ask mode - denied write tool is not executed and the model is told`() = runBlocking {
         val llm = ScriptedLlm(calls(call("c1", validArgs)), answer("好，不建了"))
-        val deny = PermissionGate(PermissionMode.ASK) { _, _ -> false }
+        val deny = PermissionGate(PermissionMode.ASK) { _, _ -> Approval.Denied }
         val session = Session()
 
         val events = AgentLoop(llm, tools, "sys").run(session, "明天三点提醒我交房租", now, deny).toList()
@@ -85,11 +86,26 @@ class AgentLoopTest {
     @Test
     fun `ask mode - approved write tool runs`() = runBlocking {
         val llm = ScriptedLlm(calls(call("c1", validArgs)), answer("好了"))
-        val allow = PermissionGate(PermissionMode.ASK) { _, _ -> true }
+        val allow = PermissionGate(PermissionMode.ASK) { _, _ -> Approval.Approved }
 
         AgentLoop(llm, tools, "sys").run(Session(), "明天三点提醒我交房租", now, allow).toList()
 
         assertEquals(listOf("交房租"), committed)
+    }
+
+    @Test
+    fun `ask mode - redirect ends the turn without another model call`() = runBlocking {
+        val llm = ScriptedLlm(calls(call("c1", validArgs), call("c2", validArgs)), answer("不该走到这"))
+        val redirect = PermissionGate(PermissionMode.ASK) { _, _ -> Approval.Redirected("改成四点") }
+        val session = Session()
+
+        val events = AgentLoop(llm, tools, "sys").run(session, "明天三点提醒我交房租", now, redirect).toList()
+
+        assertTrue(committed.isEmpty())
+        assertEquals(1, llm.requests.size)
+        assertEquals(StopReason.REDIRECTED, (events.last() as AgentEvent.Finished).stop)
+        val results = session.turns.single().items.filterIsInstance<Item.ToolResult>()
+        assertEquals(listOf(AgentLoop.REDIRECTED, AgentLoop.ABORTED), results.map { it.output })
     }
 
     @Test
@@ -141,7 +157,7 @@ class AgentLoopTest {
     @Test
     fun `stopping while waiting for approval closes the dangling call`() = runBlocking {
         val llm = ScriptedLlm(calls(call("c1", validArgs)))
-        val never = CompletableDeferred<Boolean>()
+        val never = CompletableDeferred<Approval>()
         val ask = PermissionGate(PermissionMode.ASK, Approver { _, _ -> never.await() })
         val session = Session()
 

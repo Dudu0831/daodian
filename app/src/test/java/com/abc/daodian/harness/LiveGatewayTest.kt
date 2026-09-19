@@ -6,6 +6,7 @@ import com.abc.daodian.harness.llm.LlmClient
 import com.abc.daodian.harness.llm.LlmEvent
 import com.abc.daodian.harness.llm.LlmRequest
 import com.abc.daodian.harness.llm.ResponsesClient
+import com.abc.daodian.harness.permission.Approval
 import com.abc.daodian.harness.permission.PermissionGate
 import com.abc.daodian.harness.permission.PermissionMode
 import com.abc.daodian.harness.prompt.HarnessPrompt
@@ -69,7 +70,7 @@ class LiveGatewayTest {
             1001L
         }))
         val loop = AgentLoop(llm, tools, HarnessPrompt.SYSTEM)
-        val auto = PermissionGate(PermissionMode.AUTO) { _, _ -> true }
+        val auto = PermissionGate(PermissionMode.AUTO) { _, _ -> Approval.Approved }
         val session = Session()
         val now = ZonedDateTime.now(ZoneId.of("Asia/Shanghai"))
 

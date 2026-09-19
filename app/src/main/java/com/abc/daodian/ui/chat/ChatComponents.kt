@@ -122,8 +122,6 @@ fun AssistantTurnRow(
     onToggleReasoning: () -> Unit,
     onCollapseCard: () -> Unit,
     onEditReminder: () -> Unit,
-    onApprove: () -> Unit,
-    onDeny: () -> Unit,
     onManualAdd: () -> Unit,
     onRetry: () -> Unit
 ) {
@@ -164,9 +162,7 @@ fun AssistantTurnRow(
                         plan = msg.plan,
                         stampedAt = msg.stampedAt,
                         onCollapse = onCollapseCard,
-                        onEdit = onEditReminder,
-                        onApprove = onApprove,
-                        onDeny = onDeny
+                        onEdit = onEditReminder
                     )
                 }
             }

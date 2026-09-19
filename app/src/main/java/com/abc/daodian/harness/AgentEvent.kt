@@ -28,5 +28,8 @@ enum class StopReason {
     ANSWERED,
 
     /** 撞到步数上限。多半是模型在原地打转 */
-    STEP_LIMIT
+    STEP_LIMIT,
+
+    /** 用户在授权时改了口（[com.abc.daodian.harness.permission.Approval.Redirected]）。他的话由界面作为下一轮发出 */
+    REDIRECTED
 }

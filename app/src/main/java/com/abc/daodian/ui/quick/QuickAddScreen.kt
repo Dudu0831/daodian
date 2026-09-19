@@ -77,7 +77,10 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.abc.daodian.harness.Item
+import com.abc.daodian.ui.chat.ApprovalDock
 import com.abc.daodian.ui.chat.AssistantTurnRow
+import com.abc.daodian.ui.chat.approvalSummaryOf
 import com.abc.daodian.ui.chat.InkText
 import com.abc.daodian.ui.chat.PillButton
 import com.abc.daodian.ui.chat.PillStyle
@@ -316,10 +319,24 @@ private fun SheetContent(
                 onToggleReasoning = vm::toggleReasoning,
                 onCollapseCard = onCollapse,
                 onEditReminder = { turn.reminderId?.let(onEdit) },
-                onApprove = { vm.answerApproval(true) },
-                onDeny = { vm.answerApproval(false) },
                 onManualAdd = onManual,
                 onRetry = vm::retry
+            )
+        }
+    }
+
+    // 授权条：这里没有输入框，只有「好 / 不」。退场那几帧用最后一次的内容画完
+    val lastCall = remember { arrayOfNulls<Item.ToolCall>(1) }
+    vm.approvalCall?.let { lastCall[0] = it }
+    Reveal(vm.approvalCall != null) {
+        lastCall[0]?.let { call ->
+            ApprovalDock(
+                summary = remember(call) { approvalSummaryOf(call) },
+                typing = false,
+                onApprove = { vm.answerApproval(true) },
+                onDeny = { vm.answerApproval(false) },
+                canRedirect = false,
+                modifier = Modifier.padding(top = 14.dp)
             )
         }
     }

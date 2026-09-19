@@ -13,17 +13,29 @@ enum class PermissionMode {
     AUTO
 }
 
-/** 向用户要授权。界面实现它：弹卡片、等用户点，返回同不同意。挂起多久都行 */
+/** 用户对一次写操作的答复 */
+sealed interface Approval {
+    data object Approved : Approval
+
+    data object Denied : Approval
+
+    /**
+     * 没同意，而且直接说了要怎么改（在输入框里打字发出去）。这一轮就此收住，
+     * [instead] 由界面作为下一句话重新发 —— 模型在新的一轮里带着上下文重办。
+     */
+    data class Redirected(val instead: String) : Approval
+}
+
+/** 向用户要授权。界面实现它：亮出授权条、等用户答复。挂起多久都行 */
 fun interface Approver {
-    suspend fun approve(call: Item.ToolCall, tool: Tool): Boolean
+    suspend fun approve(call: Item.ToolCall, tool: Tool): Approval
 }
 
 class PermissionGate(private val mode: PermissionMode, private val approver: Approver) {
 
-    /** 返回 false = 用户不同意，工具不执行 */
-    suspend fun allows(call: Item.ToolCall, tool: Tool): Boolean = when {
-        tool.effect == ToolEffect.READ -> true
-        mode == PermissionMode.AUTO -> true
+    suspend fun decide(call: Item.ToolCall, tool: Tool): Approval = when {
+        tool.effect == ToolEffect.READ -> Approval.Approved
+        mode == PermissionMode.AUTO -> Approval.Approved
         else -> approver.approve(call, tool)
     }
 
