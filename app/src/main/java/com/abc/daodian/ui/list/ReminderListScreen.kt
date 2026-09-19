@@ -25,17 +25,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +58,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
@@ -69,6 +82,8 @@ import com.abc.daodian.ui.theme.DaodianColors
 import com.abc.daodian.ui.theme.DaodianType
 import com.abc.daodian.ui.theme.Motion
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.abs
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -78,8 +93,12 @@ import java.time.ZoneId
  * https://claude.ai/code/artifact/4de04ade-2aa5-4486-b1b7-293ff283f00d
  *
  * 一根竖线从今天早上走到以后，朱砂「现在」横线标出这一刻 —— 线上方是今天已经过去的（淡掉），
- * 线下第一条是「下一条」（放大）。所以没有单独的「已完成」区：做完的就留在它当天的位置上，
- * 过了今天就不再出现。
+ * 线上方紧挨着的是「下一条」（放大）。所以没有单独的「已完成」区：做完的就留在它当天的位置上。
+ *
+ * 整根轴像滚轮（设计稿：https://claude.ai/artifact/3EYZp9KRSBgaXc9Ec92tmG）：从上往下是
+ * 以后 → 今天 → 以前，今天之内也是晚的在上。打开时「现在」停在屏幕 [Focus] 高度（以后的不够撑时贴顶，
+ * 顶上写一句「以后还没有安排」）。屏幕中间一大段是清楚的，只有靠上下边那一截变淡（「宽焦带」，
+ * 设计稿方向 B；不虚化、不缩放）。上下都能一直滑，前几天的记录滑到就在，没有「更多」按钮。
  *
  * 操作：轴上的圈 = 完成；点整行 = 编辑；左滑 = 删除。完成和删除都不弹确认，底下给 5 秒「撤销」。
  * 红字只给两种情况：过点没响、闹钟没排上（和小组件「过点写红字」同一个语义，§8.2）。
@@ -103,8 +122,44 @@ fun ReminderListScreen(
     }
     // 点过「重排一次」之后重新问一遍 AlarmManager
     var armedProbe by remember { mutableIntStateOf(0) }
+    // 新建 / 改动后，行先从 Room 冒出来、闹钟晚一拍才排上 —— 隔一会儿再问一遍，别先报一句「没排上」
+    LaunchedEffect(reminders) {
+        delay(600)
+        armedProbe++
+    }
     val timeline = remember(reminders, now, armedProbe) {
         buildTimeline(reminders, now, ZoneId.systemDefault(), vm::isArmed)
+    }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val nowIndex = timeline.lines.indexOfFirst { it is Line.Now }
+
+    // 「现在」实际停下的高度（占屏幕的比例）。以后的提醒不够把它撑到 [Focus] 时今天贴顶，停得更高
+    var focus by remember { mutableFloatStateOf(Focus) }
+    // 进来先把「现在」摆到焦点上。只摆一次：之后用户滑到哪就在哪
+    var placed by remember { mutableStateOf(false) }
+    // 「现在」上面有哪几行：位置号不够 —— 删掉最后一条以后的，顶上又冒出「以后还没有安排」，一减一加号码不变
+    val aboveNow = remember(timeline) { timeline.lines.take(maxOf(nowIndex, 0)).map { it.key } }
+    LaunchedEffect(aboveNow) {
+        if (nowIndex < 0) return@LaunchedEffect
+        if (!placed) {
+            listState.scrollToItem(nowIndex)
+            listState.centerOnFocus(nowIndex, Focus, animated = false)
+            listState.centerFraction(nowIndex)?.let { focus = minOf(Focus, it) }
+            placed = true
+        } else if (listState.centerFraction(nowIndex) != null) {
+            // 人正看着今天，上面多了 / 少了一条（新建、删掉以后的、「以后还没有安排」出现或消失）：
+            // 把「现在」重新摆回去，贴顶时就回到顶上，别让今天停在半截被宽焦带淡掉
+            listState.centerOnFocus(nowIndex, Focus, animated = true)
+            listState.centerFraction(nowIndex)?.let { focus = minOf(Focus, it) }
+        }
+    }
+    // 「现在」滑出焦点半屏以外，右下角给一个「回到今天」
+    val awayFromNow by remember(nowIndex) {
+        derivedStateOf {
+            val at = listState.centerFraction(nowIndex)
+            at == null || abs(at - focus) > 0.5f
+        }
     }
 
     var undo by remember { mutableStateOf<Undo?>(null) }
@@ -139,21 +194,33 @@ fun ReminderListScreen(
                 }
             }
 
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+            val fade = 72.dp
             LazyColumn(
-                contentPadding = PaddingValues(start = 20.dp, end = 24.dp, bottom = 96.dp),
+                state = listState,
+                // 顶上不垫：以后的提醒不够把「现在」撑到焦点时，今天就贴着顶，不留一块空白。
+                // 底下垫到焦点，让最早的记录也能滑上来看清
+                contentPadding = PaddingValues(start = 20.dp, end = 24.dp, bottom = maxHeight * (1 - Focus)),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(timeline.lines, key = { it.key }) { line ->
+                itemsIndexed(timeline.lines, key = { _, it -> it.key }) { index, line ->
+                    Box(
+                        Modifier
+                            .then(
+                                if (line is Line.Entry) Modifier.animateItem(
+                                    fadeInSpec = Motion.settle(),
+                                    placementSpec = Motion.flow(),
+                                    fadeOutSpec = Motion.exit()
+                                ) else Modifier
+                            )
+                            .wheel(listState, index)
+                    ) {
                     when (line) {
                         is Line.Day -> DayHeader(line)
                         is Line.Now -> NowLine(line.at)
-                        is Line.Entry -> Box(
-                            Modifier.animateItem(
-                                fadeInSpec = Motion.settle(),
-                                placementSpec = Motion.flow(),
-                                fadeOutSpec = Motion.exit()
-                            )
-                        ) {
+                        is Line.End -> EndMark()
+                        is Line.AheadEmpty -> AheadEmpty()
+                        is Line.Entry -> Box {
                             SwipeToDelete(
                                 onDelete = {
                                     vm.delete(line.r)
@@ -172,9 +239,28 @@ fun ReminderListScreen(
                             }
                         }
                     }
+                    }
                 }
             }
+            // 滚轮的两头：纸色渐隐。顶上那条只在上面还有东西时才有，贴顶时别把今天的抬头盖淡
+            val topFade by animateFloatAsState(if (listState.canScrollBackward) 1f else 0f, Motion.settle())
+            Box(
+                Modifier.fillMaxWidth().height(fade).align(Alignment.TopCenter)
+                    .graphicsLayer { alpha = topFade }
+                    .background(Brush.verticalGradient(listOf(colors.paper, colors.paper.copy(alpha = 0f))))
+            )
+            Box(
+                Modifier.fillMaxWidth().height(fade).align(Alignment.BottomCenter)
+                    .background(Brush.verticalGradient(listOf(colors.paper.copy(alpha = 0f), colors.paper)))
+            )
+            }
         }
+
+        BackToNow(
+            visible = awayFromNow && undo == null && nowIndex >= 0,
+            onClick = { scope.launch { listState.centerOnFocus(nowIndex, focus, animated = true) } },
+            modifier = Modifier.align(Alignment.BottomEnd)
+        )
 
         UndoBar(
             undo = undo,
@@ -218,6 +304,16 @@ private sealed interface Line {
     data class Entry(val r: Reminder, val kind: Kind, val armed: Boolean) : Line {
         override val key: Any get() = r.id
     }
+
+    /** 轴的顶：现在之后什么都没排时，代替那块空白 */
+    data object AheadEmpty : Line {
+        override val key: Any get() = "ahead-empty"
+    }
+
+    /** 轴的底：最早的以前之下 */
+    data object End : Line {
+        override val key: Any get() = "end"
+    }
 }
 
 private class Timeline(val lines: List<Line>, val unarmed: Int)
@@ -235,14 +331,32 @@ private fun dayLine(date: LocalDate, today: LocalDate, first: Boolean): Line.Day
     return when {
         days == 0L -> Line.Day(date, "今天", "$md $wd", first)
         days == 1L -> Line.Day(date, "明天", "$md $wd", first)
-        days in 2..6 -> Line.Day(date, wd, md, first)
+        days == -1L -> Line.Day(date, "昨天", "$md $wd", first)
+        days == 2L -> Line.Day(date, "后天", "$md $wd", first)
+        days == -2L -> Line.Day(date, "前天", "$md $wd", first)
+        days in 3..6 -> Line.Day(date, wd, md, first)
+        days in -6..-3 -> Line.Day(date, wd, md, first)
         else -> Line.Day(date, md, wd, first)
     }
 }
 
+/** 已经落定的那一刻：提前做完的算完成时间，别把明天的 09:00 算成它的时刻 */
+private fun settledAt(r: Reminder): Long = minOf(r.nextTriggerAt, r.updatedAt)
+
+private fun pastEntry(r: Reminder): Line.Entry {
+    val kind = when (r.status) {
+        ReminderStatus.FIRED -> Kind.Rang
+        ReminderStatus.CANCELLED -> Kind.Cancelled
+        else -> Kind.Done
+    }
+    return Line.Entry(r, kind, armed = true)
+}
+
 /**
- * 今天：已过去的（今天改过状态的非 SCHEDULED）→ 过点没响的 → 现在线 → 今天还没到的；
- * 之后每天一个抬头。过了今天的完成记录不再出现 —— 投递日志里有据可查。
+ * 整根轴倒着排：最远的以后在最上，最早的以前在最下，一天之内也是晚的在上。
+ * 每天：抬头 → 当天事项（没有钟点，挂在抬头底下）→ 带钟点的从晚到早。
+ * 今天：抬头 → 当天事项 → 今天还没到的 → 现在线 → 过点没响的和已经落定的（一起按时刻倒排）。
+ * 以前的日子收的是落定的记录（完成、取消、响过没点），按改状态那天分组。
  */
 private fun buildTimeline(
     all: List<Reminder>,
@@ -252,18 +366,7 @@ private fun buildTimeline(
 ): Timeline {
     val today = dateOf(now, zone)
 
-    val past = all
-        .filter { it.status != ReminderStatus.SCHEDULED && dateOf(it.updatedAt, zone) == today }
-        .sortedBy { minOf(it.nextTriggerAt, it.updatedAt) }
-        .map {
-            val kind = when (it.status) {
-                ReminderStatus.FIRED -> Kind.Rang
-                ReminderStatus.CANCELLED -> Kind.Cancelled
-                else -> Kind.Done
-            }
-            Line.Entry(it, kind, armed = true)
-        }
-
+    val settledByDay = all.filter { it.status != ReminderStatus.SCHEDULED }.groupBy { dateOf(it.updatedAt, zone) }
     val scheduled = all.filter { it.status == ReminderStatus.SCHEDULED }.sortedBy { it.nextTriggerAt }
 
     // 当天事项按「算哪天的」摆，不按闹钟挂在哪 —— 顺延过的闹钟在明晚，人还得今天看见它。
@@ -271,30 +374,41 @@ private fun buildTimeline(
     val dayTasks = scheduled.filter { it.isAllDay }
         .sortedWith(compareBy({ it.dueDay }, { it.createdAt }))
         .map { Line.Entry(it, Kind.DayTask, armed = it.nextTriggerAt <= now || isArmed(it.id)) }
-    val (dayTasksToday, dayTasksLater) = dayTasks.partition { !(it.r.dueDate() ?: today).isAfter(today) }
+    val dayTasksByDay = dayTasks.groupBy { maxOf(it.r.dueDate() ?: today, today) }
 
     val timed = scheduled.filterNot { it.isAllDay }
     val overdue = timed.filter { it.nextTriggerAt <= now }.map { Line.Entry(it, Kind.Overdue, armed = true) }
     val future = timed.filter { it.nextTriggerAt > now }.mapIndexed { i, r ->
         Line.Entry(r, if (i == 0) Kind.Next else Kind.Upcoming, armed = isArmed(r.id))
     }
-
-    if (past.isEmpty() && overdue.isEmpty() && future.isEmpty() && dayTasks.isEmpty()) return Timeline(emptyList(), 0)
-
-    val laterByDay = dayTasksLater.groupBy { it.r.dueDate() ?: today }
     val futureByDay = future.groupBy { dateOf(it.r.nextTriggerAt, zone) }
+
+    // 今天现在线以下：过点没响的 + 今天落定的，按各自的时刻一起倒排
+    val todayPast = (overdue.map { it to it.r.nextTriggerAt } +
+        settledByDay[today].orEmpty().map { pastEntry(it) to settledAt(it) })
+        .sortedByDescending { it.second }
+        .map { it.first }
+
+    val days = (settledByDay.keys + dayTasksByDay.keys + futureByDay.keys + today).sortedDescending()
+    if (days.size == 1 && todayPast.isEmpty() && dayTasksByDay[today] == null && futureByDay[today] == null) {
+        return Timeline(emptyList(), 0)
+    }
+
     val lines = buildList {
-        add(dayLine(today, today, first = true))
-        addAll(dayTasksToday)
-        addAll(past)
-        addAll(overdue)
-        add(Line.Now(now))
-        addAll(futureByDay[today].orEmpty())
-        (laterByDay.keys + futureByDay.keys).filter { it.isAfter(today) }.sorted().forEach { date ->
-            add(dayLine(date, today, first = false))
-            addAll(laterByDay[date].orEmpty())
-            addAll(futureByDay[date].orEmpty())
+        if (future.isEmpty() && dayTasksByDay.keys.none { it.isAfter(today) }) add(Line.AheadEmpty)
+        days.forEachIndexed { i, date ->
+            add(dayLine(date, today, first = i == 0))
+            addAll(dayTasksByDay[date].orEmpty())
+            addAll(futureByDay[date].orEmpty().asReversed())
+            when {
+                date == today -> {
+                    add(Line.Now(now))
+                    addAll(todayPast)
+                }
+                date.isBefore(today) -> addAll(settledByDay.getValue(date).sortedByDescending(::settledAt).map(::pastEntry))
+            }
         }
+        add(Line.End)
     }
     return Timeline(lines, unarmed = (future + dayTasks).count { !it.armed })
 }
@@ -321,7 +435,6 @@ private fun AxisRow(
         Modifier
             .fillMaxWidth()
             .height(IntrinsicSize.Min)
-            .background(colors.paper)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
     ) {
         Text(
@@ -356,7 +469,7 @@ private fun EntryRow(e: Line.Entry, now: Long, onClick: () -> Unit, onComplete: 
     val rrule = remember(r.rrule) { Format.humanRrule(r.rrule) }
     // 已经过去的那几条排在现在线上方，写它真正落定的时刻：提前做完的写完成时间，别把明天的 09:00 挂在今天
     val clock = Format.clock(
-        if (e.kind == Kind.Done || e.kind == Kind.Cancelled) minOf(r.nextTriggerAt, r.updatedAt) else r.nextTriggerAt
+        if (e.kind == Kind.Done || e.kind == Kind.Cancelled) settledAt(r) else r.nextTriggerAt
     )
 
     when (e.kind) {
@@ -568,24 +681,141 @@ private fun NowLine(at: Long) {
     }
 }
 
+// ---------------- 滚轮 ----------------
+
+/** 「现在」想停在屏幕的这个高度（从上往下的比例）：偏上，上面露出明天，下面多留点给以前 */
+private const val Focus = 0.33f
+
+/**
+ * 宽焦带：屏幕 [BandTop]–[BandBottom] 这一大段完全清楚，带外线性淡到 [EdgeAlpha]。
+ * 贴顶（上面没东西了）时清楚带从 0 开始，今天不会被当成边缘淡掉。不虚化、不缩放 ——
+ * 上一版每行一个 BlurEffect，掉帧又会在行边上透出一圈方框。
+ * 只在绘制阶段读 layoutInfo，滑动时不触发重组。
+ */
+private const val BandTop = 0.18f
+private const val BandBottom = 0.78f
+private const val EdgeAlpha = 0.3f
+
+private fun Modifier.wheel(state: LazyListState, index: Int): Modifier = graphicsLayer {
+    val info = state.layoutInfo
+    val item = info.visibleItemsInfo.firstOrNull { it.index == index } ?: return@graphicsLayer
+    val h = (info.viewportEndOffset - info.viewportStartOffset).toFloat()
+    val cy = item.offset - info.viewportStartOffset + item.size / 2f
+    val a = if (state.canScrollBackward) h * BandTop else 0f
+    val b = h * BandBottom
+    val t = when {
+        cy < a -> (a - cy) / a
+        cy > b -> (cy - b) / (h - b)
+        else -> 0f
+    }.coerceIn(0f, 1f)
+    alpha = 1f - (1f - EdgeAlpha) * t
+}
+
+/** 第 [index] 行的中线在屏幕多高（比例）；不在屏幕上就是 null */
+private fun LazyListState.centerFraction(index: Int): Float? {
+    val info = layoutInfo
+    val item = info.visibleItemsInfo.firstOrNull { it.index == index } ?: return null
+    val h = (info.viewportEndOffset - info.viewportStartOffset).toFloat()
+    return (item.offset - info.viewportStartOffset + item.size / 2f) / h
+}
+
+/** 把第 [index] 行的中线摆到 [focus] 高度上（滑不过头就停在头上） */
+private suspend fun LazyListState.centerOnFocus(index: Int, focus: Float, animated: Boolean) {
+    if (layoutInfo.visibleItemsInfo.none { it.index == index }) {
+        if (animated) animateScrollToItem(index) else scrollToItem(index)
+    }
+    val info = layoutInfo
+    val item = info.visibleItemsInfo.firstOrNull { it.index == index } ?: return
+    val h = info.viewportEndOffset - info.viewportStartOffset
+    val delta = item.offset - info.viewportStartOffset + item.size / 2f - h * focus
+    if (animated) animateScrollBy(delta) else scrollBy(delta)
+}
+
+/** 以后什么都没排：虚线轴收成一个小空圈，一行淡字 */
+@Composable
+private fun AheadEmpty() {
+    val colors = DaodianColors.current
+    Row(Modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.width(TimeColumn))
+        Box(
+            Modifier
+                .width(AxisColumn)
+                .fillMaxHeight()
+                .drawBehind {
+                    val x = size.width / 2
+                    drawLine(
+                        colors.rule2, Offset(x, size.height / 2), Offset(x, size.height), strokeWidth = 1.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx()))
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) { HollowNode(6.dp, colors.rule2, stroke = 1.dp) }
+        Text("以后还没有安排", style = DaodianType.caption, color = colors.hint)
+    }
+}
+
+/** 轴的底：一行淡字，告诉人滑到底了 */
+@Composable
+private fun EndMark() {
+    val colors = DaodianColors.current
+    Text(
+        "再往前没有了",
+        style = DaodianType.caption, color = colors.hint, textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp)
+    )
+}
+
+/** 滑远了才出来：墨色小胶囊，点一下滑回「现在」 */
+@Composable
+private fun BackToNow(visible: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = DaodianColors.current
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(Motion.settle()) + slideInVertically(Motion.settle()) { it / 2 },
+        exit = fadeOut(Motion.exit()) + slideOutVertically(Motion.exit()) { it / 2 },
+        modifier = modifier.navigationBarsPadding().padding(end = 16.dp, bottom = 24.dp)
+    ) {
+        Box(
+            Modifier
+                .height(40.dp)
+                .shadow(10.dp, RoundedCornerShape(20.dp), ambientColor = colors.ink, spotColor = colors.ink)
+                .background(colors.solid, RoundedCornerShape(20.dp))
+                .clickable(onClick = onClick)
+                .padding(horizontal = 18.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("回到今天", style = DaodianType.button, color = colors.onSolid)
+        }
+    }
+}
+
 // ---------------- 删除 / 撤销 / 告警 / 空状态 ----------------
+
+/** 左滑删除要拖过行宽的这个比例 */
+private const val DeleteReach = 0.4f
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SwipeToDelete(onDelete: () -> Unit, content: @Composable () -> Unit) {
     val colors = DaodianColors.current
-    val state = rememberSwipeToDismissBoxState(
+    // 只认距离、不认速度：Material 默认甩得够快也算，上下滑时手指往左偏一点就误删了。
+    // 必须往左拖过行宽的 [DeleteReach] 才删，不够就弹回去
+    lateinit var state: SwipeToDismissBoxState
+    state = rememberSwipeToDismissBoxState(
         confirmValueChange = {
-            if (it == SwipeToDismissBoxValue.EndToStart) {
+            if (it == SwipeToDismissBoxValue.EndToStart && state.progress >= DeleteReach) {
                 onDelete()
                 true
             } else false
-        }
+        },
+        positionalThreshold = { total -> total * DeleteReach }
     )
     SwipeToDismissBox(
         state = state,
         enableDismissFromStartToEnd = false,
         backgroundContent = {
+            // 只在真往左滑时才画：平时画着的话，滚轮把行淡化、虚化时这层深一档的底会透出一圈方框
+            if (state.dismissDirection != SwipeToDismissBoxValue.EndToStart) return@SwipeToDismissBox
             Row(
                 Modifier
                     .fillMaxSize()
@@ -598,7 +828,12 @@ private fun SwipeToDelete(onDelete: () -> Unit, content: @Composable () -> Unit)
                 Text("删除", style = DaodianType.button, color = colors.red)
             }
         }
-    ) { content() }
+    ) {
+        // 行平时不画底：被滚轮淡化时，半透明的纸色叠在纸色上会差一点，透出一圈方框。
+        // 只在往左拖的时候垫一层纸，盖住下面的「删除」
+        val swiping = state.dismissDirection == SwipeToDismissBoxValue.EndToStart
+        Box(if (swiping) Modifier.background(colors.paper) else Modifier) { content() }
+    }
 }
 
 /** 墨色的撤销条。实心块一律是墨色（§8.1 第 1 条） */
