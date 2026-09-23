@@ -6,10 +6,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -41,17 +41,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.abc.daodian.ledger.capture.PaySources
 import com.abc.daodian.ledger.domain.Actor
 import com.abc.daodian.ledger.domain.Direction
-import com.abc.daodian.ledger.tools.ListExpensesTool
+import com.abc.daodian.ledger.domain.ExpenseQuery
+import com.abc.daodian.ledger.domain.LedgerDays
 import com.abc.daodian.ledger.domain.TxnBrief
 import com.abc.daodian.ledger.domain.TxnSource
 import com.abc.daodian.ledger.domain.TxnState
-import com.abc.daodian.ledger.capture.PaySources
-import com.abc.daodian.shared.ui.BackIcon
-import com.abc.daodian.shared.ui.IconTapTarget
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
+import com.abc.daodian.shared.ui.BackIcon
+import com.abc.daodian.shared.ui.IconTapTarget
 
 /*
  * 记账三层（设计稿：<https://claude.ai/artifact/PRk3CWeu24V4tKZgxkGLwn> 第二排）：
@@ -257,7 +258,7 @@ fun LedgerOverviewScreen(
                 val first = data?.firstDay
                 val note = when {
                     first != null && first > period.from && first <= period.to ->
-                        Period.dateOf(first).let { "${it.monthValue}月${it.dayOfMonth}日开始记" }
+                        LedgerDays.dateOf(first).let { "${it.monthValue}月${it.dayOfMonth}日开始记" }
                     else -> "${data?.count ?: 0} 笔"
                 }
                 Row {
@@ -289,7 +290,7 @@ fun LedgerOverviewScreen(
             slices.forEach { s ->
                 SliceRow(
                     name = s.name, amount = s.amount, fraction = s.amount.toFloat() / max, dashed = s.topId == null,
-                    onClick = { onOpenCategory(s.topId ?: ListExpensesTool.UNCATEGORIZED, showIncome, period) }
+                    onClick = { onOpenCategory(s.topId ?: ExpenseQuery.UNCATEGORIZED, showIncome, period) }
                 )
             }
 

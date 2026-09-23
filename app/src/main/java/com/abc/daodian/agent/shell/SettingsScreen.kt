@@ -33,6 +33,7 @@ import com.abc.daodian.agent.conversation.ChatViewModel
 import com.abc.daodian.agent.feature.FeatureRegistry
 import com.abc.daodian.agent.feature.HealthItem
 import com.abc.daodian.agent.model.provider.ApiState
+import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.ui.CheckIcon
@@ -102,7 +103,7 @@ fun SettingsScreen(
                     note = when {
                         !profile.isConfigured -> "网关、key、模型有一项空着，说话办不了事"
                         down != null -> "上次没连上 · ${down.why}"
-                        else -> hostOf(profile.baseUrl)
+                        else -> Format.host(profile.baseUrl)
                     },
                     noteColor = if (down != null || !profile.isConfigured) colors.red else colors.muted,
                     titleColor = if (profile.model.isBlank()) colors.hint else colors.ink,
@@ -186,7 +187,3 @@ private fun HealthRow(item: HealthItem, onFix: () -> Unit) {
         if (!item.ok && item.fixIntent != null) FixLink()
     }
 }
-
-/** 同纸签：地址只留主机名 */
-private fun hostOf(baseUrl: String): String =
-    baseUrl.substringAfter("://").substringBefore('/').trim()

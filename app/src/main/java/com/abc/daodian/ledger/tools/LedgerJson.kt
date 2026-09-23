@@ -5,12 +5,6 @@ import com.abc.daodian.ledger.domain.AccountType
 import com.abc.daodian.ledger.domain.Direction
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
-import java.time.Instant
-import java.time.LocalDate
-import java.time.OffsetDateTime
-import java.time.ZoneId
-import java.time.ZonedDateTime
-import java.time.format.DateTimeFormatter
 
 /** 记账工具共用的 schema 积木和参数读法 */
 internal object LedgerJson {
@@ -76,26 +70,4 @@ internal object LedgerJson {
         val type = AccountType.of(a.text("type")) ?: return null
         return AccountRef(bank, a.text("tail")?.takeLast(4), type)
     }
-
-    // ---------------- 时间 ----------------
-
-    /** ISO 时刻，带不带偏移都认；不带的按 [zone] */
-    fun instant(text: String?, zone: ZoneId): Long? {
-        if (text.isNullOrBlank()) return null
-        return runCatching { OffsetDateTime.parse(text).toInstant().toEpochMilli() }.getOrNull()
-            ?: runCatching { ZonedDateTime.parse(text).toInstant().toEpochMilli() }.getOrNull()
-            ?: runCatching { java.time.LocalDateTime.parse(text).atZone(zone).toInstant().toEpochMilli() }.getOrNull()
-            ?: runCatching { LocalDate.parse(text.take(10)).atStartOfDay(zone).plusHours(12).toInstant().toEpochMilli() }.getOrNull()
-    }
-
-    /** 「2026-09-22」→ 20260922 */
-    fun dayOf(text: String?): Int? = runCatching { LocalDate.parse(text!!.trim().take(10)).let(::dayInt) }.getOrNull()
-
-    fun dayInt(d: LocalDate): Int = d.year * 10000 + d.monthValue * 100 + d.dayOfMonth
-
-    fun dayOf(millis: Long, zone: ZoneId): Int = dayInt(Instant.ofEpochMilli(millis).atZone(zone).toLocalDate())
-
-    private val STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-
-    fun stamp(millis: Long, zone: ZoneId): String = STAMP.format(Instant.ofEpochMilli(millis).atZone(zone))
 }

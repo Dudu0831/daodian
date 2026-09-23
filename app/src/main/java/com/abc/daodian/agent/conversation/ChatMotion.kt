@@ -1,7 +1,6 @@
 package com.abc.daodian.agent.conversation
 
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -22,11 +21,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -167,30 +163,6 @@ private fun WashBar(fraction: Float, phase: () -> Float, base: Color, hi: Color)
                         endX = center + band / 2
                     )
                 )
-            }
-    )
-}
-
-/** 工具在跑：一根 1px 细线，一滴墨来回游走（不确定进度） */
-@Composable
-fun InkHairline(modifier: Modifier = Modifier) {
-    val colors = DaodianColors.current
-    val phase by rememberInfiniteTransition(label = "hairline").animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1300, easing = Motion.Flow), RepeatMode.Reverse),
-        label = "hairlinePhase"
-    )
-    Box(
-        modifier
-            .fillMaxWidth()
-            .height(1.dp)
-            .clipToBounds()
-            .drawBehind {
-                drawRect(colors.ruleSoft)
-                val seg = size.width * 0.28f
-                val x = -seg * 0.2f + phase * (size.width - seg * 0.6f)
-                drawRect(colors.ink2.copy(alpha = 0.6f), topLeft = Offset(x, 0f), size = Size(seg, size.height))
             }
     )
 }

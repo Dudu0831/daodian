@@ -103,7 +103,7 @@ data class TxnChange(
 data class ExpenseQuery(
     val fromDay: Int? = null,
     val toDay: Int? = null,
-    /** 类别 id（一级的话连同它下面的二级）；-1 = 未归类 */
+    /** 类别 id（一级的话连同它下面的二级）；[UNCATEGORIZED] = 未归类 */
     val categoryId: Long? = null,
     val direction: Direction? = null,
     val state: TxnState? = null,
@@ -112,4 +112,9 @@ data class ExpenseQuery(
     val ids: List<Long>? = null,
     val limit: Int = 50,
     val includeVoid: Boolean = false
-)
+) {
+    companion object {
+        /** [categoryId] 填它 = 查「未归类」的 */
+        const val UNCATEGORIZED = -1L
+    }
+}

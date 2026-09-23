@@ -5,28 +5,29 @@ import com.abc.daodian.agent.engine.AgentEvent
 import com.abc.daodian.agent.engine.AgentLoop
 import com.abc.daodian.agent.engine.Session
 import com.abc.daodian.agent.engine.background.AgentActivity
-import com.abc.daodian.ledger.domain.ExpenseQuery
-import com.abc.daodian.ledger.tools.LedgerPrompt
-import com.abc.daodian.ledger.domain.LedgerText
-import com.abc.daodian.ledger.tools.LedgerTools
-import com.abc.daodian.ledger.tools.RecordExpensesTool
 import com.abc.daodian.agent.engine.context.LastTurns
+import com.abc.daodian.agent.engine.tool.ToolRegistry
 import com.abc.daodian.agent.model.ResponsesClient
 import com.abc.daodian.agent.model.provider.ApiHealth
 import com.abc.daodian.agent.model.provider.ProviderStore
-import com.abc.daodian.agent.engine.tool.ToolRegistry
-import com.abc.daodian.ledger.data.LedgerStore
 import com.abc.daodian.ledger.capture.PaySources
+import com.abc.daodian.ledger.data.LedgerStore
 import com.abc.daodian.ledger.data.db.AgentRun
 import com.abc.daodian.ledger.data.db.RawNotification
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.flow.first
+import com.abc.daodian.ledger.domain.ExpenseQuery
+import com.abc.daodian.ledger.domain.LedgerDays
+import com.abc.daodian.ledger.domain.LedgerText
+import com.abc.daodian.ledger.tools.LedgerPrompt
+import com.abc.daodian.ledger.tools.LedgerTools
+import com.abc.daodian.ledger.tools.RecordExpensesTool
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 
 /**
  * 整理：把待整理的原始通知交给整理 agent（LEDGER_PLAN.md §4 ②）。
@@ -123,7 +124,7 @@ object Organizer {
     private suspend fun inputOf(store: LedgerStore, batch: List<RawNotification>): String {
         val zone = ZoneId.systemDefault()
         val today = LocalDate.now(zone)
-        val recent = store.query(ExpenseQuery(fromDay = dayInt(today.minusDays(3)), limit = 80)).reversed()
+        val recent = store.query(ExpenseQuery(fromDay = LedgerDays.dayInt(today.minusDays(3)), limit = 80)).reversed()
         val memory = store.merchantMemory()
         return buildString {
             append("这一批原始通知（${batch.size} 条）：\n")
@@ -135,6 +136,4 @@ object Organizer {
             if (recent.isEmpty()) append("没有") else recent.forEach { append('\n').append(LedgerText.txn(it, zone)) }
         }
     }
-
-    private fun dayInt(d: LocalDate) = d.year * 10000 + d.monthValue * 100 + d.dayOfMonth
 }

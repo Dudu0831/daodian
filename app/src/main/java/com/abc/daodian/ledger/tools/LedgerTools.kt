@@ -29,9 +29,4 @@ object LedgerTools {
             UpdateExpensesTool(backend, zone),
             AddCategoryTool(backend)
         ).map { LockedTool(it, LOCK) }
-
-    /** 这些工具名是记账的 —— 界面按它决定画记账回执还是提醒卡片 */
-    val NAMES = setOf(
-        RecordExpensesTool.NAME, ListExpensesTool.NAME, AddExpenseTool.NAME, UpdateExpensesTool.NAME, AddCategoryTool.NAME
-    )
 }

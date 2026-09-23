@@ -1,45 +1,31 @@
 package com.abc.daodian.shared.format
 
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
 
-/** 把时间戳和 RRULE 变成人话。见 DESIGN.md §03「时间：写人话，不要 ISO 时间戳」 */
+/**
+ * 把时间戳变成人话。见 DESIGN.md §03「时间：写人话，不要 ISO 时间戳」
+ * 只放各模块都用得上的；重复规则、当天事项的写法在提醒模块（Rrule.human、ReminderText），到点全屏页的汉字日期在 alarm/。
+ */
 object Format {
 
-    private val weekday = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
-    private val cnDigits =
-        arrayOf("零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十")
-    private val dayName = mapOf(
-        "MO" to "一", "TU" to "二", "WE" to "三", "TH" to "四", "FR" to "五", "SA" to "六", "SU" to "日"
-    )
+    private val WEEKDAYS = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+
+    /** 「周五」。全 app 只这一份 */
+    fun weekday(day: DayOfWeek): String = WEEKDAYS[day.value - 1]
 
     fun humanDateTime(epochMillis: Long, zone: ZoneId = ZoneId.systemDefault()): String {
         val z = Instant.ofEpochMilli(epochMillis).atZone(zone)
-        val wd = weekday[z.dayOfWeek.value - 1]
+        val wd = weekday(z.dayOfWeek)
         return "%d月%d日 %s %02d:%02d".format(z.monthValue, z.dayOfMonth, wd, z.hour, z.minute)
     }
 
     /** 当天事项的「哪天」：「9月18日 周五」，不带钟点 */
     fun humanDay(date: LocalDate): String =
-        "%d月%d日 %s".format(date.monthValue, date.dayOfMonth, weekday[date.dayOfWeek.value - 1])
-
-    /**
-     * 当天事项离今天多远：「今天之内」「明天之内」「9月20日之内」；已经过了就是「拖了 2 天」。
-     * 列表、卡片、小组件口径一致
-     */
-    fun dayTaskWhen(due: LocalDate, today: LocalDate = LocalDate.now()): String {
-        val days = due.toEpochDay() - today.toEpochDay()
-        return when {
-            days < 0 -> "拖了 ${-days} 天"
-            days == 0L -> "今天之内"
-            days == 1L -> "明天之内"
-            days == 2L -> "后天之内"
-            days in 3..6 -> weekday[due.dayOfWeek.value - 1] + "之内"
-            else -> "${due.monthValue}月${due.dayOfMonth}日之内"
-        }
-    }
+        "%d月%d日 %s".format(date.monthValue, date.dayOfMonth, weekday(date.dayOfWeek))
 
     /** 收起态、列表这类地方用的短写法：「9月2日 15:00」，不带星期 */
     fun humanDateTimeShort(epochMillis: Long, zone: ZoneId = ZoneId.systemDefault()): String {
@@ -77,53 +63,6 @@ object Format {
         }
     }
 
-    /** RFC 5545 子集 → 「每周二」这类人话。超出 §7.2 支持范围的一律显示「重复」 */
-    fun humanRrule(rrule: String?): String? {
-        if (rrule.isNullOrBlank()) return null
-        val parts = rrule.removePrefix("RRULE:")
-            .split(";")
-            .mapNotNull { chunk ->
-                val i = chunk.indexOf('=')
-                if (i <= 0) null else chunk.take(i).uppercase() to chunk.substring(i + 1)
-            }
-            .toMap()
-        val interval = parts["INTERVAL"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
-        return when (parts["FREQ"]) {
-            "DAILY" -> if (interval == 1) "每天" else "每 $interval 天"
-            "WEEKLY" -> {
-                val days = parts["BYDAY"]?.split(",")?.mapNotNull { dayName[it.trim().uppercase()] }
-                when {
-                    !days.isNullOrEmpty() -> "每周" + days.joinToString("、")
-                    interval == 1 -> "每周"
-                    else -> "每 $interval 周"
-                }
-            }
-            "MONTHLY" -> {
-                val n = parts["BYMONTHDAY"]?.toIntOrNull()
-                // 负数从月底倒着数：-1 是最后一天
-                val day = when {
-                    n == null -> null
-                    n == -1 -> "最后一天"
-                    n < 0 -> "倒数第 ${-n} 天"
-                    else -> " $n 号"
-                }
-                when {
-                    day != null && interval == 1 -> "每月$day"
-                    day != null -> "每 $interval 月的$day"
-                    else -> "每月"
-                }
-            }
-            "YEARLY" -> "每年"
-            else -> "重复"
-        }
-    }
-
-    /** 到点全屏页的日期：「九月二日 · 周三」。汉字数字只用在这一屏，其余地方一律阿拉伯数字 */
-    fun chineseDate(epochMillis: Long, zone: ZoneId = ZoneId.systemDefault()): String {
-        val z = Instant.ofEpochMilli(epochMillis).atZone(zone)
-        return "${cnNumber(z.monthValue)}月${cnNumber(z.dayOfMonth)}日 · ${weekday[z.dayOfWeek.value - 1]}"
-    }
-
     fun clock(epochMillis: Long, zone: ZoneId = ZoneId.systemDefault()): String {
         val z = Instant.ofEpochMilli(epochMillis).atZone(zone)
         return "%02d:%02d".format(z.hour, z.minute)
@@ -138,11 +77,7 @@ object Format {
         else -> "晚上好——"
     }
 
-    /** 1..31 的汉字写法，够用就行，不做通用数字转换 */
-    private fun cnNumber(n: Int): String = when {
-        n <= 10 -> cnDigits[n]
-        n < 20 -> "十" + cnDigits[n - 10]
-        n % 10 == 0 -> cnDigits[n / 10] + "十"
-        else -> cnDigits[n / 10] + "十" + cnDigits[n % 10]
-    }
+    /** 网关地址只留主机名：「ark.cn-beijing.volces.com」。顶栏纸签、设置页共用 */
+    fun host(baseUrl: String): String =
+        baseUrl.substringAfter("://").substringBefore('/').trim()
 }

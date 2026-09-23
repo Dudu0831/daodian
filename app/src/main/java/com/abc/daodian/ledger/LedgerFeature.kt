@@ -17,6 +17,7 @@ import com.abc.daodian.agent.shell.AppNav
 import com.abc.daodian.agent.shell.FeatureUi
 import com.abc.daodian.ledger.capture.PaySources
 import com.abc.daodian.ledger.data.LedgerStore
+import com.abc.daodian.ledger.domain.LedgerDays
 import com.abc.daodian.ledger.organize.OrganizeWorker
 import com.abc.daodian.ledger.presentation.LedgerCategoryScreen
 import com.abc.daodian.ledger.presentation.LedgerDrawerCard
@@ -33,11 +34,11 @@ import com.abc.daodian.ledger.tools.LedgerPrompt
 import com.abc.daodian.ledger.tools.LedgerTools
 import com.abc.daodian.ledger.tools.LedgerTrace
 import com.abc.daodian.shared.ui.activityViewModel
+import java.time.LocalDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import java.time.LocalDate
 
 /**
  * 记账接到 agent 上的接头。记账自己在后台转：听通知（capture）、定期整理（organize）、每晚对账（reconciliation）；
@@ -86,7 +87,7 @@ object LedgerFeature : Feature, FeatureUi {
                 checkTime = LedgerFormat.nextCheck(checkTime),
                 onBack = nav::back,
                 onOpenCategory = { top, income, p ->
-                    nav.open(LedgerRoutes.category(top, income, p.mode.name, Period.dayInt(p.anchor)))
+                    nav.open(LedgerRoutes.category(top, income, p.mode.name, LedgerDays.dayInt(p.anchor)))
                 },
                 onCheckNow = { nav.trigger(LedgerRoutes.CHECK) }
             )
@@ -105,7 +106,7 @@ object LedgerFeature : Feature, FeatureUi {
             val day = a.getInt("day")
             val period = Period(
                 PeriodMode.valueOf(a.getString("mode") ?: PeriodMode.MONTH.name),
-                if (day > 0) Period.dateOf(day) else LocalDate.now()
+                if (day > 0) LedgerDays.dateOf(day) else LocalDate.now()
             )
             LedgerCategoryScreen(
                 vm = activityViewModel<LedgerViewModel>(),

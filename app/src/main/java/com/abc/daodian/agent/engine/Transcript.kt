@@ -1,5 +1,6 @@
 package com.abc.daodian.agent.engine
 
+import com.abc.daodian.shared.format.Format
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
@@ -20,7 +21,7 @@ sealed interface Item {
     data class UserMessage(val text: String, val at: ZonedDateTime, val trigger: Boolean = false) : Item {
         /** 喂给模型的样子：`[2026-09-18 21:03 周五 +08:00] 原话`。格式在 HarnessPrompt 里有交代 */
         fun content(): String =
-            "[${at.format(STAMP)} ${WEEKDAY[at.dayOfWeek.value - 1]} ${at.offset}] " +
+            "[${at.format(STAMP)} ${Format.weekday(at.dayOfWeek)} ${at.offset}] " +
                 (if (trigger) "$TRIGGER_MARK$text" else text)
     }
 
@@ -43,7 +44,6 @@ sealed interface Item {
         const val TRIGGER_MARK = "（app 自动发起，不是用户说的）"
 
         private val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-        private val WEEKDAY = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
     }
 }
 

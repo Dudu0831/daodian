@@ -26,6 +26,8 @@ import com.abc.daodian.ledger.domain.CategoryNode
 import com.abc.daodian.ledger.domain.ExpenseDraft
 import com.abc.daodian.ledger.domain.ExpenseQuery
 import com.abc.daodian.ledger.domain.LedgerBackend
+import com.abc.daodian.ledger.domain.LedgerDays
+import com.abc.daodian.ledger.domain.LedgerText
 import com.abc.daodian.ledger.domain.Money
 import com.abc.daodian.ledger.domain.NewSubcategory
 import com.abc.daodian.ledger.domain.RawNote
@@ -34,7 +36,6 @@ import com.abc.daodian.ledger.domain.TxnBrief
 import com.abc.daodian.ledger.domain.TxnChange
 import com.abc.daodian.ledger.domain.TxnSource
 import com.abc.daodian.ledger.domain.TxnState
-import com.abc.daodian.ledger.tools.ListExpensesTool
 import java.time.Instant
 import java.time.ZoneId
 
@@ -124,7 +125,7 @@ class LedgerStore private constructor(private val db: LedgerDatabase) : LedgerBa
         q.ids?.let { ids -> where += "t.id IN (${ids.joinToString(",") { "?" }})"; args.addAll(ids) }
         when (q.categoryId) {
             null -> Unit
-            ListExpensesTool.UNCATEGORIZED ->
+            ExpenseQuery.UNCATEGORIZED ->
                 where += "EXISTS (SELECT 1 FROM allocation a WHERE a.txnId = t.id AND a.categoryId IS NULL)"
             else -> {
                 where += "EXISTS (SELECT 1 FROM allocation a JOIN category c ON c.id = a.categoryId " +
@@ -383,16 +384,13 @@ class LedgerStore private constructor(private val db: LedgerDatabase) : LedgerBa
         if (rows.isNotEmpty()) dao.insertChanges(rows)
     }
 
-    fun dayOf(millis: Long): Int {
-        val d = Instant.ofEpochMilli(millis).atZone(zone).toLocalDate()
-        return d.year * 10000 + d.monthValue * 100 + d.dayOfMonth
-    }
+    fun dayOf(millis: Long): Int = LedgerDays.dayOf(millis, zone)
 
     /** 整理 agent 要的背景：商户记忆（只有你确认过的） */
     suspend fun merchantMemory(): List<Pair<String, String>> {
         val cats = categories()
         return dao.rememberedMerchants().mapNotNull { m ->
-            val path = com.abc.daodian.ledger.domain.LedgerText.path(m.categoryId, cats) ?: return@mapNotNull null
+            val path = LedgerText.path(m.categoryId, cats) ?: return@mapNotNull null
             m.name to path
         }
     }

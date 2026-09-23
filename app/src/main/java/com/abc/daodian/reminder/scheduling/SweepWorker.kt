@@ -60,7 +60,7 @@ class SweepWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
 
     companion object {
         const val TAG = "Daodian/Sweep"
-        private const val WORK_NAME = "daodian_sweep"
+        private const val WORK_NAME = "reminder_sweep"
 
         fun enqueue(context: Context) {
             val request = PeriodicWorkRequestBuilder<SweepWorker>(6, TimeUnit.HOURS)

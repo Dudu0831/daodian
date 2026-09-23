@@ -8,6 +8,7 @@ import com.abc.daodian.ledger.domain.Actor
 import com.abc.daodian.ledger.domain.Direction
 import com.abc.daodian.ledger.domain.ExpenseDraft
 import com.abc.daodian.ledger.domain.LedgerBackend
+import com.abc.daodian.ledger.domain.LedgerDays
 import com.abc.daodian.ledger.domain.LedgerGuard
 import com.abc.daodian.ledger.domain.LedgerText
 import com.abc.daodian.ledger.domain.Money
@@ -63,7 +64,7 @@ class AddExpenseTool(
         val amount = Money.parseCents(o.text("amount"))
             ?: return ToolOutcome("没记。金额「${o.text("amount")}」不是正数", ok = false)
         val nowMillis = context.now.toInstant().toEpochMilli()
-        val occurredAt = LedgerJson.instant(o.text("occurred_at"), zone) ?: nowMillis
+        val occurredAt = LedgerDays.instant(o.text("occurred_at"), zone) ?: nowMillis
         if (occurredAt > nowMillis + 60_000) return ToolOutcome("没记。发生时刻在将来，问问他是哪天", ok = false)
 
         val pick = when (val p = LedgerGuard.pickCategory(o.text("category"), direction, backend.categories(), allowNewSub = true)) {

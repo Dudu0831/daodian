@@ -1,6 +1,5 @@
 package com.abc.daodian.ledger.domain
 
-import com.abc.daodian.ledger.tools.LedgerJson
 import java.time.ZoneId
 
 /** 流水、原始通知写成模型读的一行字。工具结果和整理 agent 的输入共用这一份写法 */
@@ -8,7 +7,7 @@ object LedgerText {
 
     /** `#12 2026-09-22 19:20 支出 319.40 日用/超市日用 · 山姆会员商店 · 招商银行 8837 信用卡 · 支付宝 「山姆买了一周的日用」 [自动归的]` */
     fun txn(t: TxnBrief, zone: ZoneId): String = buildString {
-        append("#${t.id} ${LedgerJson.stamp(t.occurredAt, zone)} ${t.direction.label} ${Money.yuan(t.amount)}")
+        append("#${t.id} ${LedgerDays.stamp(t.occurredAt, zone)} ${t.direction.label} ${Money.yuan(t.amount)}")
         append(" ").append(t.category ?: "未归类")
         listOfNotNull(t.merchant ?: t.merchantRaw, t.account, t.channel).forEach { append(" · ").append(it) }
         append(" 「").append(t.summary).append("」")
@@ -23,7 +22,7 @@ object LedgerText {
 
     /** `raw#17 [2026-09-22 19:20 掌上生活] 交易提醒｜您在支付宝-山姆会员商店有一笔…` */
     fun raw(r: RawNote, zone: ZoneId): String = buildString {
-        append("raw#${r.id} [${LedgerJson.stamp(r.postTime, zone)} ${r.source}] ")
+        append("raw#${r.id} [${LedgerDays.stamp(r.postTime, zone)} ${r.source}] ")
         append(r.title ?: "（无标题）").append("｜").append(r.text ?: "（无正文）")
         r.extra?.let { append("｜").append(it) }
         if (r.redacted) append(" ⚠正文被系统遮蔽")

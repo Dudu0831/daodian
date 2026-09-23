@@ -29,7 +29,7 @@ class AlarmActivity : ComponentActivity() {
             com.abc.daodian.shared.theme.DaodianTheme(darkTheme = true) {
                 AlarmScreen(
                     title = title,
-                    dateLabel = com.abc.daodian.shared.format.Format.chineseDate(now),
+                    dateLabel = chineseDate(now),
                     clockLabel = com.abc.daodian.shared.format.Format.clock(now),
                     onDone = { act(NotificationActionReceiver.ACTION_DONE, reminderId) },
                     onSnooze = { act(NotificationActionReceiver.ACTION_SNOOZE, reminderId) }

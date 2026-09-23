@@ -1,6 +1,7 @@
 package com.abc.daodian.ledger.presentation
 
 import com.abc.daodian.ledger.domain.Direction
+import com.abc.daodian.shared.format.Format
 import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalTime
@@ -25,8 +26,6 @@ internal object LedgerFormat {
         else -> money(cents)
     }
 
-    private val WEEK = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
-
     /** 「9月22日 19:20」 */
     fun dayTime(millis: Long): String {
         val t = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault())
@@ -46,6 +45,6 @@ internal object LedgerFormat {
     /** 「9月22日 周二 19:20」 */
     fun dayWeekTime(millis: Long): String {
         val t = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault())
-        return "${t.monthValue}月${t.dayOfMonth}日 ${WEEK[t.dayOfWeek.value - 1]} %02d:%02d".format(t.hour, t.minute)
+        return "${t.monthValue}月${t.dayOfMonth}日 ${Format.weekday(t.dayOfWeek)} %02d:%02d".format(t.hour, t.minute)
     }
 }

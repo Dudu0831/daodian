@@ -57,6 +57,7 @@ import androidx.compose.ui.window.PopupProperties
 import com.abc.daodian.agent.engine.background.AgentActivity
 import com.abc.daodian.agent.model.provider.ApiState
 import com.abc.daodian.agent.model.provider.ProviderProfile
+import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.theme.Motion
@@ -262,7 +263,7 @@ private fun ProviderSheet(
                     )
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        hostOf(profile.baseUrl).ifBlank { "还没填网关地址" },
+                        Format.host(profile.baseUrl).ifBlank { "还没填网关地址" },
                         style = DaodianType.toolName,
                         color = colors.muted
                     )
@@ -341,7 +342,3 @@ private fun Pointer(fill: Color, edge: Color) {
         }
     }
 }
-
-/** 地址只留主机名 —— 纸签上那行字是给人一眼认出「这是哪家」，不是给人读路径的 */
-private fun hostOf(baseUrl: String): String =
-    baseUrl.substringAfter("://").substringBefore('/').trim()

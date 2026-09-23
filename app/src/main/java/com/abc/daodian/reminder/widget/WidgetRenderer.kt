@@ -9,13 +9,15 @@ import android.view.View
 import android.widget.RemoteViews
 import com.abc.daodian.R
 import com.abc.daodian.agent.entry.quick.QuickAddActivity
-import com.abc.daodian.reminder.data.ReminderDatabase
-import com.abc.daodian.reminder.data.Reminder
-import com.abc.daodian.reminder.data.dueDate
-import com.abc.daodian.reminder.data.isAllDay
-import com.abc.daodian.shared.format.Format
 import com.abc.daodian.agent.shell.ShellRoutes
 import com.abc.daodian.reminder.ReminderRoutes
+import com.abc.daodian.reminder.data.Reminder
+import com.abc.daodian.reminder.data.ReminderDatabase
+import com.abc.daodian.reminder.data.dueDate
+import com.abc.daodian.reminder.data.isAllDay
+import com.abc.daodian.reminder.domain.ReminderText
+import com.abc.daodian.reminder.domain.Rrule
+import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.navigation.Launch
 import java.time.Instant
 import java.time.LocalDate
@@ -258,14 +260,14 @@ object WidgetRenderer {
         if (fresh) append("刚记下 · ")
         reminder.dueDate()?.let { due ->
             // 「今天之内 · 20:00 提醒」「拖了 1 天 · 今晚 20:00 再提醒」
-            append(Format.dayTaskWhen(due, today(now)))
-            Format.humanRrule(reminder.rrule)?.let { append(" · ").append(it) }
+            append(ReminderText.dayTaskWhen(due, today(now)))
+            Rrule.human(reminder.rrule)?.let { append(" · ").append(it) }
             append(" · ").append(dayLabel(reminder.nextTriggerAt, now)).append(' ')
             append(Format.clock(reminder.nextTriggerAt)).append(" 提醒")
             return@buildString
         }
         append(dayLabel(reminder.nextTriggerAt, now))
-        Format.humanRrule(reminder.rrule)?.let { append(" · ").append(it) }
+        Rrule.human(reminder.rrule)?.let { append(" · ").append(it) }
         append(" · ")
         append(Format.relative(reminder.nextTriggerAt, now))
     }
@@ -287,14 +289,12 @@ object WidgetRenderer {
     /** 行尾那一小段：重复的写「每天 10:00」，一次性的写「明天 15:00」 */
     private fun whenShort(reminder: Reminder, now: Long): String {
         reminder.dueDate()?.let { due ->
-            return Format.humanRrule(reminder.rrule)?.let { "$it · 当天" } ?: Format.dayTaskWhen(due, today(now))
+            return Rrule.human(reminder.rrule)?.let { "$it · 当天" } ?: ReminderText.dayTaskWhen(due, today(now))
         }
         val clock = Format.clock(reminder.nextTriggerAt)
-        return Format.humanRrule(reminder.rrule)?.let { "$it $clock" }
+        return Rrule.human(reminder.rrule)?.let { "$it $clock" }
             ?: "${dayLabel(reminder.nextTriggerAt, now)} $clock"
     }
-
-    private val weekdays = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
     /** 「今天 / 明天 / 后天 / 周五 / 9月20日」—— 桌面上一眼要看懂的是哪天，不是几号 */
     private fun dayLabel(at: Long, now: Long): String =
@@ -308,7 +308,7 @@ object WidgetRenderer {
             0L -> "今天"
             1L -> "明天"
             2L -> "后天"
-            in 3L..6L -> weekdays[day.dayOfWeek.value - 1]
+            in 3L..6L -> Format.weekday(day.dayOfWeek)
             else -> "${day.monthValue}月${day.dayOfMonth}日"
         }
     }
@@ -316,7 +316,7 @@ object WidgetRenderer {
     /** 空状态抬头右边的「9月11日 周五」 */
     private fun dateLabel(now: Long): String {
         val z = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())
-        return "${z.monthValue}月${z.dayOfMonth}日 ${weekdays[z.dayOfWeek.value - 1]}"
+        return "${z.monthValue}月${z.dayOfMonth}日 ${Format.weekday(z.dayOfWeek)}"
     }
 
     private fun done(context: Context, reminderId: Long): PendingIntent =

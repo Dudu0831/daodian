@@ -4,20 +4,24 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.abc.daodian.agent.engine.background.AgentActivity
-import com.abc.daodian.ledger.domain.CategoryKind
-import com.abc.daodian.ledger.domain.Direction
-import com.abc.daodian.ledger.domain.ExpenseQuery
-import com.abc.daodian.ledger.tools.ListExpensesTool
-import com.abc.daodian.ledger.domain.RawNote
-import com.abc.daodian.ledger.domain.TxnBrief
 import com.abc.daodian.ledger.data.LedgerSettings
 import com.abc.daodian.ledger.data.LedgerStore
-import com.abc.daodian.ledger.reconciliation.LedgerCheck
 import com.abc.daodian.ledger.data.db.Category
 import com.abc.daodian.ledger.data.db.ChangeLog
 import com.abc.daodian.ledger.data.db.DirectionSum
 import com.abc.daodian.ledger.data.db.Sum
+import com.abc.daodian.ledger.domain.CategoryKind
+import com.abc.daodian.ledger.domain.Direction
+import com.abc.daodian.ledger.domain.ExpenseQuery
+import com.abc.daodian.ledger.domain.LedgerDays
+import com.abc.daodian.ledger.domain.RawNote
+import com.abc.daodian.ledger.domain.TxnBrief
 import com.abc.daodian.ledger.organize.OrganizeWorker
+import com.abc.daodian.ledger.reconciliation.LedgerCheck
+import com.abc.daodian.shared.format.Format
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.YearMonth
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,9 +33,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.LocalDate
-import java.time.LocalTime
-import java.time.YearMonth
 
 /** 看账的粒度 */
 enum class PeriodMode(val label: String) { DAY("日"), MONTH("月"), QUARTER("季"), YEAR("年") }
@@ -55,8 +56,8 @@ data class Period(val mode: PeriodMode, val anchor: LocalDate) {
             PeriodMode.YEAR -> LocalDate.of(anchor.year, 12, 31)
         }
 
-    val from: Int get() = dayInt(start)
-    val to: Int get() = dayInt(end)
+    val from: Int get() = LedgerDays.dayInt(start)
+    val to: Int get() = LedgerDays.dayInt(end)
 
     fun shift(n: Long): Period = copy(
         anchor = when (mode) {
@@ -70,7 +71,7 @@ data class Period(val mode: PeriodMode, val anchor: LocalDate) {
     /** 「2026年 9月」「9月23日 周三」 */
     val label: String
         get() = when (mode) {
-            PeriodMode.DAY -> "${anchor.monthValue}月${anchor.dayOfMonth}日 ${WEEK[anchor.dayOfWeek.value - 1]}"
+            PeriodMode.DAY -> "${anchor.monthValue}月${anchor.dayOfMonth}日 ${Format.weekday(anchor.dayOfWeek)}"
             PeriodMode.MONTH -> "${anchor.year}年 ${anchor.monthValue}月"
             PeriodMode.QUARTER -> "${anchor.year}年 ${QUARTERS[(anchor.monthValue - 1) / 3]}季度"
             PeriodMode.YEAR -> "${anchor.year}年"
@@ -89,12 +90,8 @@ data class Period(val mode: PeriodMode, val anchor: LocalDate) {
     val isCurrentOrLater: Boolean get() = !end.isBefore(LocalDate.now())
 
     companion object {
-        private val WEEK = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
         private val MONTHS = arrayOf("一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二")
         private val QUARTERS = arrayOf("一", "二", "三", "四")
-
-        fun dayInt(d: LocalDate) = d.year * 10000 + d.monthValue * 100 + d.dayOfMonth
-        fun dateOf(day: Int): LocalDate = LocalDate.of(day / 10000, day / 100 % 100, day % 100)
     }
 }
 
@@ -178,12 +175,12 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     /** 月 → 每天一根；季、年 → 每月一根；日 → 没有柱子 */
     private fun barsOf(p: Period, daily: List<Sum>, firstDay: Int?): List<Bar> {
         val today = LocalDate.now()
-        val first = firstDay?.let(Period::dateOf)
+        val first = firstDay?.let(LedgerDays::dateOf)
         val perDay = daily.associate { (it.key ?: 0L).toInt() to it.amount }
         return when (p.mode) {
             PeriodMode.DAY -> emptyList()
             PeriodMode.MONTH -> generateSequence(p.start) { it.plusDays(1) }.takeWhile { !it.isAfter(p.end) }.map { d ->
-                val amount = perDay[Period.dayInt(d)] ?: 0L
+                val amount = perDay[LedgerDays.dayInt(d)] ?: 0L
                 Bar(
                     label = if (d.dayOfMonth in setOf(1, 10, 20) || d == p.end) "${d.dayOfMonth}日" else "",
                     amount = amount,
@@ -209,14 +206,14 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------- 第二层：一个类别 ----------------
 
-    /** [topId] 是一级类别 id；[ListExpensesTool.UNCATEGORIZED] 是「未归类」 */
+    /** [topId] 是一级类别 id；[ExpenseQuery.UNCATEGORIZED] 是「未归类」 */
     fun category(topId: Long, income: Boolean, p: Period): Flow<CategoryDetail> {
         val change = dao.observeLastChange()
         return combine(change, dao.observeCategories(), dao.observeByTop(p.from, p.to, income)) { _, cats, tops -> cats to tops }
             .mapLatest { (cats, tops) ->
                 val byId = cats.associateBy { it.id }
                 val top = byId[topId]
-                val total = tops.firstOrNull { (it.key ?: ListExpensesTool.UNCATEGORIZED) == topId }?.amount ?: 0L
+                val total = tops.firstOrNull { (it.key ?: ExpenseQuery.UNCATEGORIZED) == topId }?.amount ?: 0L
                 val all = tops.sumOf { it.amount }.takeIf { it != 0L }
                 val txns = store.query(
                     ExpenseQuery(

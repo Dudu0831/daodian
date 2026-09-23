@@ -10,6 +10,7 @@ import com.abc.daodian.ledger.domain.Direction
 import com.abc.daodian.ledger.domain.ExpenseDraft
 import com.abc.daodian.ledger.domain.ExpenseQuery
 import com.abc.daodian.ledger.domain.LedgerBackend
+import com.abc.daodian.ledger.domain.LedgerDays
 import com.abc.daodian.ledger.domain.LedgerGuard
 import com.abc.daodian.ledger.domain.LedgerText
 import com.abc.daodian.ledger.domain.Money
@@ -228,7 +229,7 @@ class RecordExpensesTool(
             )
         }
 
-        val given = LedgerJson.instant(e.text("occurred_at"), zone)
+        val given = LedgerDays.instant(e.text("occurred_at"), zone)
         val occurredAt = given ?: sources.minOf { it.postTime }
         if (given != null && !LedgerGuard.timeNearRaw(given, sources)) {
             return LedgerGuard.Check.No("发生时刻 ${e.text("occurred_at")} 离通知时刻超过 24 小时，拿不准就填 null")
@@ -281,7 +282,7 @@ class RecordExpensesTool(
                 confidence = e.get("confidence")?.takeIf { it.isNumber }?.asDouble()?.coerceIn(0.0, 1.0),
                 // 没归类又没留问题：替它补一句，不然晚上对账时没话可问
                 ask = ask ?: if (category.categoryId == null && category.newSub == null && direction.categoryKind != null) {
-                    "${LedgerJson.stamp(occurredAt, zone)} ${direction.label} ${Money.yuan(amount)}，这是什么？"
+                    "${LedgerDays.stamp(occurredAt, zone)} ${direction.label} ${Money.yuan(amount)}，这是什么？"
                 } else null,
                 refundOf = target?.id,
                 replaces = existing.firstOrNull()?.id

@@ -65,6 +65,45 @@ object Rrule {
         return next?.takeIf { until == null || !it.isAfter(until) }
     }
 
+    /** 规则 → 「每周二」这类人话。超出 §7.2 支持范围的一律显示「重复」；不重复是 null */
+    fun human(rrule: String?): String? {
+        if (rrule.isNullOrBlank()) return null
+        val parts = parse(rrule)
+        val interval = parts["INTERVAL"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        return when (parts["FREQ"]) {
+            "DAILY" -> if (interval == 1) "每天" else "每 $interval 天"
+            "WEEKLY" -> {
+                val days = parts["BYDAY"]?.split(",")?.mapNotNull { dayName[it.trim().uppercase()] }
+                when {
+                    !days.isNullOrEmpty() -> "每周" + days.joinToString("、")
+                    interval == 1 -> "每周"
+                    else -> "每 $interval 周"
+                }
+            }
+            "MONTHLY" -> {
+                val n = parts["BYMONTHDAY"]?.toIntOrNull()
+                // 负数从月底倒着数：-1 是最后一天
+                val day = when {
+                    n == null -> null
+                    n == -1 -> "最后一天"
+                    n < 0 -> "倒数第 ${-n} 天"
+                    else -> " $n 号"
+                }
+                when {
+                    day != null && interval == 1 -> "每月$day"
+                    day != null -> "每 $interval 月的$day"
+                    else -> "每月"
+                }
+            }
+            "YEARLY" -> "每年"
+            else -> "重复"
+        }
+    }
+
+    private val dayName = mapOf(
+        "MO" to "一", "TU" to "二", "WE" to "三", "TH" to "四", "FR" to "五", "SA" to "六", "SU" to "日"
+    )
+
     private fun parse(rrule: String): Map<String, String> =
         rrule.removePrefix("RRULE:")
             .split(";")

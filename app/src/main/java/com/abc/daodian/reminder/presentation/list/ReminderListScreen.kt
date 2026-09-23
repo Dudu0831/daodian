@@ -1,6 +1,7 @@
 package com.abc.daodian.reminder.presentation.list
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -8,8 +9,11 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -25,9 +29,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.gestures.animateScrollBy
-import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -43,22 +44,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
@@ -70,23 +70,24 @@ import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderStatus
 import com.abc.daodian.reminder.data.dueDate
 import com.abc.daodian.reminder.data.isAllDay
+import com.abc.daodian.reminder.domain.Rrule
 import com.abc.daodian.reminder.presentation.ReminderViewModel
+import com.abc.daodian.shared.format.Format
+import com.abc.daodian.shared.theme.DaodianColors
+import com.abc.daodian.shared.theme.DaodianType
+import com.abc.daodian.shared.theme.Motion
 import com.abc.daodian.shared.ui.CheckIcon
 import com.abc.daodian.shared.ui.ChevronRightIcon
-import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.ui.PlusIcon
 import com.abc.daodian.shared.ui.RepeatIcon
 import com.abc.daodian.shared.ui.ScreenTopBar
 import com.abc.daodian.shared.ui.TrashIcon
-import com.abc.daodian.shared.theme.DaodianColors
-import com.abc.daodian.shared.theme.DaodianType
-import com.abc.daodian.shared.theme.Motion
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlin.math.abs
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlin.math.abs
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * 提醒列表 · 时间轴。见 DESIGN.md §08，设计稿「方向 B」：
@@ -320,12 +321,10 @@ private class Timeline(val lines: List<Line>, val unarmed: Int)
 
 private data class Undo(val label: String, val original: Reminder)
 
-private val weekdays = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
-
 private fun dateOf(millis: Long, zone: ZoneId): LocalDate = Instant.ofEpochMilli(millis).atZone(zone).toLocalDate()
 
 private fun dayLine(date: LocalDate, today: LocalDate, first: Boolean): Line.Day {
-    val wd = weekdays[date.dayOfWeek.value - 1]
+    val wd = Format.weekday(date.dayOfWeek)
     val md = "${date.monthValue}月${date.dayOfMonth}日"
     val days = date.toEpochDay() - today.toEpochDay()
     return when {
@@ -466,7 +465,7 @@ private fun AxisRow(
 private fun EntryRow(e: Line.Entry, now: Long, onClick: () -> Unit, onComplete: () -> Unit) {
     val colors = DaodianColors.current
     val r = e.r
-    val rrule = remember(r.rrule) { Format.humanRrule(r.rrule) }
+    val rrule = remember(r.rrule) { Rrule.human(r.rrule) }
     // 已经过去的那几条排在现在线上方，写它真正落定的时刻：提前做完的写完成时间，别把明天的 09:00 挂在今天
     val clock = Format.clock(
         if (e.kind == Kind.Done || e.kind == Kind.Cancelled) settledAt(r) else r.nextTriggerAt

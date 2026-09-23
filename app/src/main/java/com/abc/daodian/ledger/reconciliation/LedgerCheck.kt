@@ -16,7 +16,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.abc.daodian.ledger.domain.Direction
 import com.abc.daodian.ledger.domain.ExpenseQuery
-import com.abc.daodian.ledger.tools.LedgerJson
+import com.abc.daodian.ledger.domain.LedgerDays
 import com.abc.daodian.ledger.domain.Money
 import com.abc.daodian.ledger.domain.TxnState
 import com.abc.daodian.ledger.data.LedgerSettings
@@ -82,7 +82,7 @@ object LedgerCheck {
     suspend fun check(context: Context) {
         val app = context.applicationContext
         val zone = ZoneId.systemDefault()
-        val today = LedgerJson.dayInt(LocalDate.now(zone))
+        val today = LedgerDays.dayInt(LocalDate.now(zone))
         val snoozed = LedgerSettings.snoozedUntil(app)
         val isSnoozeFire = snoozed > 0 && kotlin.math.abs(System.currentTimeMillis() - snoozed) < 10 * 60 * 1000L
         if (isSnoozeFire) LedgerSettings.setSnoozedUntil(app, 0)

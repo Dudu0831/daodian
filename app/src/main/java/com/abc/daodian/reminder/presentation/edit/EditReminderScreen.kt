@@ -42,23 +42,24 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.abc.daodian.reminder.data.dueDate
 import com.abc.daodian.reminder.data.isAllDay
+import com.abc.daodian.reminder.domain.Rrule
 import com.abc.daodian.reminder.presentation.ReminderViewModel
-import com.abc.daodian.shared.ui.ChevronRightIcon
 import com.abc.daodian.shared.format.Format
-import com.abc.daodian.shared.ui.PaperGroup
-import com.abc.daodian.shared.ui.GroupLabel
-import com.abc.daodian.shared.ui.GroupRule
-import com.abc.daodian.shared.ui.RepeatBadge
-import com.abc.daodian.shared.ui.ScreenTopBar
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
+import com.abc.daodian.shared.ui.ChevronRightIcon
+import com.abc.daodian.shared.ui.GroupLabel
+import com.abc.daodian.shared.ui.GroupRule
+import com.abc.daodian.shared.ui.PaperGroup
+import com.abc.daodian.shared.ui.RepeatBadge
+import com.abc.daodian.shared.ui.ScreenTopBar
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -75,7 +76,6 @@ import java.time.temporal.TemporalAdjusters
 enum class RepeatChoice { NONE, DAILY, WEEKLY, MONTHLY, YEARLY, CUSTOM }
 
 private val weekdayCode = arrayOf("MO", "TU", "WE", "TH", "FR", "SA", "SU")
-private val weekdayName = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
 /**
  * 手动建 / 改一条提醒 —— 逃生舱。必须能完全脱离 AI 建成一条完整提醒。见 DESIGN.md §05
@@ -467,11 +467,11 @@ private fun repeatOptions(date: LocalDate, originalRrule: String?): List<RepeatO
     return buildList {
         add(RepeatOption(RepeatChoice.NONE, "不重复", "就这一次"))
         add(RepeatOption(RepeatChoice.DAILY, "每天", null))
-        add(RepeatOption(RepeatChoice.WEEKLY, "每" + weekdayName[date.dayOfWeek.value - 1], "按「哪天」那天是周几"))
+        add(RepeatOption(RepeatChoice.WEEKLY, "每" + Format.weekday(date.dayOfWeek), "按「哪天」那天是周几"))
         add(RepeatOption(RepeatChoice.MONTHLY, "每月 $d 号", if (d > 28) "没有 $d 号的月份顺延到月底" else null))
         add(RepeatOption(RepeatChoice.YEARLY, "每年 ${date.monthValue}月${d}日", null))
         if (originalRrule != null && initialRepeat(originalRrule, date) == RepeatChoice.CUSTOM) {
-            add(RepeatOption(RepeatChoice.CUSTOM, Format.humanRrule(originalRrule) ?: "重复", "原来的规则，原样保留"))
+            add(RepeatOption(RepeatChoice.CUSTOM, Rrule.human(originalRrule) ?: "重复", "原来的规则，原样保留"))
         }
     }
 }

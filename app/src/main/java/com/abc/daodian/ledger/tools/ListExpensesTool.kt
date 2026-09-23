@@ -7,6 +7,7 @@ import com.abc.daodian.agent.engine.tool.ToolOutcome
 import com.abc.daodian.ledger.domain.Direction
 import com.abc.daodian.ledger.domain.ExpenseQuery
 import com.abc.daodian.ledger.domain.LedgerBackend
+import com.abc.daodian.ledger.domain.LedgerDays
 import com.abc.daodian.ledger.domain.LedgerText
 import com.abc.daodian.ledger.domain.TxnState
 import com.abc.daodian.ledger.tools.LedgerJson.longOrNull
@@ -47,7 +48,7 @@ class ListExpensesTool(
         val categoryText = o.text("category")
         val categoryId = when {
             categoryText == null -> null
-            categoryText == "未归类" -> UNCATEGORIZED
+            categoryText == "未归类" -> ExpenseQuery.UNCATEGORIZED
             else -> {
                 val cats = backend.categories()
                 RecordExpensesTool.categoryIdOfPath(categoryText, cats)
@@ -55,8 +56,8 @@ class ListExpensesTool(
             }
         }
         val q = ExpenseQuery(
-            fromDay = LedgerJson.dayOf(o.text("from")),
-            toDay = LedgerJson.dayOf(o.text("to")),
+            fromDay = LedgerDays.dayOf(o.text("from")),
+            toDay = LedgerDays.dayOf(o.text("to")),
             categoryId = categoryId,
             direction = Direction.entries.firstOrNull { it.name == o.text("direction") },
             state = TxnState.entries.firstOrNull { it.name == o.text("state") },
@@ -73,8 +74,5 @@ class ListExpensesTool(
 
     companion object {
         const val NAME = "list_expenses"
-
-        /** [ExpenseQuery.categoryId] 用它表示「未归类」 */
-        const val UNCATEGORIZED = -1L
     }
 }
