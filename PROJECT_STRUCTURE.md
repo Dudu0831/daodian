@@ -1,6 +1,6 @@
 # 工程目录规划
 
-本文件描述 `app/src/main/java/com/abc/daodian/` 的**目标包结构**和迁移方案，不是当前目录清单。仍是一个 Gradle 模块，下面说的「模块」指包层面的业务边界。
+本文件描述 `app/src/main/java/com/abc/daodian/` 的包结构和当初的迁移方案。**2026-09-23 已按此落地**（分支 `restructure-modules`，和计划不一样的地方见「落地时的出入」）。仍是一个 Gradle 模块，下面说的「模块」指包层面的业务边界。
 
 迁移方式已定：**一次挪到位，不留旧路径的兼容层；新包连数据卸载后全新安装**。所以不用照顾任何按旧类名存下的东西：数据库版本回到 1、schemas 重新导出、类名想怎么挪就怎么挪。代价是提醒、账本、对话记录、配置、权限全部清空重来，见「卸载重装」一节。
 
@@ -41,6 +41,7 @@ com/abc/daodian/
 │
 ├── reminder/                    # 模块二：提醒。可靠排期和送达是核心，脱离 agent 也要能用
 │   ├── ReminderFeature.kt       # 接头：实现 Feature + FeatureUi
+│   ├── ReminderRoutes.kt        # 各页路由。通知、小组件、痕也要用，所以不挂在接头上
 │   ├── domain/                  # 计划、闸门、重复规则
 │   ├── data/                    # 提醒表、投递日志（reminder.db）
 │   ├── application/             # Reminders：所有写操作的唯一入口
@@ -56,6 +57,7 @@ com/abc/daodian/
 │
 ├── ledger/                      # 模块三：记账
 │   ├── LedgerFeature.kt         # 接头
+│   ├── LedgerRoutes.kt          # 三层页面的路由、对账的 trigger 键
 │   ├── domain/                  # 流水、类别、金额、LedgerBackend、护栏、给模型读的写法、日期
 │   ├── data/                    # LedgerStore、记账设置
 │   │   └── db/                  # ledger.db
@@ -67,7 +69,7 @@ com/abc/daodian/
 │
 └── shared/                      # 地基，不是模块。三个模块都能用，它谁也不依赖
     ├── theme/                   # 色板、字体、动效
-    ├── ui/                      # 图标、徽标、页头、PaperGroup、SettingRow
+    ├── ui/                      # 图标、徽标、页头、PaperGroup、SettingRow、DrawerPaper、activityViewModel
     ├── format/                  # 通用的人话时间、星期、主机名
     └── navigation/              # Launch：用路由字符串拉起 app（通知、小组件、速记共用）
 ```
@@ -77,27 +79,30 @@ com/abc/daodian/
 ```kotlin
 // agent/feature/Feature.kt —— 模块给 agent 的（不碰 Compose）
 interface Feature {
-    val id: String                                     // "reminder"；也是它的路由前缀
+    val id: String                                     // "reminder"；也是它的路由前缀、trigger 键的前缀
     val prompt: String                                 // 接在基础提示词后面的一段
     fun tools(context: Context): List<Tool>            // 对话 agent 的工具（桌面速记同一套）
-    fun trace(call: Item.ToolCall, result: Item.ToolResult?): TraceView? = null  // 它的写操作留什么痕
-    val examples: List<String> get() = emptyList()     // 对话空状态的例句、速记的提示
+    fun trace(call: ToolTrace): TraceView? = null      // 它的写操作留什么痕（不是它的工具就 null）
+    val examples: List<String> get() = emptyList()     // 对话空状态的例句
     val manualEntry: String? get() = null              // 连不上模型时「手动填一条」去哪（路由）
-    suspend fun trigger(key: String): Trigger? = null  // app 自己发起的一轮（每晚对账）
-    fun health(context: Context): List<HealthItem> = emptyList()  // 体检项
+    suspend fun trigger(context: Context, key: String): Trigger? = null  // app 自己发起的一轮（每晚对账）
+    fun health(context: Context): List<HealthItem> = emptyList()         // 体检项；ok = null 是只能手动设的
     fun onAppStart(context: Context) {}                // 冷启动要做的（重排、排巡检、排对账…）
 }
 
 // agent/shell/FeatureUi.kt —— 模块给界面壳的
 interface FeatureUi {
-    fun NavGraphBuilder.routes(nav: NavController)             // 自己的页面，路由以 id 开头
-    @Composable fun DrawerCard(open: (String) -> Unit) {}      // 抽屉里的一张纸（外框和标题行由壳画）
-    @Composable fun SettingsSection(open: (String) -> Unit) {} // 设置页里的一组
+    fun NavGraphBuilder.routes(nav: AppNav)                     // 自己的页面，路由以 id 开头
+    @Composable fun DrawerCard(open: (String) -> Unit) {}       // 抽屉里的一张纸（用 shared/ui 的 DrawerPaper）
+    @Composable fun SettingsSection(open: (String) -> Unit) {}  // 设置页里的一组或几组
+    @Composable fun HealthNote() {}                             // 设置页体检结论底下补一行（提醒：投递漂移）
 }
+
+// AppNav：模块页面能做的跳转 —— open(route) / back() / chat(prefill) / trigger(key)
 ```
 
 - `ReminderFeature`、`LedgerFeature` 各是一个同时实现两个接口的 object。
-- `TraceView`：在办时的标签、办成 / 没办成的标签、一行字、可展开的逐条、点了去的路由。
+- `ToolTrace`：工具名、参数（流着时是半截）、在办 / 办成 / 没办成、结果、ref。`TraceView`：在办时的标签、办成 / 没办成的标签、一行字、可展开的逐条、点了去的路由。
 - `Trigger`：要么是一轮的开场白（交给 agent 开一轮），要么是一句话（直接显示，比如「账都对上了」）。
 - 注册表 `agent/feature/FeatureRegistry`：`DaodianApp.onCreate` 把 `Features.kt` 的清单装进去，agent 只读它。Worker、Receiver 都在 Application 之后跑，拿得到。
 - **路由约定**：agent 用 `chat`、`settings`、`provider`；提醒用 `reminder/list`、`reminder/edit?id=`、`reminder/log`；记账用 `ledger`、`ledger/category/…`、`ledger/txn/{id}`。`Launch` 的 intent 带 `route`，可选 `trigger`（如 `ledger:check`）、`say`（速记交给对话页的那句话）。
@@ -128,9 +133,9 @@ ViewModel 的分工：
 5. 跨模块跳转只用路由字符串。模块不 import `MainActivity`，拉起 app 走 `shared/navigation/Launch`。
 6. 根目录只做装配：列模块、装注册表。
 
-## 今天的耦合，各收到哪
+## 迁移前的耦合，各收到哪
 
-| 今天写死的 | 收到哪 |
+| 迁移前写死的 | 收到哪 |
 |---|---|
 | `ui/Agents.kt` 列工具、拼 `HarnessPrompt + LedgerPrompt.CHAT` | `ChatAgent` 遍历注册表：基础提示词 + 各模块 `prompt`，各模块 `tools` |
 | `HarnessPrompt` 末尾的「提醒的规则」 | `reminder/tools/ReminderPrompt`。原样切出，按原顺序拼回去逐字节不变（前缀缓存） |
@@ -138,13 +143,13 @@ ViewModel 的分工：
 | `ChatMessage.createdReminderId`（速记判断「记好了」） | 回合的 `committed` |
 | `Trace.kt` 的 `traceViewOf`、`whenOf` | `reminder/tools/ReminderTrace`、`ledger/tools/LedgerTrace`，经 `Feature.trace` |
 | `TraceTarget.Reminder / Txn` | `TraceView.route` |
-| 对话空状态的四条例句；速记的「比如明天下午三点交房租」 | `Feature.examples` |
+| 对话空状态的四条例句 | `Feature.examples`（速记那句「比如明天下午三点交房租」是文案不是依赖，没挪） |
 | 出错时「手动填一条」；速记的 `onManual` | `Feature.manualEntry` |
 | `TriggerDivider` 写死「每晚对账」 | 删掉特判，已有的「取冒号前一段」就够 |
 | `MainViewModel.startLedgerCheck` 调 `LedgerCheck`、`LedgerCheckPrompt` | 记账的 `trigger("check")` |
 | `MainViewModel` 的提醒增删改、日志、收尾时刻；`PlanCommitter` | `reminder/application/Reminders` + `ReminderViewModel` |
 | `MainDrawer` 的 `ReminderPaper`、`LedgerPaper`；`ChatScreen` 为抽屉拿 `LedgerViewModel` | `FeatureUi.DrawerCard` |
-| `SettingsScreen` 的提醒组、记账组，拿 `LedgerViewModel` | `FeatureUi.SettingsSection` |
+| `SettingsScreen` 的提醒组、记账组，拿 `LedgerViewModel`；顶上结论里的投递漂移 | `FeatureUi.SettingsSection`；`FeatureUi.HealthNote` |
 | `HealthCheck`（设置页结论、抽屉「还差 N 项」） | `Feature.health`；「应用启动管理」那条手动项归提醒 |
 | `DaodianNavHost` 的全部路由 | `FeatureUi.routes` |
 | `WidgetTarget` 枚举各模块的去处 | `Launch`：route + trigger + say |
@@ -153,7 +158,7 @@ ViewModel 的分工：
 | `QuickAddViewModel` 调 `WidgetUpdater.announce` | 提醒落库时由 `Reminders` 自己刷新、点亮小组件 |
 | `DaodianApp` 挨个调两边的启动逻辑 | `Feature.onAppStart` |
 | `Rescheduler`、`Notifier` 引用 `MainActivity` | `shared/navigation/Launch` |
-| `WidgetFrame` 靠 `DaodianWidget` 类找小组件 | 小组件在 PendingIntent 里带上 appWidgetId |
+| `WidgetFrame` 靠 `DaodianWidget` 类找小组件 | 按包名找本 app 的小组件（`getInstalledProvidersForPackage`） |
 | `LedgerStore`、账本页用 `ListExpensesTool.UNCATEGORIZED` | 挪进 domain：`ExpenseQuery.UNCATEGORIZED` |
 | `LedgerText`、`LedgerCheck` 用 `LedgerJson` 的日期函数 | 拆到 `ledger/domain/LedgerDays`；`LedgerJson` 只留 schema 和读参数 |
 
@@ -178,7 +183,7 @@ ViewModel 的分工：
 | 通知、精确闹钟、全屏通知、通知使用权、电池 / 应用启动管理 | 按设置页体检一条条重新开 |
 | 桌面小组件 | 长按桌面重新添加 |
 
-## 迁移对照表（现在 → 目标）
+## 迁移对照表（迁移前 → 现在）
 
 **根目录**
 - `DaodianApp.kt`、`MainActivity.kt` → 位置不动（改成装注册表、挂 `agent/shell` 的 NavHost；删掉调样本导入那行）
@@ -227,7 +232,7 @@ ViewModel 的分工：
 - `common/ProviderSeal`；`common/TopBar` 里的 `ChatTopBar` → `agent/conversation/`
 - `common/TopBar` 里的 `ScreenTopBar`、`IconTapTarget`；`common/Icons`、`Badge` → `shared/ui/`
 - `common/Ledger` → `shared/ui/PaperGroup`（`LedgerLabel/Group/Rule` → `GroupLabel/PaperGroup/GroupRule`，和记账功能撞名）
-- `common/Format` → 拆开：通用的人话时间、星期、主机名 → `shared/format/`；`humanRrule` → `Rrule` 旁边（合掉两份 RRULE 解析）；`dayTaskWhen` → 提醒；`chineseDate` → `reminder/presentation/alarm/`
+- `common/Format` → 拆开：通用的人话时间、星期、主机名 → `shared/format/`；`humanRrule` → `Rrule.human`（合掉两份 RRULE 解析）；`dayTaskWhen` → `reminder/domain/ReminderText`；`chineseDate` → `reminder/presentation/alarm/ChineseDate.kt`
 - `theme/*` → `shared/theme/`
 - `alarm/*` → `reminder/presentation/alarm/`
 - `list/ReminderListScreen` → `reminder/presentation/list/`
@@ -252,13 +257,13 @@ ViewModel 的分工：
 
 ## 迁移顺序
 
-每步单独提交，编译通过、单测通过再进下一步。
+每步单独提交，编译通过、单测通过再进下一步。1–5 已完成（2026-09-23），6–8 要你在手机上做。
 
-1. **地基和引擎**：建 `shared/`；`harness/` → `agent/engine`、`agent/model`。只挪包、改 import。
-2. **接头**：写 `agent/feature`、`agent/shell/FeatureUi`；`ChatAgent`、对话画法、NavHost、抽屉、设置页改成只走接头，逐条消掉「今天的耦合」表。
-3. **两个模块落位**：提醒、记账按新结构搬，写 `ReminderFeature`、`LedgerFeature`；`MainViewModel` 拆完；`Format` 拆开；删死代码。
-4. **Android 收尾**：Manifest 路径；`ReminderDatabase` 回 1 版、删旧 schemas；巡检改名 `reminder_sweep`；`Launch` 路由化；小组件带 appWidgetId；单测挪位、agent 测试换假工具。
-5. **文档**：DESIGN / CLAUDE / LEDGER_PLAN / README 里的路径；CLAUDE.md「不要碰的假设」改成 `reminder/scheduling/` 和 `reminder/data/`；「Room 升到 v2、在 `DaodianDatabase.autoMigrations` 加」改成 `ReminderDatabase`、1 版；小组件那条的 `am start` 命令；「清账本重来」那段删掉（卸载就是清账本）。
+1. ✅ **挪包**（`5f01cd3`）：全部 111 个文件一次挪到位、改包名和 import；Manifest 路径跟着改；提醒库改名 `ReminderDatabase`、回 1 版、删旧 schemas。
+2. ✅ **接头**（`71550a2`）：`agent/feature`、`agent/shell/FeatureUi`；`ChatAgent`、对话画法、NavHost、抽屉、设置页只走接头，「迁移前的耦合」表逐条消掉；`MainViewModel` 拆完；`Launch` 路由化；agent 测试换假工具。
+3. ✅ **收尾**（`7758556`）：`Format` 拆开、重复的小工具合一份、`LedgerDays`、删死代码、巡检改名 `reminder_sweep`。
+4. ✅ Android 收尾的几项已并进 1–3。
+5. ✅ **文档**：DESIGN / CLAUDE / LEDGER_PLAN / README 的路径和本文件。
 6. **卸载前留底（可选，你决定）**：debug 包能 `run-as`，想留的拷到电脑上，比如调研样本：
    `adb exec-out run-as com.abc.daodian.debug cat files/pay_samples.imported.jsonl > pay_samples.jsonl`
 7. **卸载、装新包**：`adb uninstall com.abc.daodian.debug`（清掉全部数据，你来执行）→ `./gradlew :app:installDebug`。
@@ -272,3 +277,16 @@ ViewModel 的分工：
    - 付一笔真钱 → 账本里出现 →「现在整理一次」跑通
    - 对账通知点「现在」→ 对话页开一轮对账
    - 定一条两分钟后的提醒，真响一次，通知上点「完成」后闹钟和通知都收掉
+
+## 落地时的出入
+
+和上面的计划不一样、或者计划里没写到的：
+
+- **顺序**：第 1 步没有只挪 `harness/`，而是全部机械挪包一次做完（一个脚本改包名、import、全类名引用，再补同包变跨包的 import），数据库回 1 版也放在这一步 —— schemas 目录名跟着全类名走，不回 1 版第 1 步就编译不过。
+- **接口细节**：`Feature.trace` 收的是 `ToolTrace`（工具名、参数、状态、结果、ref），不是 `Item.ToolCall` / `ToolResult` —— 痕在流的时候还没有结果项；`trigger` 带 `Context`；`FeatureUi` 多一个 `HealthNote`。
+- **路由常量**放在 `ReminderRoutes` / `LedgerRoutes`，不挂在接头上：通知、小组件（核心层）要用路由，又不该 import 接头文件（接头 import agent）。
+- **`parsedBy`**：`create_reminder` 落库要记模型名，以前从接线处的 profile 拿；现在 `LlmClient.model` → `ToolContext.model`，模块的 `tools(context)` 不用知道配置。
+- **小组件刷新**：以前 `MainViewModel` 盯 `observeAll()` 兜住 app 内的改动；现在 `Reminders` 每个写操作之后自己喊。模型建的一律 `announce`（亮「刚记下」），对话页建的也亮 —— 在 app 里时看不见，无害。
+- **设置页顺序**变了：体检结论 → 模型服务 → 系统权限 → 提醒 → 记录 → 记账（以前「提醒」在最上面）。模型服务那行没配置时的说明改成「说话办不了事」（壳不该提「提醒」）。
+- **`Reminders.startSoakTest`** 留着（48 小时放置测试还没跑，要跑时临时接个按钮）；`addIn` 没人调，删了。
+- **还留着的跨层引用**（都在规则允许内）：提醒核心层 import 自己的 `widget/WidgetUpdater`（喊桌面重画）和 `presentation/alarm/AlarmActivity`（全屏 intent）；`widget/WidgetRenderer` import agent 的 `QuickAddActivity`（墨印拉起速记）和 `ShellRoutes`。

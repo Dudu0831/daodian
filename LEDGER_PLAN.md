@@ -23,8 +23,8 @@
 | 类别 | **两层**。一级预设：支出 8 个（餐饮 / 交通 / 购物 / 日用 / 娱乐 / 住房 / 医疗 / 其他）+ 收入 4 个，新增要问；二级模型自己建、不问，每个一级下封顶 12（§10.2） |
 | 看账 | 新增**只读**流水列表页（先出设计稿）；**改账一律走对话**（写操作直接办、留一道痕），列表页不带编辑。界面上只看月支出、月收入、按一级类别分，细的都在对话里问 |
 | 退款 | 算**退款那个月的一笔负数**，类别跟原笔走 |
-| 存储 | `data/ledger/` 单独一个 `ledger.db`，不碰 `daodian.db` 和 `chat.db` |
-| 调度 | 放在记账自己的包里，**不碰 `schedule/`** |
+| 存储 | `ledger/data/db/` 单独一个 `ledger.db`，不碰提醒的 `reminder.db` 和 `chat.db` |
+| 调度 | 放在记账自己的包里，**不碰 `reminder/scheduling/`** |
 
 ---
 
@@ -428,16 +428,20 @@ WHERE state != 'VOID' AND direction = 'IN' AND day BETWEEN 20260901 AND 20260930
 
 | 在哪 | 干什么 |
 |---|---|
-| `harness/background/AgentActivity.kt` | 通用：**谁在后台跑**（`running`，顶栏印章看它）、**按名字的锁**（`tryRun` 拿不到就不跑、`queued` 排队）、`LockedTool`（给写工具套锁） |
-| `harness/builtin/ledger/` | 纯 Kotlin，JVM 单测覆盖：领域模型、`LedgerBackend` 接口、`LedgerGuard` 护栏、五个工具、`LedgerTools`（哪组工具给哪个 agent）、`LedgerPrompt`（整理 / 对话两段提示词，`VERSION` 写进 parsed_by） |
-| `ledger/db/` | `ledger.db` 的表（§10.3 + `agent_run`）、DAO（统计 SQL 在这）、建库时写预设类别 |
-| `ledger/LedgerStore.kt` | `LedgerBackend` 的 Room 实现 + 采集入口 `ingest()`（遮蔽版 / 真正文在这里就理清） |
-| `ledger/PaySampler.kt` | 通知监听（类名没改，改了要重新授权），直接写库；`LegacySamples` 把调研时的 jsonl 导进来一次，原文件改名留底 |
-| `ledger/PaySources.kt` | 听哪几家（加一家 = 加一行）、遮蔽文案、通知使用权 |
+包结构见 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)：记账是三个模块之一，经 `ledger/LedgerFeature.kt` 这一个接头接到 agent 上。
+
+| `agent/engine/background/AgentActivity.kt` | 通用：**谁在后台跑**（`running`，顶栏印章看它）、**按名字的锁**（`tryRun` 拿不到就不跑、`queued` 排队）、`LockedTool`（给写工具套锁） |
+| `ledger/LedgerFeature.kt` | 接头：对话 agent 的四个工具和那段提示词、痕、每晚对账那一轮（`trigger("check")`）、冷启动排整理和对账、三层页面、抽屉卡、设置组 |
+| `ledger/domain/` | 纯 Kotlin：领域模型、`LedgerBackend` 接口、`LedgerGuard` 护栏、`LedgerText`（给模型读的写法）、`LedgerDays`（yyyyMMdd 和 ISO 时刻互换，只这一份） |
+| `ledger/tools/` | 纯 Kotlin，JVM 单测覆盖：五个工具、`LedgerTools`（哪组工具给哪个 agent）、`LedgerPrompt`（整理 / 对话两段提示词，`VERSION` 写进 parsed_by）、`LedgerTrace`（痕上写什么） |
+| `ledger/data/db/` | `ledger.db` 的表（§10.3 + `agent_run`）、DAO（统计 SQL 在这）、建库时写预设类别 |
+| `ledger/data/LedgerStore.kt` | `LedgerBackend` 的 Room 实现 + 采集入口 `ingest()`（遮蔽版 / 真正文在这里就理清） |
+| `ledger/capture/PaySampler.kt` | 通知监听，直接写库。**通知使用权按全类名授**：挪包、改名都要重新授权（2026-09-23 包结构重排挪了它，装新包前要连数据卸载、装完重新授权） |
+| `ledger/capture/PaySources.kt` | 听哪几家（加一家 = 加一行）、遮蔽文案、通知使用权 |
 | `ledger/organize/` | `Organizer`（先扫通知栏、再数、有才叫模型，整轮拿账本锁）、`OrganizeWorker`（周期 + 现在跑一次） |
-| `ledger/check/` | 每晚对账：自己的闹钟、通知三按钮、`CheckReceiver`（含开机 / 覆盖安装重排）、对账那一轮的开场 |
-| `ui/ledger/` | 抽屉（方向 B「两张纸」）、记账三层（总览 → 类别 → 一笔）、`LedgerViewModel`（日 / 月 / 季 / 年） |
-| `ui/chat/Trace.kt`、`AskCard.kt` | 对话里记账操作的痕、对账的问卡（原来的 `LedgerReceipt.kt` 回执框 09-23 删了，分隔线挪进 `ChatComponents.kt`） |
+| `ledger/reconciliation/` | 每晚对账：自己的闹钟、通知三按钮、`CheckReceiver`（含开机 / 覆盖安装重排）、`CheckWorker`、对账那一轮的开场 |
+| `ledger/presentation/` | 抽屉卡（方向 B「两张纸」）、设置组、记账三层（总览 → 类别 → 一笔）、`LedgerViewModel`（日 / 月 / 季 / 年） |
+| `agent/conversation/TraceLine.kt`、`AskCard.kt` | 对话里的痕（字由 `LedgerTrace` 写）、对账的问卡（原来的 `LedgerReceipt.kt` 回执框 09-23 删了，分隔线在 `ChatComponents.kt`） |
 
 ### 和计划不一样的地方
 

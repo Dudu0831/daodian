@@ -49,7 +49,7 @@ M1 的出口条件不是「点一下能响」，是 48 小时放置测试 ——
 ## AI：agent 循环 + 工具调用
 
 设计文档 §6 最早写的是「让模型输出 JSON」，实测换成了**工具调用**（`create_reminder` 函数）；
-后来又从「一句话解析出一条提醒」升级成了 **agent 循环**（`harness/`，DESIGN.md §6.8）：
+后来又从「一句话解析出一条提醒」升级成了 **agent 循环**（`agent/engine/`，DESIGN.md §6.8）：
 
 - `response_format: json_object` 那档测试时模型会自己发明字段名（`{summary, details:{...}}`），对不上我们要的 schema；
   工具调用把参数 schema 交给服务端强制，不会跑偏
@@ -62,31 +62,39 @@ M1 的出口条件不是「点一下能响」，是 48 小时放置测试 ——
 
 ## 目录结构
 
+三个模块 + 地基，一个 Gradle 模块。每个文件放哪、为什么、依赖规则见 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)。
+
 ```
 app/src/main/java/com/abc/daodian/
-├── data/          Room：Reminder + FireLog + DAO
-├── schedule/      调度内核 —— 项目里唯一不允许出错的部分
-│   ├── Rescheduler.kt              排期 / 取消 / 全量重建 / 时区重算
-│   ├── AlarmReceiver.kt            到点广播入口
-│   ├── FireHandler.kt              「响了之后做什么」，正常触发和补发共用
-│   ├── RescheduleReceiver.kt       开机 / 应用更新 / 时区变更
-│   ├── NotificationActionReceiver  完成 / 稍后 10 分钟
-│   └── SweepWorker.kt              6h 兜底巡检（第二道网，不是保险）
-├── notify/        通知渠道与构建（到点全屏页从这里的 fullScreenIntent 拉起）
-├── recur/         RRULE 子集求值
-├── harness/       agent 框架 —— 循环、工具、授权、上下文裁剪、供应商配置（DESIGN.md §6.8）
-│   └── builtin/     具体工具，现在只有 create_reminder（+ 校验闸门）
-└── ui/
-    ├── theme/       色板 + 字体角色（DaodianColors / DaodianType）
-    ├── chat/        对话页 —— app 主屏，含五种状态的组件
-    ├── alarm/       到点全屏页（独立 AlarmActivity，不是 MainActivity）
-    ├── list/        提醒列表
-    ├── edit/        手动建 / 改一条提醒 —— 逃生舱，必须能脱离 AI 用
-    ├── settings/     设置 + 权限体检 + 投递日志
-    └── common/      图标（手绘 Canvas，没引入 material-icons-extended）、格式化、顶栏
+├── DaodianApp.kt / MainActivity.kt / Features.kt   装配：模块清单、宿主 Activity
+├── agent/         智能交互。只认识 Feature / FeatureUi 这一个接头，不知道提醒和账是什么
+│   ├── engine/      ReAct 循环、会话、工具接口、ask_user、上下文裁剪、后台 agent 与锁（DESIGN.md §6.8）
+│   ├── model/       调一次模型（流式 / 回退 / 停）+ 供应商配置
+│   ├── feature/     接头：Feature、痕的写法、体检项、注册表
+│   ├── conversation/  对话页（回合、问卡、痕）、ChatAgent、chat.db
+│   ├── entry/quick/ 桌面速记
+│   ├── voice/       本地语音识别
+│   └── shell/       导航、抽屉、设置页、模型配置页的框
+├── reminder/      提醒。断网、不经过模型也要能用
+│   ├── scheduling/  调度内核 —— 项目里唯一不允许出错的部分
+│   │   ├── Rescheduler.kt              排期 / 取消 / 全量重建 / 时区重算
+│   │   ├── AlarmReceiver.kt            到点广播入口
+│   │   ├── FireHandler.kt              「响了之后做什么」，正常触发和补发共用
+│   │   ├── RescheduleReceiver.kt       开机 / 应用更新 / 时区变更
+│   │   ├── DayTasks.kt                 当天事项
+│   │   └── SweepWorker.kt              6h 兜底巡检（第二道网，不是保险）
+│   ├── data/        Room：Reminder + FireLog + DAO（reminder.db）
+│   ├── domain/      计划、闸门、RRULE 子集
+│   ├── application/ Reminders：所有写操作的唯一入口
+│   ├── delivery/    通知（到点全屏页从这里的 fullScreenIntent 拉起）、通知按钮、权限体检
+│   ├── tools/       create_reminder、提醒那段提示词、痕
+│   ├── widget/      桌面小组件
+│   └── presentation/  列表、编辑（逃生舱）、到点全屏页、投递日志
+├── ledger/        记账：通知采集、后台整理、每晚对账、三层账本页（LEDGER_PLAN.md）
+└── shared/        地基：墨宋色板与字体、手绘图标、通用组件、人话时间、Launch 路由
 ```
 
-`data/` 和 `schedule/` 是唯一不允许出错的部分。`ui/` 可以整包重画。
+`reminder/scheduling/` 和 `reminder/data/` 是唯一不允许出错的部分。各处的界面（`presentation/`、`agent/conversation`、`agent/shell`）可以整包重画。
 
 ---
 
@@ -219,7 +227,7 @@ ROM 确实在大规模延迟别的 app 的闹钟，我们的没进那个队列�
 冒烟测试只证明链路是通的，**不能替代下面的放置测试** —— 前者在插着 USB、屏幕亮着的情况下跑，
 后者才检验深度 Doze 下的表现。
 
-**M2（AI 解析）真机测试**：当时的 `ToolCallParser`（现已被 `harness/` 取代）在真机上验证过 —— openai-java 编译、dex、运行时、
+**M2（AI 解析）真机测试**：当时的 `ToolCallParser`（现已被 agent 循环取代，在 `agent/engine/`）在真机上验证过 —— openai-java 编译、dex、运行时、
 工具调用全部走通（`java/net/http` 引用为 0，Android 上不会因为缺 `HttpClient` 而崩），模型正确调用
 `create_reminder`，字段名和时间推算都对，反问/失败两条路径也各自触发过一次。
 

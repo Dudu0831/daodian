@@ -4,8 +4,11 @@
 
 ## 现状（2026-09，下面这行过时了就更新它）
 
+- **包结构重排**（2026-09-23，分支 `restructure-modules`）：三个模块 `agent` / `reminder` / `ledger` + `shared` 地基，模块经 `Feature` / `FeatureUi` 一个接头接到 agent 上。结构、依赖规则、旧路径 → 新路径的对照表全在 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)；**下面各条里的旧路径（`harness/`、`ui/`、`schedule/`、`data/`…）按那张表对照**。
+  挪包改了全类名（通知使用权、小组件、闹钟、WorkManager 都按全类名记），所以**装新包前要连数据卸载**（`adb uninstall com.abc.daodian.debug`，会清空提醒、账本、对话、配置、权限）；提醒库改名 `reminder.db`、回到 v1。
+  **只验过编译、37 条单测、打包**，真机一条都没验 —— 验收清单在 PROJECT_STRUCTURE.md「迁移顺序」最后一步。
 - **M1 调度内核**：代码完成，真机冒烟测试通过（零漂移），**48 小时放置测试没跑过**——这是唯一还没拿到的硬证据。
-- **M2 AI 解析**：用的是**工具调用**（`create_reminder`），不是让模型输出 JSON。真机测试成功：模型正确调用工具，字段名、时间推算都对。**2026-09-18 起整层换成了 `harness/` agent 循环**（见下面 harness 那条），这一条及下面流式、「停」、思考开关几条里提到的 `ToolCallParser` 已删除，机制由 `harness/llm/ResponsesClient` 继承。
+- **M2 AI 解析**：用的是**工具调用**（`create_reminder`），不是让模型输出 JSON。真机测试成功：模型正确调用工具，字段名、时间推算都对。**2026-09-18 起整层换成了 `harness/` agent 循环**（现 `agent/engine/`，见下面 harness 那条），这一条及下面流式、「停」、思考开关几条里提到的 `ToolCallParser` 已删除，机制由 `agent/model/ResponsesClient` 继承。
 - **M3 UI**：八块 Compose 屏幕（对话/卡片/到点全屏/列表/编辑/设置/日志）全部写完、编译通过、lint 干净。
 - **视觉改版（墨宋）**：整套 UI 按新视觉稿重画完，规范见 DESIGN.md §8.1。真机确认过：空状态、对话、解析骨架、卡片、收起态、设置体检页（截图），到点全屏页（用户肉眼在锁屏上看到并点了「完成」，我没截到图）。
 - **"喝水"全链路真机跑通了**（2026-09-04）：点例句 → 模型调 `create_reminder` → 落库排期 → `dumpsys alarm` 有闹钟 → 10:03:49.259 准点响，漂移 259ms，通知 `not_intercepted`。
@@ -20,11 +23,11 @@
   还差一条没验：断网/坏 key 的回退。
   **「停」半天没反应**（2026-09-11 已修）：原来阻塞 HTTP 包在 `withContext(IO)` 里、close 挂在 `invokeOnCompletion` 上，Job 卡在阻塞调用里完成不了，回调永远来不及触发 —— 骨架阶段点「停」要等到首个 token。现在走 `detached`（今天在 `ResponsesClient`），见 DESIGN.md §6.7 坑 1。真机验过：骨架阶段点「停」，下一张截图（几百毫秒内）回合已经在淡出、原话已回到输入框，`dumpsys alarm` 没多出闹钟。
   另外这台 ROM 屏蔽第三方 logcat，`Log.i` 一行都看不到，别指望用日志判断流式有没有跑 —— 只能看界面。
-- **对话动效改版「一句话，到一枚印」**（2026-09-11，**卡片部分已被下面「问卡与痕」取代**）：工具行就地长成卡片（在建提醒 → 虚线起稿 → 落印 → 收起），墨条洇染、正文逐字淡入、流式逐帧贴底、喊停后原话退回输入框；落印**不震动**（用户明确说聊天里震动很怪）。规则见 DESIGN.md 决策 6.2 / 6.3，时长曲线只从 `ui/theme/Motion.kt` 取，动效稿：<https://claude.ai/code/artifact/c0493995-43b7-4220-8a00-35adb5990804>。
+- **对话动效改版「一句话，到一枚印」**（2026-09-11，**卡片部分已被下面「问卡与痕」取代**）：工具行就地长成卡片（在建提醒 → 虚线起稿 → 落印 → 收起），墨条洇染、正文逐字淡入、流式逐帧贴底、喊停后原话退回输入框；落印**不震动**（用户明确说聊天里震动很怪）。规则见 DESIGN.md 决策 6.2 / 6.3，时长曲线只从 `shared/theme/Motion.kt` 取，动效稿：<https://claude.ai/code/artifact/c0493995-43b7-4220-8a00-35adb5990804>。
   **真机连拍验过**：发送 → 墨条洇染 + 圆点呼吸 + 「停」；起稿态（虚线框、`在建提醒 create_reminder`、标题逐字、时间换成人话「9月16日 周三 15:00」）；落印态（印 + 已记下、依据、两个按钮，卡片**展开**着出来）→ `dumpsys alarm` `origWhen=2026-09-16 15:00:00`；点「就这样」变形成一行；只有正文的回合（模型没调工具）。
   **没在真机上验**：推理模型的思考块（这家供应商不发）、闸门拦下的「× 没记下」、流式回退擦字、点「停」退回原话、「↓ 新内容」。
   另：同一句中文「下周三下午三点，交房租。」模型这次只回了句「明白」没调工具，英文版才调了 —— 是模型/提示词的问题，不是界面。
-- **桌面小组件**（2026-09-04 新增）：RemoteViews 实现，规范和三条改动规矩见 DESIGN.md §8.2。真机上 provider 已注册、深链验过（`am start --es com.abc.daodian.widget.TARGET new/list`），**2026-09-11 用户已手动加到桌面，真实渲染正常**（抬头「到点 +」、空状态文案）。桌面小组件没法用 adb 绑定（`cmd appwidget` 在这台 ROM 上不存在），只能手动长按桌面添加。
+- **桌面小组件**（2026-09-04 新增）：RemoteViews 实现，规范和三条改动规矩见 DESIGN.md §8.2。真机上 provider 已注册、深链验过（当时是 `am start --es com.abc.daodian.widget.TARGET new/list`；2026-09-23 起换成路由：`adb shell am start -n com.abc.daodian.debug/com.abc.daodian.MainActivity --es com.abc.daodian.launch.ROUTE reminder/list`，新建一条是 `reminder/edit`），**2026-09-11 用户已手动加到桌面，真实渲染正常**（抬头「到点 +」、空状态文案）。桌面小组件没法用 adb 绑定（`cmd appwidget` 在这台 ROM 上不存在），只能手动长按桌面添加。
   **版式按条数和尺寸自适应**（2026-09-11）：一条是大字时钟；两三条在 3×2 / 4×2 是一行一条的时间表（最多三行）；3×3 / 4×3 起是大字时钟 + 底下最多三行。靠 `RemoteViews(Map<SizeF, RemoteViews>)` 让桌面按**实际量出来的**大小挑版，规则见 DESIGN.md §8.2。起因：3×2 内容区只有 83dp，旧门槛要 100dp，两条待办只画了一条。
   **真机验过**：3×2 两条（「洗澡 今天 22:06」「吹头发 今天 22:09」+ 脚上「下一条 · 13 分钟后」）；点墨印后纸从整块小组件长出来，倒推的框和截图差 4px 以内。
   **没验**：4×2 / 4×3 / 4×4 —— adb 拖不了尺寸，得用户手动拖；拖完第一次点墨印用的是「新报的尺寸 + 上次实测的差」，准不准要看荣耀的偏差是不是常数。
@@ -40,27 +43,27 @@
   删除是当场真删，撤销 = `vm.restore()` 原样插回并重排闹钟。
   **真机验过**：时间轴排版；点圈完成 → `dumpsys alarm` 里那条消失 → 1 秒内点撤销 → 闹钟回来（`origWhen=2026-09-18 23:00`）；左滑删除后无残留闹钟；空状态。
   **没验**：告警态（过点没响、没排上 + 「重排一次」）、深色、重复提醒的完成/撤销。
-- **当天事项**（2026-09-18）：只说了哪天、没说几点（「今天把报销交了」）。晚上收尾时刻（设置里改，默认 20:00）提醒一次，没做完顺延到第二天；不发早上的提醒，靠小组件看。规则见 DESIGN.md §4.3，逻辑全在 `schedule/DayTasks.kt`，调度层没改。**Room 升到 v2**（AutoMigration 加 `dueDay` 列）—— 以后改表都要在 `DaodianDatabase.autoMigrations` 里加一条。
+- **当天事项**（2026-09-18）：只说了哪天、没说几点（「今天把报销交了」）。晚上收尾时刻（设置里改，默认 20:00）提醒一次，没做完顺延到第二天；不发早上的提醒，靠小组件看。规则见 DESIGN.md §4.3，逻辑全在 `reminder/scheduling/DayTasks.kt`，调度层没改。当时 Room 升到 v2（AutoMigration 加 `dueDay` 列）；2026-09-23 包结构重排、连数据卸载后回到 v1 —— 以后改表都要在 `ReminderDatabase.autoMigrations` 里加一条。
   **真机验过**：v1 库覆盖安装迁移成功；「remind me to submit the expense report today」→ `allDay=true`、`dumpsys alarm` 20:00；把收尾时刻临时拨到 16:55 → 准点响（漂移 23ms）、普通通知不弹全屏、闹钟顺延到 `2026-09-19 16:55`；通知上点「完成」→ DONE、闹钟和通知都收掉；两条同时到点合成一组；「remember to buy groceries」（没说哪天）→ 今天；「call mom tomorrow」→ 明天那组最上面；改收尾时刻后全部闹钟跟着挪；覆盖安装后闹钟都还在。
   **没验**：列表的「拖N天」样子（得等到明天）、小组件上的当天事项、重复的当天事项（「每天背单词」）、手动编辑页的「当天之内」切换、中文句子（adb 打不了中文，测的都是英文）。免打扰开着，组头「只响一下」没听到。
 - **设置页 + 编辑页改版「一本账」**（2026-09-18，设计稿方向 A：<https://claude.ai/artifact/UdcBGTTx5quxPfsnR5Akq7>）：设置页顶上一句体检结论 + 四组纸，从系统设置回来自动重查；编辑页宋体标题 + 人话复述 + 三组纸 + 底部「记下」，几点是自绘滚轮、重复写成具体规则、已有的能在页内删。复杂重复规则（模型建的「每周一、三」）以前一存就被压扁成「每周」，现在原样保留。
   **真机验过**：设置页排版、漂移写人话（「+2 小时 4 分」）；编辑页新建 → 滚轮点常用钟点一口气滚到 21:30、手拖吸附 → 重复底纸 → 存 → `dumpsys alarm` `origWhen=2026-09-18 23:30` → 列表点进去「删掉这条」→ 闹钟消失。
   **没验**：权限缺项时的红字 / 「去开」回来变对勾、深色、「当天之内」切换后的样子、CUSTOM 规则的保留、日期选择（还是 Material 的 DatePicker，没重画）。
-- **harness（agent 框架）**（2026-09-18）：`harness/` 包，ReAct 循环 + 工具接口 + `LastTurns(10)` 裁剪，规矩见 DESIGN.md §6.8。**对话页和桌面速记已迁过去**（接线在 `ui/Agents.kt`），`ai/` 目录已删；供应商配置搬到 `harness/provider/`，提醒工具 + 闸门在 `harness/builtin/reminder/`。（09-18 ~ 09-23 有过授权模式和授权条，已删，见下面「问卡与痕」。）
+- **harness（agent 框架）**（2026-09-18）：`harness/` 包，ReAct 循环 + 工具接口 + `LastTurns(10)` 裁剪，规矩见 DESIGN.md §6.8。**对话页和桌面速记已迁过去**，`ai/` 目录已删。（2026-09-23 起：循环在 `agent/engine/`、调模型和供应商配置在 `agent/model/`，接线在 `agent/conversation/ChatAgent.kt`，提醒工具 + 闸门在 `reminder/tools/`、`reminder/domain/`。）（09-18 ~ 09-23 有过授权模式和授权条，已删，见下面「问卡与痕」。）
   **验过（JVM）**：`./gradlew :app:testDebugUnitTest` 9 条离线单测；打真网关（环境变量覆盖供应商，不落文件）：
   `DAODIAN_LIVE=1 DAODIAN_BASE_URL=… DAODIAN_KEY=… DAODIAN_MODEL=… ./gradlew :app:testDebugUnitTest --tests '*LiveGatewayTest*' -i`。
   `deepseek-flash`（旧网关）和火山方舟 `deepseek-v4.1-flash`（`https://ark.cn-beijing.volces.com/api/plan/v3`）都过：流式调工具 → 结果回传 → 收尾，下一轮重放工具调用也认。
   **真机验过（2026-09-19，火山方舟 deepseek-v4.1-flash，英文句子）**：放开模式 → 直接落印、`dumpsys alarm` `origWhen=2026-09-20 15:00`；先问模式 → 授权条出现、卡片虚线「等你确认」→ 点「不」→「× 没记下」划掉 + 「好，不建了。」、没闹钟；授权条亮着时打字 → 缩成一行、朱砂边 → 发出去 → 旧卡划掉、新一轮按 9 点重问 → 点「好」→ 盖印、`origWhen=2026-09-20 09:00`；重装后对话还在、卡片收起。修过一次：授权条细节「不重复」被挤成两行。
   （上面这段是授权条时期的验证记录，功能已删。）
   **注意**：`secrets.properties` 里的 `gpt-5.6-sol` 旧网关已经不给了（503），app 里要在配置页换成能用的供应商。
-  **对话落盘**（2026-09-18）：对话页的对话存 `data/chat/` 里单独的 `chat.db`（`DaodianDatabase` 没动），重启读回最近 100 轮、接着聊，规矩见 DESIGN.md §6.8。桌面速记不落盘（用户定的）。真机验过：覆盖安装后对话还在、历史卡片收起，`databases/` 里有 `chat.db`。
+  **对话落盘**（2026-09-18）：对话页的对话存 `agent/conversation/data/` 里单独的 `chat.db`（提醒库没动），重启读回最近 100 轮、接着聊，规矩见 DESIGN.md §6.8。桌面速记不落盘（用户定的）。真机验过：覆盖安装后对话还在、历史卡片收起，`databases/` 里有 `chat.db`。
 - **记账（2026-09-23 实现中）**：**模型读懂通知**，代码只收集、存档、排期、校验。设计、数据格式、代码地图、和计划的出入全在 [LEDGER_PLAN.md](LEDGER_PLAN.md)（§11 是实现）。
   通知直接进单独的 `ledger.db`（`PaySampler` 类名没改 —— 通知使用权按组件名授）；每 3 小时后台整理 agent 读一批（有才叫模型）；每晚 21:30 还有没认出来的才弹通知；对话里能查、记、改。
-  **顶栏改了**：左边抽屉键，右边印章（设计稿 <https://claude.ai/artifact/PRk3CWeu24V4tKZgxkGLwn>，抽屉方向 B「两张纸」）；提醒列表、记账、设置都在抽屉里。后台 agent 在跑时印外面转一圈细线（`harness/background/AgentActivity`）。
-  调研时的临时采样页已删，`files/pay_samples.jsonl` 第一次启动导进库后改名 `pay_samples.imported.jsonl` 留底。
+  **顶栏改了**：左边抽屉键，右边印章（设计稿 <https://claude.ai/artifact/PRk3CWeu24V4tKZgxkGLwn>，抽屉方向 B「两张纸」）；提醒列表、记账、设置都在抽屉里。后台 agent 在跑时印外面转一圈细线（`agent/engine/background/AgentActivity`）。
+  调研时的临时采样页已删。调研样本 `files/pay_samples.jsonl` 当时第一次启动导进库、改名 `pay_samples.imported.jsonl` 留底；2026-09-23 包结构重排要连数据卸载，导入代码（`LegacySamples`）已删，样本想留要在卸载前拷出来（命令见 PROJECT_STRUCTURE.md）。
   **真机验过**（9-23）：导入 → 整理（真网关，15 秒 20 条）→ 抽屉 → 记账三层 → 对话改账 → 对账一轮，细节和没验的见 LEDGER_PLAN.md §11「状态」。
-  清账本重来：删 `databases/ledger.db*`，把 `files/pay_samples.imported.jsonl` 改回 `pay_samples.jsonl`，冷启动会重新导入（只含调研那批，之后实时进来的会丢）。**同时把 `chat.db` 里聊过账的那几轮删掉**：新账本的 # 编号从 1 重排、换了别的笔，对话里旧的「改好了」会让模型以为清单上的几笔已经处理过、一笔不问（9-23 真踩过：我测试时编的回答留在对话里，用户对账时 4 笔被跳过）。
-- **问卡与痕**（2026-09-23，设计稿方向 B <https://claude.ai/artifact/2fA2GMup6w4XdsdK5oAGg8>，动效稿 <https://claude.ai/artifact/BTqaHuU6hbgjmG6NqPv5HP>）：对话里不再有提醒卡片和授权条。写操作直接办，留一道**痕**（一行小字「✓ 提醒 9月24日 周四 08:00 · 带伞 ›」，代码按工具结果画，点了去编辑页 / 那一笔）；拿不准时模型调 `ask_user` 出**问卡**（先猜好答案，点一下 / 「其他…」自己写 / 直接说），答完「问」换成「答」盖印。设置页「建提醒前先问我」删了；依据挪进编辑页「原话」下面（从 `chat.db` 取）；桌面速记遇到问卡交给对话页（`WidgetTarget.Say`）。规矩见 DESIGN.md §6.9。
+  清账本重来：删 `databases/ledger.db*`。**同时把 `chat.db` 里聊过账的那几轮删掉**：新账本的 # 编号从 1 重排、换了别的笔，对话里旧的「改好了」会让模型以为清单上的几笔已经处理过、一笔不问（9-23 真踩过：我测试时编的回答留在对话里，用户对账时 4 笔被跳过）。
+- **问卡与痕**（2026-09-23，设计稿方向 B <https://claude.ai/artifact/2fA2GMup6w4XdsdK5oAGg8>，动效稿 <https://claude.ai/artifact/BTqaHuU6hbgjmG6NqPv5HP>）：对话里不再有提醒卡片和授权条。写操作直接办，留一道**痕**（一行小字「✓ 提醒 9月24日 周四 08:00 · 带伞 ›」，代码按工具结果画，点了去编辑页 / 那一笔）；拿不准时模型调 `ask_user` 出**问卡**（先猜好答案，点一下 / 「其他…」自己写 / 直接说），答完「问」换成「答」盖印。设置页「建提醒前先问我」删了；依据挪进编辑页「原话」下面（从 `chat.db` 取）；桌面速记遇到问卡交给对话页（当时是 `WidgetTarget.Say`，现在 `Launch` 带 `say`）。规矩见 DESIGN.md §6.9。
   **真机验过（火山方舟 deepseek-v4.1-flash，英文句子）**：直接建提醒 → 墨条 → 痕打勾 + 一句话、`dumpsys alarm` `origWhen=2026-09-24 08:00`，没有任何确认；「明天下午给妈妈打电话」→ 一题问卡（15:00 / 14:00 / 17:00，输入框「都不是？直接说……」、发送键是箭头）→ 点 15:00 墨色洇满、另两颗淡掉 → 收成「答 打电话 15:00」→ 痕 + `origWhen=2026-09-24 15:00`；「下周看牙医和理发」→ 两题问卡 + 「其他…」+ 卡脚 → 点「下周三」、第二题点「其他…」（朱砂边 + 句首「哪天去理发：」）打字 → 落成实心猜测、「2 题 都点了」→「就这样」→ 收成两行记录 → 两道痕 + 两个闹钟；历史的记账轮次重启后画成「✓ 记账 改了 2 笔 ⌄」、点开逐笔；痕点进编辑页。
   **踩到的**：模型把「月底」写成 `BYMONTHDAY=-1`，`Rrule` 以前拿 -1 去 `withDayOfMonth` 会抛异常（第一次响完排下一次时出事）—— 已修，支持负数、加了单测；人话写成「每月最后一天」。模型参数写坏、立刻重来的那一次红 × 不画。答完问卡后网关那一步走了近 3 分钟（界面一直墨条 + 「停」，状态对，只是慢）—— `ResponsesClient` 没设超时，用的是 openai-java 默认的 10 分钟。
   **没验**：每晚对账的多笔问卡（账当时全对完了，没有待确认的）、直接说（不点、打一句话）、问卡等着时点「停」 / 杀进程后读回「没答」、桌面速记交给对话页、编辑页上「依据」那一行（验到一半用户在用手机，停了）、深色。
@@ -86,8 +89,9 @@ export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 
 ## 不要碰的假设
 
-- **`schedule/` 和 `data/` 是唯一不允许出错的部分**（见 DESIGN.md §05）。改这两个包之前先想清楚：AlarmManager 里的排期是易失的，Room 是唯一真相，四个重排触发源缺一个都可能导致漏提醒。
-- **`ui/` 整包可丢弃、可重画**，改起来不用犹豫。
+- **`reminder/scheduling/` 和 `reminder/data/` 是唯一不允许出错的部分**（见 DESIGN.md §05）。改这两个包之前先想清楚：AlarmManager 里的排期是易失的，Room 是唯一真相，四个重排触发源缺一个都可能导致漏提醒。
+- **界面整包可丢弃、可重画**（各模块的 `presentation/`、`agent/conversation`、`agent/shell`），改起来不用犹豫。
+- **包结构和依赖规则见 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)**：`agent` 不 import 模块、模块之间不互相 import、跨模块跳转只用路由。加功能先想它归哪个模块、要不要经接头。
 - 换 Kotlin/AGP/Compose 版本前看 README「关于依赖版本」那条约束链，顺序不能反。
 - `minSdk` 定的是 **34**（不是当初设计文档写的 33），理由和踩坑过程见 DESIGN.md 决策 3.2 —— 已经改过一次，别改回去。
 
@@ -95,7 +99,7 @@ export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 
 - **openai-java 官方 SDK，不是手写 HTTP 客户端**（DESIGN.md 决策 3.1）。代价是包体：R8 之后从 2.2MB 涨到 35MB（+33MB，全是 Jackson + kotlin-reflect + victools）。这是接受了的权衡，不是 bug。
 - **工具调用（Responses API `tools`），不是 `response_format: json_object`**。后者测试时模型会自己发明字段名（`{summary, details:{...}}`），工具调用把 schema 交给服务端强制，稳得多。JSON 输出那几档（`jsonMode` / `apiStyle`）已经连代码带 BuildConfig 字段删掉了。
-- **多轮历史客户端自己带，不用 `previous_response_id`**。第三方 OpenAI 兼容服务大概率没实现服务端会话状态。现在是 `harness/Session` 保存完整结构（含工具调用和结果），每步按 `ContextPolicy` 选轮次原样重放；每句用户话自带说话时刻。
+- **多轮历史客户端自己带，不用 `previous_response_id`**。第三方 OpenAI 兼容服务大概率没实现服务端会话状态。现在是 `agent/engine/Session` 保存完整结构（含工具调用和结果），每步按 `ContextPolicy` 选轮次原样重放；每句用户话自带说话时刻。
 - **字体用系统泛型（`FontFamily.Serif`/`Default`/`Monospace`），没打包视觉稿里的 Google Fonts**。理由同样是包体——Noto Serif SC 全字重能再吃掉大几 MB 到十几 MB，personal app 性价比存疑。想要像素级还原字体，需要往 `res/font/` 里塞真实字重文件，这是已知的、故意留下的差距，不是疏漏。「墨宋」这套视觉靠宋体挑大梁，系统衬体的中文 fallback 好不好看直接决定观感 —— 真机上第一眼要盯的就是这个。
 - 通知全屏页是独立的 `AlarmActivity`，不是 `MainActivity` 借用 `showWhenLocked`——这样"到点响铃"和"正常打开 app"两件事不会互相污染。
 
