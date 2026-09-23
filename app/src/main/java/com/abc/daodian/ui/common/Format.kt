@@ -99,10 +99,17 @@ object Format {
                 }
             }
             "MONTHLY" -> {
-                val day = parts["BYMONTHDAY"]
+                val n = parts["BYMONTHDAY"]?.toIntOrNull()
+                // 负数从月底倒着数：-1 是最后一天
+                val day = when {
+                    n == null -> null
+                    n == -1 -> "最后一天"
+                    n < 0 -> "倒数第 ${-n} 天"
+                    else -> " $n 号"
+                }
                 when {
-                    day != null && interval == 1 -> "每月 $day 号"
-                    day != null -> "每 $interval 月的 $day 号"
+                    day != null && interval == 1 -> "每月$day"
+                    day != null -> "每 $interval 月的$day"
                     else -> "每月"
                 }
             }

@@ -42,11 +42,19 @@ object Rrule {
             }
 
             "MONTHLY" -> {
-                val target = p["BYMONTHDAY"]?.toIntOrNull() ?: from.dayOfMonth
                 val candidate = from.plusMonths(interval.toLong())
+                val length = candidate.toLocalDate().lengthOfMonth()
+                val byDay = p["BYMONTHDAY"]?.toIntOrNull()?.takeIf { it in 1..31 || it in -31..-1 }
+                val target = when {
+                    byDay == null -> from.dayOfMonth
+                    // 负数从月底倒着数（RFC 5545）：-1 = 最后一天。模型把「每月月底」写成这样，
+                    // 以前拿 -1 直接去 withDayOfMonth，响完那次排下一次时会抛异常
+                    byDay < 0 -> (length + byDay + 1).coerceAtLeast(1)
+                    else -> byDay
+                }
                 // 31 号落在只有 30 天的月份 → 顺延到该月最后一天，不跳过该月。
                 // 这条规则必须和提示词里写的完全一致，见设计文档 §7.2
-                candidate.withDayOfMonth(target.coerceAtMost(candidate.toLocalDate().lengthOfMonth()))
+                candidate.withDayOfMonth(target.coerceAtMost(length))
             }
 
             "YEARLY" -> from.plusYears(interval.toLong())
