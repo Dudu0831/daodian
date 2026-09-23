@@ -1,148 +1,188 @@
 package com.abc.daodian.ledger
 
 import android.app.Notification
-import android.content.ComponentName
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
-import android.provider.Settings
+import android.os.Handler
+import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.time.Instant
+import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * 记账调研用的通知采样器：支付宝 / 招商银行 / 掌上生活三家的通知，**原样全存**，不过滤、不解析。
- * 目的是先看一周真实通知长什么样，再定解析和去重规则。记账功能本身还没开始做。
+ * 支付通知采集器：[PaySources] 里那几家的通知**原样**存进 `raw_notification`，不解析 ——
+ * 读懂是整理 agent 的事（LEDGER_PLAN.md §3）。
  *
- * 存成 JSON Lines，一行一条，不进 Room —— 这是临时调研，不碰 data/ 的迁移。读法：
+ * 类名还叫 PaySampler（调研阶段的名字）：「通知使用权」是按组件名授的，改名就得重新去系统设置里开一次。
  *
- *     adb shell run-as com.abc.daodian.debug cat files/pay_samples.jsonl
- *
- * 除了通知本身，监听连上 / 断开也各记一行（ev = connected / disconnected），
- * 荣耀杀后台时能从断档看出来哪段时间没在录。
+ * 两个坑，对策都在这里：
+ *  - **正文有时被系统遮蔽**（§2.2）：遮蔽版照存，隔 5s / 30s / 2min 从通知栏再读同一条，
+ *    真正文到了由 [LedgerStore.ingest] 把遮蔽版标成 SUPERSEDED
+ *  - **实时回调会丢**（§2.3）：连上时、解锁时、整理之前（[PaySources.sweep]）都把通知栏扫一遍兜底；
+ *    同一条通知同一段正文靠指纹只存一次
  */
 class PaySampler : NotificationListenerService() {
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val handler = Handler(Looper.getMainLooper())
+
+    private val onSweep = sweeper("manual")
+    private val onUnlock = sweeper("unlock")
+
+    private fun sweeper(how: String) = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) = sweep(how)
+    }
+
     override fun onListenerConnected() {
-        PaySamples.append(this, JSONObject().put("ev", "connected").put("at", now()))
-        // 连上那一刻通知栏里已经挂着的也收一份，免得错过授权之前的那几条
-        runCatching { activeNotifications }.getOrNull()
-            ?.filter { it.packageName in PaySamples.PACKAGES }
-            ?.forEach { PaySamples.append(this, describe(it, "active")) }
+        // 自家广播关着门收，系统的 USER_PRESENT 得开着门才进得来。注册失败绝不能抛出去把进程带崩
+        runCatching {
+            ContextCompat.registerReceiver(this, onSweep, IntentFilter(PaySources.ACTION_SWEEP), ContextCompat.RECEIVER_NOT_EXPORTED)
+            ContextCompat.registerReceiver(this, onUnlock, IntentFilter(Intent.ACTION_USER_PRESENT), ContextCompat.RECEIVER_EXPORTED)
+        }
+        // 连上那一刻通知栏里已经挂着的也收一份
+        sweep("active")
     }
 
     override fun onListenerDisconnected() {
-        PaySamples.append(this, JSONObject().put("ev", "disconnected").put("at", now()))
+        handler.removeCallbacksAndMessages(null)
+        runCatching { unregisterReceiver(onSweep) }
+        runCatching { unregisterReceiver(onUnlock) }
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        if (sbn.packageName !in PaySamples.PACKAGES) return
-        PaySamples.append(this, describe(sbn, "posted"))
-    }
-
-    private fun describe(sbn: StatusBarNotification, ev: String): JSONObject {
-        val n = sbn.notification
-        return JSONObject()
-            .put("ev", ev)
-            .put("at", now())
-            .put("pkg", sbn.packageName)
-            .put("key", sbn.key)
-            .put("id", sbn.id)
-            .put("tag", sbn.tag)
-            .put("postTime", fmt(sbn.postTime))
-            .put("when", fmt(n.`when`))
-            .put("channel", n.channelId)
-            .put("category", n.category)
-            .put("group", n.group)
-            .put("ongoing", sbn.isOngoing)
-            .put("flags", n.flags)
-            .put("ticker", n.tickerText?.toString())
-            .put("extras", dump(n.extras))
-    }
-
-    /** extras 里能变成文字的全收；位图、PendingIntent 这类只记类名 */
-    private fun dump(extras: Bundle?): JSONObject {
-        val out = JSONObject()
-        if (extras == null) return out
-        for (k in extras.keySet()) {
-            @Suppress("DEPRECATION")
-            val v = runCatching { extras.get(k) }.getOrNull() ?: continue
-            out.put(k, when (v) {
-                is CharSequence, is Number, is Boolean -> v.toString()
-                is Array<*> -> JSONArray(v.map { (it as? CharSequence)?.toString() ?: it?.javaClass?.simpleName })
-                is Bundle -> dump(v)
-                else -> "<${v.javaClass.simpleName}>"
-            })
+        if (sbn.packageName !in PaySources.PACKAGES) return
+        save(sbn, "posted")
+        val text = sbn.notification.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+        if (text?.contains(PaySources.REDACTED) == true) {
+            for (s in RETRIES) handler.postDelayed({ sweep("retry+${s}s") }, s * 1000L)
         }
-        // 消息样式（MessagingStyle）的正文藏在 android.messages 的 Bundle 数组里，单独展开
-        Notification.MessagingStyle.Message.getMessagesFromBundleArray(
-            @Suppress("DEPRECATION") extras.getParcelableArray(Notification.EXTRA_MESSAGES)
-        ).takeIf { it.isNotEmpty() }?.let { msgs ->
-            out.put("_messages", JSONArray(msgs.map { "${it.senderPerson?.name ?: ""}: ${it.text}" }))
-        }
-        return out
     }
 
-    private fun now() = fmt(System.currentTimeMillis())
+    private fun sweep(how: String) {
+        runCatching {
+            activeNotifications?.filter { it.packageName in PaySources.PACKAGES }?.forEach { save(it, how) }
+        }
+    }
 
-    private fun fmt(ms: Long) = if (ms <= 0) null else STAMP.format(Instant.ofEpochMilli(ms))
+    private fun save(sbn: StatusBarNotification, how: String) {
+        val extras = sbn.notification.extras
+        val dump = dump(extras)
+        val text = extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+        scope.launch {
+            runCatching {
+                LedgerStore.get(this@PaySampler).ingest(
+                    pkg = sbn.packageName,
+                    key = sbn.key,
+                    postTime = sbn.postTime,
+                    title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
+                    text = text,
+                    extra = extraOf(dump, text),
+                    extras = dump.toString(),
+                    how = how
+                )
+            }
+        }
+    }
 
     companion object {
-        private val STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS").withZone(ZoneId.systemDefault())
+        /** 遮蔽之后重扫的时刻（秒）。实测 5 秒那次就拿到真正文了 */
+        private val RETRIES = listOf(5, 30, 120)
+
+        /** extras 里能变成文字的全收；位图、PendingIntent 这类只记类名 */
+        fun dump(extras: Bundle?): JSONObject {
+            val out = JSONObject()
+            if (extras == null) return out
+            for (k in extras.keySet()) {
+                @Suppress("DEPRECATION")
+                val v = runCatching { extras.get(k) }.getOrNull() ?: continue
+                out.put(k, when (v) {
+                    is CharSequence, is Number, is Boolean -> v.toString()
+                    is Array<*> -> JSONArray(v.map { (it as? CharSequence)?.toString() ?: it?.javaClass?.simpleName })
+                    is Bundle -> dump(v)
+                    else -> "<${v.javaClass.simpleName}>"
+                })
+            }
+            // 消息样式（MessagingStyle）的正文藏在 android.messages 的 Bundle 数组里，单独展开
+            runCatching {
+                Notification.MessagingStyle.Message.getMessagesFromBundleArray(
+                    @Suppress("DEPRECATION") extras.getParcelableArray(Notification.EXTRA_MESSAGES)
+                ).takeIf { it.isNotEmpty() }?.let { msgs ->
+                    out.put("_messages", JSONArray(msgs.map { "${it.senderPerson?.name ?: ""}: ${it.text}" }))
+                }
+            }
+            return out
+        }
+
+        /** bigText、subText、消息样式里和正文不重复的部分 —— 有的银行把明细写在展开后的大字里 */
+        fun extraOf(extras: JSONObject, text: String?): String? = listOfNotNull(
+            extras.optString("android.bigText").ifBlank { null }?.takeIf { it != text },
+            extras.optString("android.subText").ifBlank { null },
+            extras.optJSONArray("_messages")?.let { a -> (0 until a.length()).joinToString(" / ") { a.optString(it) } }
+        ).joinToString(" · ").ifBlank { null }
     }
 }
 
-object PaySamples {
-
-    /** 用户选定的三家：支付宝、招商银行、掌上生活（招行信用卡） */
-    val PACKAGES = setOf(
-        "com.eg.android.AlipayGphone",
-        "cmb.pb",
-        "com.cmbchina.ccd.pluto.cmbActivity",
-    )
+/**
+ * 调研阶段存的 `files/pay_samples.jsonl`（9-18 起的真实通知）导进库里，导完改名留底
+ * （`pay_samples.imported.jsonl`），不删 —— 那是这几天唯一的原始样本。只在文件还在时做一次。
+ */
+object LegacySamples {
 
     private const val FILE = "pay_samples.jsonl"
+    private const val DONE = "pay_samples.imported.jsonl"
+    private val STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
 
-    /** 三家一周撑死几百条，这个上限只是防意外（某家疯狂刷新进度通知） */
-    private const val MAX_BYTES = 8L * 1024 * 1024
-
-    private fun file(context: Context) = File(context.applicationContext.filesDir, FILE)
-
-    @Synchronized
-    fun append(context: Context, line: JSONObject) {
-        runCatching {
-            val f = file(context)
-            if (f.length() > MAX_BYTES) return
-            f.appendText(line.toString() + "\n")
+    suspend fun importOnce(context: Context): Int {
+        val file = File(context.filesDir, FILE)
+        if (!file.exists()) return 0
+        val store = LedgerStore.get(context)
+        var n = 0
+        file.readLines().forEach { line ->
+            runCatching {
+                val o = JSONObject(line)
+                val pkg = o.optString("pkg").ifBlank { null } ?: return@runCatching
+                if (pkg !in PaySources.PACKAGES) return@runCatching
+                val extras = o.optJSONObject("extras") ?: JSONObject()
+                val text = extras.optString("android.text").ifBlank { null }
+                val postTime = millis(o.optString("postTime")) ?: return@runCatching
+                val ok = store.ingest(
+                    pkg = pkg,
+                    key = o.optString("key"),
+                    postTime = postTime,
+                    title = extras.optString("android.title").ifBlank { null },
+                    text = text,
+                    extra = PaySampler.extraOf(extras, text),
+                    extras = extras.toString(),
+                    how = "import",
+                    capturedAt = millis(o.optString("at")) ?: postTime
+                )
+                if (ok) n++
+            }
         }
+        file.renameTo(File(context.filesDir, DONE))
+        return n
     }
 
-    /** 采到了几条通知（不算连上 / 断开那种事件行） */
-    fun count(context: Context): Int = runCatching {
-        file(context).useLines { lines -> lines.count { !it.contains("\"ev\":\"connected\"") && !it.contains("\"ev\":\"disconnected\"") } }
-    }.getOrDefault(0)
-
-    fun granted(context: Context): Boolean =
-        context.packageName in NotificationManagerCompat.getEnabledListenerPackages(context)
-
-    /** 直达本 app 的「通知使用权」开关 */
-    fun grantIntent(context: Context): Intent =
-        Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
-            .putExtra(
-                Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
-                ComponentName(context, PaySampler::class.java).flattenToString()
-            )
-
-    /** 荣耀杀掉监听后系统不一定自己绑回来；app 每次冷启动催一下 */
-    fun rebind(context: Context) {
-        if (granted(context)) runCatching {
-            NotificationListenerService.requestRebind(ComponentName(context, PaySampler::class.java))
-        }
-    }
+    private fun millis(s: String?): Long? = runCatching {
+        LocalDateTime.parse(s, STAMP).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    }.getOrNull()
 }

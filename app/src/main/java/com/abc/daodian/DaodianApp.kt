@@ -2,7 +2,10 @@ package com.abc.daodian
 
 import android.app.Application
 import android.util.Log
-import com.abc.daodian.ledger.PaySamples
+import com.abc.daodian.ledger.LegacySamples
+import com.abc.daodian.ledger.PaySources
+import com.abc.daodian.ledger.check.LedgerCheck
+import com.abc.daodian.ledger.organize.OrganizeWorker
 import com.abc.daodian.notify.Notifier
 import com.abc.daodian.schedule.Rescheduler
 import com.abc.daodian.schedule.SweepWorker
@@ -17,12 +20,18 @@ class DaodianApp : Application() {
         super.onCreate()
         Notifier.ensureChannel(this)
         SweepWorker.enqueue(this)
-        PaySamples.rebind(this)
+        PaySources.rebind(this)
 
         // 冷启动也当作一次重排触发源 —— 被强杀后用户点开 app 就是最好的自愈时机
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             runCatching { Rescheduler(this@DaodianApp).rescheduleAll() }
                 .onFailure { Log.e("Daodian/App", "启动重排失败", it) }
+        }
+        // 记账：调研时存的 jsonl 导进库（只一次）、排上定期整理、排上每晚对账
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching { LegacySamples.importOnce(this@DaodianApp) }
+            runCatching { OrganizeWorker.schedule(this@DaodianApp) }
+            runCatching { LedgerCheck.arm(this@DaodianApp) }
         }
     }
 }

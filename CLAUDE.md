@@ -54,6 +54,12 @@
   **没验**：等点头时点「停」、桌面速记上的授权条、深色以外的浅色。
   **注意**：`secrets.properties` 里的 `gpt-5.6-sol` 旧网关已经不给了（503），app 里要在配置页换成能用的供应商。
   **对话落盘**（2026-09-18）：对话页的对话存 `data/chat/` 里单独的 `chat.db`（`DaodianDatabase` 没动），重启读回最近 100 轮、接着聊，规矩见 DESIGN.md §6.8。桌面速记不落盘（用户定的）。真机验过：覆盖安装后对话还在、历史卡片收起，`databases/` 里有 `chat.db`。
+- **记账（2026-09-23 实现中）**：**模型读懂通知**，代码只收集、存档、排期、校验。设计、数据格式、代码地图、和计划的出入全在 [LEDGER_PLAN.md](LEDGER_PLAN.md)（§11 是实现）。
+  通知直接进单独的 `ledger.db`（`PaySampler` 类名没改 —— 通知使用权按组件名授）；每 3 小时后台整理 agent 读一批（有才叫模型）；每晚 21:30 还有没认出来的才弹通知；对话里能查、记、改。
+  **顶栏改了**：左边抽屉键，右边印章（设计稿 <https://claude.ai/artifact/PRk3CWeu24V4tKZgxkGLwn>，抽屉方向 B「两张纸」）；提醒列表、记账、设置都在抽屉里。后台 agent 在跑时印外面转一圈细线（`harness/background/AgentActivity`）。
+  调研时的临时采样页已删，`files/pay_samples.jsonl` 第一次启动导进库后改名 `pay_samples.imported.jsonl` 留底。
+  **真机验过**（9-23）：导入 → 整理（真网关，15 秒 20 条）→ 抽屉 → 记账三层 → 对话改账 → 对账一轮，细节和没验的见 LEDGER_PLAN.md §11「状态」。
+  清账本重来：删 `databases/ledger.db*`，把 `files/pay_samples.imported.jsonl` 改回 `pay_samples.jsonl`，冷启动会重新导入（只含调研那批，之后实时进来的会丢）。
 - **全屏页在锁屏上确实会弹**（2026-09-04 关屏实测，用户肉眼确认，点「完成」后闹钟正常取消、无残留排期）。
   别被 adb 骗了：`AlarmActivity` 是 `exported=false`，`am start` 起不来；关屏后隔几十秒截图也只会拍到黑屏 ——
   用户已经把它关掉了，`screencap` 拍的是关掉之后的状态。`appops` 里那条 `USE_FULL_SCREEN_INTENT rejectTime`

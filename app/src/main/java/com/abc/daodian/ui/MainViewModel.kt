@@ -20,6 +20,9 @@ import com.abc.daodian.harness.provider.ProviderStore
 import com.abc.daodian.harness.provider.ProviderTest
 import com.abc.daodian.data.DaodianDatabase
 import com.abc.daodian.data.chat.ChatStore
+import com.abc.daodian.ledger.LedgerStore
+import com.abc.daodian.ledger.check.LedgerCheck
+import com.abc.daodian.ledger.check.LedgerCheckPrompt
 import com.abc.daodian.data.Reminder
 import com.abc.daodian.data.ReminderStatus
 import com.abc.daodian.notify.Notifier
@@ -109,6 +112,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 最后一句用户说的话，失败后「重试」用得上 */
     private var lastUserInput: String? = null
 
+    /** 上一轮是 app 自己发起的（对账）：重试时照样按自动发起的一轮重发 */
+    private var lastTrigger = false
+
     /** 当前那一轮。「停」靠它掐断 */
     private var streamJob: Job? = null
 
@@ -143,8 +149,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         lastUserInput = trimmed
+        lastTrigger = false
         _messages.value = collapsedPrev + ChatMessage.UserText(newId(), trimmed)
         runTurn(trimmed)
+    }
+
+    /**
+     * 每晚对账（通知上点「现在」、记账页点「现在就说」）：app 自己开一轮，把没认出来的几笔列给模型，
+     * 由它在对话里一笔笔问你。这一轮画成一条分隔线，不是你的气泡。见 LEDGER_PLAN.md §4 ③
+     */
+    fun startLedgerCheck() = viewModelScope.launch {
+        val app = getApplication<Application>()
+        LedgerCheck.done(app)
+        if (aiBusy) return@launch
+        val text = LedgerCheckPrompt.build(LedgerStore.get(app))
+            ?: run {
+                _messages.value = _messages.value + ChatMessage.AssistantTurn(newId(), text = "账都对上了，没有要问你的。")
+                return@launch
+            }
+        _messages.value = _messages.value + ChatMessage.UserText(newId(), text, trigger = true)
+        lastUserInput = text
+        lastTrigger = true
+        runTurn(text, trigger = true)
+    }
+
+    /** 从记账页「这笔不对？去对话里说」过来：把开头替你写好，放进输入框 */
+    fun prefill(text: String) {
+        restoredInput = text
     }
 
     /**
@@ -155,13 +186,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val trimmed = lastUserInput ?: return
         if (aiBusy) return
         _messages.value = _messages.value.filterNot { it is ChatMessage.AssistantTurn && it.isError }
-        runTurn(trimmed, retry = true)
+        runTurn(trimmed, retry = true, trigger = lastTrigger)
     }
 
     /**
      * 跑一轮。一个回合**原地长大**：思考 → 卡片 → 正文，中途不换消息类型。见 DESIGN.md §6.7
      */
-    private fun runTurn(text: String, retry: Boolean = false) {
+    private fun runTurn(text: String, retry: Boolean = false, trigger: Boolean = false) {
         streamJob = viewModelScope.launch {
             val session = session.await()
             if (retry) session.discardLastTurn()
@@ -180,7 +211,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             var next: String? = null
             try {
                 Agents.of(getApplication(), profile.value)
-                    .run(session, text, ZonedDateTime.now(), gate)
+                    .run(session, text, ZonedDateTime.now(), gate, trigger)
                     .collect { event ->
                         patchTurn(turnId, event)
                         if (event is AgentEvent.Finished || event is AgentEvent.Failed) ApiHealth.record(event)
@@ -198,6 +229,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     val msgs = _messages.value
                     val asked = msgs.getOrNull(msgs.indexOfFirst { it.id == turnId } - 1) as? ChatMessage.UserText
                     val takeBackId = asked?.takeIf { stoppedByUser && it.text == text }?.id
+                    // app 自己发起的那一轮被停掉：分隔线一起撤，但不往输入框里退 —— 那句话不是你说的
+                    val trig = asked?.takeIf { it.trigger && it.text == text }?.id
+                    if (trig != null) {
+                        _messages.value = msgs.filterNot { it.id == turnId || it.id == trig }
+                        session.discardLastTurn()
+                        throw t
+                    }
                     _messages.value = msgs.filterNot { it.id == turnId || it.id == takeBackId }
                     if (takeBackId != null) restoredInput = text
                     session.discardLastTurn()

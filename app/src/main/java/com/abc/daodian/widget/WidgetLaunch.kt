@@ -20,6 +20,8 @@ sealed interface WidgetTarget {
     data object New : WidgetTarget
     /** 编辑已有的一条 */
     data class Edit(val reminderId: Long) : WidgetTarget
+    /** 每晚对账通知上的「现在」：进对话页，开一轮对账（不是小组件来的，借这套去处用） */
+    data object LedgerCheck : WidgetTarget
 }
 
 object WidgetLaunch {
@@ -37,6 +39,7 @@ object WidgetLaunch {
                     WidgetTarget.List -> "list"
                     WidgetTarget.New -> "new"
                     is WidgetTarget.Edit -> "edit"
+                    WidgetTarget.LedgerCheck -> "ledger_check"
                 }
             )
             .apply { if (target is WidgetTarget.Edit) putExtra(EXTRA_REMINDER_ID, target.reminderId) }
@@ -46,6 +49,7 @@ object WidgetLaunch {
         "chat" -> WidgetTarget.Chat
         "list" -> WidgetTarget.List
         "new" -> WidgetTarget.New
+        "ledger_check" -> WidgetTarget.LedgerCheck
         "edit" -> intent.getLongExtra(EXTRA_REMINDER_ID, -1L)
             .takeIf { it >= 0 }
             ?.let { WidgetTarget.Edit(it) }

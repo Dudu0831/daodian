@@ -15,6 +15,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.abc.daodian.ui.DaodianNavHost
 import com.abc.daodian.ui.MainViewModel
+import com.abc.daodian.ui.ledger.LedgerViewModel
 import com.abc.daodian.ui.theme.DaodianTheme
 import com.abc.daodian.widget.WidgetFrame
 import com.abc.daodian.widget.WidgetLaunch
@@ -23,6 +24,7 @@ import com.abc.daodian.widget.WidgetTarget
 class MainActivity : ComponentActivity() {
 
     private val vm: MainViewModel by viewModels()
+    private val ledger: LedgerViewModel by viewModels()
 
     /**
      * 从桌面小组件点进来时要去的那一屏。用完置空 ——
@@ -52,6 +54,7 @@ class MainActivity : ComponentActivity() {
             DaodianTheme {
                 DaodianNavHost(
                     vm = vm,
+                    ledger = ledger,
                     widgetTarget = widgetTarget,
                     onWidgetTargetHandled = { widgetTarget = null }
                 )

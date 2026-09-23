@@ -3,6 +3,15 @@ package com.abc.daodian.ui.chat
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.rememberCoroutineScope
+import com.abc.daodian.ui.HealthCheck
+import com.abc.daodian.ui.ledger.LedgerViewModel
+import com.abc.daodian.ui.ledger.MainDrawer
+import kotlinx.coroutines.launch
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import com.abc.daodian.harness.Item
@@ -85,7 +94,9 @@ private const val FOLLOW_TAIL_NANOS = 900_000_000L
 @Composable
 fun ChatScreen(
     vm: MainViewModel,
+    ledger: LedgerViewModel,
     onOpenList: () -> Unit,
+    onOpenLedger: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenProvider: () -> Unit,
     onManualAdd: () -> Unit,
@@ -199,137 +210,174 @@ fun ChatScreen(
         follow = true
     }
 
-    Column(Modifier.fillMaxSize().background(colors.paper)) {
+    // 左边的抽屉：提醒、记账、设置都收在里面（设计稿方向 B「两张纸」）
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+    val reminders by vm.reminders.collectAsState()
+    val month by ledger.thisMonth.collectAsState()
+    val ledgerCheckTime by ledger.checkTime.collectAsState()
+    val running by ledger.running.collectAsState()
+    // 体检结论每次拉开抽屉重查一次：从系统设置回来，那一行要跟着变
+    val healthMissing = remember(drawerState.isOpen) { HealthCheck.run(context).count { !it.ok } }
+    BackHandler(drawerState.isOpen) { scope.launch { drawerState.close() } }
 
-        ChatTopBar(
-            profile = profile,
-            api = apiState,
-            onOpenList = onOpenList,
-            onOpenSettings = onOpenSettings,
-            onOpenProvider = onOpenProvider
-        )
+    /** 从抽屉去别处：先把抽屉合上（瞬间），回来时不会还开着 */
+    fun leaveTo(go: () -> Unit) {
+        go()
+        scope.launch { drawerState.snapTo(DrawerValue.Closed) }
+    }
 
-        Box(Modifier.weight(1f)) {
-            // 第一句话发出时，招呼语和例句淡出上移；「停」撤回最后一句、对话空了，它们再回来
-            AnimatedContent(
-                targetState = messages.isEmpty(),
-                transitionSpec = {
-                    fadeIn(Motion.flow()) togetherWith
-                        (fadeOut(Motion.flow()) + slideOutVertically(Motion.flow()) { -it / 40 })
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        scrimColor = colors.ink.copy(alpha = 0.34f),
+        drawerContent = {
+            MainDrawer(
+                reminders = reminders,
+                month = month,
+                checkTime = ledgerCheckTime.toString().take(5),
+                healthMissing = healthMissing,
+                onClose = { scope.launch { drawerState.close() } },
+                onOpenList = { leaveTo(onOpenList) },
+                onOpenLedger = { leaveTo(onOpenLedger) },
+                onOpenSettings = { leaveTo(onOpenSettings) }
+            )
+        }
+    ) {
+        Column(Modifier.fillMaxSize().background(colors.paper)) {
+
+            ChatTopBar(
+                profile = profile,
+                api = apiState,
+                running = running,
+                onOpenDrawer = {
+                    focus.clearFocus()
+                    scope.launch { drawerState.open() }
                 },
-                label = "emptyToChat"
-            ) { isEmpty ->
-                if (isEmpty) {
-                    EmptyState(onPickExample = { send(it) })
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
-                        // 对话从底下往上长 —— 内容少的时候贴着输入框，不要飘在屏幕顶上
-                        verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.Bottom)
-                    ) {
-                        items(messages, key = { it.id }) { msg ->
-                            // 进场各自有戏（气泡升起、回合展开），这里只管挪位和退场
-                            Box(Modifier.animateItem(fadeInSpec = null, placementSpec = Motion.flow(), fadeOutSpec = Motion.exit())) {
-                                when (msg) {
-                                    is ChatMessage.UserText -> UserBubble(msg)
-                                    is ChatMessage.AssistantTurn -> AssistantTurnRow(
-                                        msg = msg,
-                                        onToggleReasoning = { vm.toggleReasoning(msg.id) },
-                                        onCollapseCard = { vm.collapseCard(msg.id) },
-                                        onEditReminder = { msg.reminderId?.let(onEditReminder) },
-                                        onManualAdd = onManualAdd,
-                                        onRetry = { vm.retryLast() }
-                                    )
+                onOpenProvider = onOpenProvider
+            )
+
+            Box(Modifier.weight(1f)) {
+                // 第一句话发出时，招呼语和例句淡出上移；「停」撤回最后一句、对话空了，它们再回来
+                AnimatedContent(
+                    targetState = messages.isEmpty(),
+                    transitionSpec = {
+                        fadeIn(Motion.flow()) togetherWith
+                            (fadeOut(Motion.flow()) + slideOutVertically(Motion.flow()) { -it / 40 })
+                    },
+                    label = "emptyToChat"
+                ) { isEmpty ->
+                    if (isEmpty) {
+                        EmptyState(onPickExample = { send(it) })
+                    } else {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
+                            // 对话从底下往上长 —— 内容少的时候贴着输入框，不要飘在屏幕顶上
+                            verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.Bottom)
+                        ) {
+                            items(messages, key = { it.id }) { msg ->
+                                // 进场各自有戏（气泡升起、回合展开），这里只管挪位和退场
+                                Box(Modifier.animateItem(fadeInSpec = null, placementSpec = Motion.flow(), fadeOutSpec = Motion.exit())) {
+                                    when (msg) {
+                                        is ChatMessage.UserText -> if (msg.trigger) TriggerDivider(msg) else UserBubble(msg)
+                                        is ChatMessage.AssistantTurn -> AssistantTurnRow(
+                                            msg = msg,
+                                            onToggleReasoning = { vm.toggleReasoning(msg.id) },
+                                            onCollapseCard = { vm.collapseCard(msg.id) },
+                                            onEditReminder = { msg.reminderId?.let(onEditReminder) },
+                                            onManualAdd = onManualAdd,
+                                            onRetry = { vm.retryLast() }
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            // 写全包名：外层有 Column，不写的话会解析成 ColumnScope 版本，DSL 作用域不让这么调
-            androidx.compose.animation.AnimatedVisibility(
-                visible = !follow && vm.aiBusy,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
-                enter = fadeIn(Motion.flow()) + slideInVertically(Motion.settle()) { it / 2 },
-                exit = fadeOut(Motion.exit())
-            ) {
-                val shape = RoundedCornerShape(14.dp)
-                Text(
-                    "↓ 新内容",
-                    style = DaodianType.caption,
-                    color = colors.ink2,
-                    modifier = Modifier
-                        .background(colors.surface, shape)
-                        .border(1.dp, colors.rule, shape)
-                        .clickable { follow = true }
-                        .padding(horizontal = 12.dp, vertical = 5.dp)
-                )
-            }
-        }
-
-        Column(
-            Modifier
-                // ime 和导航栏取并集，不能各 padding 一遍 —— 键盘弹起时导航栏本来就被键盘盖住了，
-                // 两个都加会把输入框顶高一截。
-                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 14.dp)
-        ) {
-            // 授权条：钉在输入框上方，见 ApprovalDock。收走时和输入框之间不留空
-            AnimatedVisibility(
-                visible = approvalCall != null,
-                enter = expandVertically(Motion.settle(), expandFrom = Alignment.Bottom) + fadeIn(Motion.flow()),
-                exit = shrinkVertically(Motion.flow(), shrinkTowards = Alignment.Bottom) + fadeOut(Motion.exit())
-            ) {
-                // 退场那几帧 approvalCall 已经是 null 了，用最后一次的内容画完（普通数组，不是快照状态，组合时写它不触发重组）
-                val last = remember { arrayOfNulls<Item.ToolCall>(1) }
-                approvalCall?.let { last[0] = it }
-                last[0]?.let { call ->
-                    val summary = remember(call) { approvalSummaryOf(call) }
-                    ApprovalDock(
-                        summary = summary,
-                        typing = input.isNotBlank(),
-                        onApprove = { vm.answerApproval(true) },
-                        onDeny = { vm.answerApproval(false) },
-                        modifier = Modifier.padding(bottom = 10.dp)
+                // 写全包名：外层有 Column，不写的话会解析成 ColumnScope 版本，DSL 作用域不让这么调
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = !follow && vm.aiBusy,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+                    enter = fadeIn(Motion.flow()) + slideInVertically(Motion.settle()) { it / 2 },
+                    exit = fadeOut(Motion.exit())
+                ) {
+                    val shape = RoundedCornerShape(14.dp)
+                    Text(
+                        "↓ 新内容",
+                        style = DaodianType.caption,
+                        color = colors.ink2,
+                        modifier = Modifier
+                            .background(colors.surface, shape)
+                            .border(1.dp, colors.rule, shape)
+                            .clickable { follow = true }
+                            .padding(horizontal = 12.dp, vertical = 5.dp)
                     )
                 }
             }
-            ChatInputBar(
-                text = input,
-                onTextChange = {
-                    // 自己动手改字了，就不再往里写听到的
-                    cancelListening()
-                    voiceNote = null
-                    input = it
-                },
-                onSend = { send(input) },
-                onMicClick = {
-                    when {
-                        listening -> voice.stop()
-                        !voice.available -> voiceNote = "这台手机没有可用的语音识别"
-                        context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED ->
-                            startListening()
-                        else -> askMic.launch(Manifest.permission.RECORD_AUDIO)
+
+            Column(
+                Modifier
+                    // ime 和导航栏取并集，不能各 padding 一遍 —— 键盘弹起时导航栏本来就被键盘盖住了，
+                    // 两个都加会把输入框顶高一截。
+                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 14.dp)
+            ) {
+                // 授权条：钉在输入框上方，见 ApprovalDock。收走时和输入框之间不留空
+                AnimatedVisibility(
+                    visible = approvalCall != null,
+                    enter = expandVertically(Motion.settle(), expandFrom = Alignment.Bottom) + fadeIn(Motion.flow()),
+                    exit = shrinkVertically(Motion.flow(), shrinkTowards = Alignment.Bottom) + fadeOut(Motion.exit())
+                ) {
+                    // 退场那几帧 approvalCall 已经是 null 了，用最后一次的内容画完（普通数组，不是快照状态，组合时写它不触发重组）
+                    val last = remember { arrayOfNulls<Item.ToolCall>(1) }
+                    approvalCall?.let { last[0] = it }
+                    last[0]?.let { call ->
+                        val summary = remember(call) { approvalSummaryOf(call) }
+                        ApprovalDock(
+                            summary = summary,
+                            typing = input.isNotBlank(),
+                            onApprove = { vm.answerApproval(true) },
+                            onDeny = { vm.answerApproval(false) },
+                            modifier = Modifier.padding(bottom = 10.dp)
+                        )
                     }
-                },
-                listening = listening,
-                level = level,
-                enabled = !vm.aiBusy || awaiting,
-                onStop = { vm.stopStreaming() },
-                redirecting = awaiting && input.isNotBlank(),
-                placeholder = when {
-                    listening -> "在听，说吧——"
-                    voiceNote != null -> voiceNote.orEmpty()
-                    awaiting -> "或者直接说要怎么改……"
-                    vm.aiBusy -> "正在说……"
-                    messages.isEmpty() -> "说一句话……"
-                    else -> "再说点什么……"
                 }
-            )
+                ChatInputBar(
+                    text = input,
+                    onTextChange = {
+                        // 自己动手改字了，就不再往里写听到的
+                        cancelListening()
+                        voiceNote = null
+                        input = it
+                    },
+                    onSend = { send(input) },
+                    onMicClick = {
+                        when {
+                            listening -> voice.stop()
+                            !voice.available -> voiceNote = "这台手机没有可用的语音识别"
+                            context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED ->
+                                startListening()
+                            else -> askMic.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
+                    listening = listening,
+                    level = level,
+                    enabled = !vm.aiBusy || awaiting,
+                    onStop = { vm.stopStreaming() },
+                    redirecting = awaiting && input.isNotBlank(),
+                    placeholder = when {
+                        listening -> "在听，说吧——"
+                        voiceNote != null -> voiceNote.orEmpty()
+                        awaiting -> "或者直接说要怎么改……"
+                        vm.aiBusy -> "正在说……"
+                        messages.isEmpty() -> "说一句话……"
+                        else -> "再说点什么……"
+                    }
+                )
+            }
         }
     }
 }

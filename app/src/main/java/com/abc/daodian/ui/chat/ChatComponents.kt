@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -165,6 +166,10 @@ fun AssistantTurnRow(
                         onEdit = onEditReminder
                     )
                 }
+            }
+            // 记账操作的回执：一回合可能有好几个（先查再改），各占一行
+            msg.ledgerOps.forEach { op ->
+                key(op.callId) { Reveal(true) { LedgerOpRow(op) } }
             }
             Reveal(msg.text.isNotBlank()) {
                 InkText(msg.text, streaming = msg.streaming, style = DaodianType.prose, color = colors.ink, caret = msg.streaming)

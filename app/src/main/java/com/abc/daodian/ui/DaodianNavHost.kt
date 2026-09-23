@@ -10,6 +10,14 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.abc.daodian.ui.chat.ChatScreen
 import com.abc.daodian.ui.edit.EditReminderScreen
+import com.abc.daodian.ui.ledger.LedgerCategoryScreen
+import com.abc.daodian.ui.ledger.LedgerOverviewScreen
+import com.abc.daodian.ui.ledger.LedgerTxnScreen
+import com.abc.daodian.ui.ledger.LedgerViewModel
+import com.abc.daodian.ui.ledger.Period
+import com.abc.daodian.ui.ledger.PeriodMode
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import com.abc.daodian.ui.list.ReminderListScreen
 import com.abc.daodian.ui.settings.FireLogScreen
 import com.abc.daodian.ui.settings.ProviderScreen
@@ -23,7 +31,13 @@ private object Routes {
     const val SETTINGS = "settings"
     const val PROVIDER = "provider"
     const val LOG = "log"
+    const val LEDGER = "ledger"
+    const val LEDGER_CATEGORY = "ledger/category/{top}?income={income}&mode={mode}&day={day}"
+    const val LEDGER_TXN = "ledger/txn/{id}"
     fun edit(id: Long?) = "edit?id=${id ?: -1L}"
+    fun ledgerCategory(top: Long, income: Boolean, p: Period) =
+        "ledger/category/$top?income=$income&mode=${p.mode.name}&day=${Period.dayInt(p.anchor)}"
+    fun ledgerTxn(id: Long) = "ledger/txn/$id"
 }
 
 /**
@@ -33,6 +47,7 @@ private object Routes {
 @Composable
 fun DaodianNavHost(
     vm: MainViewModel,
+    ledger: LedgerViewModel,
     navController: NavHostController = rememberNavController(),
     widgetTarget: WidgetTarget? = null,
     onWidgetTargetHandled: () -> Unit = {}
@@ -49,6 +64,14 @@ fun DaodianNavHost(
             WidgetTarget.New -> navController.navigate(Routes.edit(null)) { launchSingleTop = true }
             is WidgetTarget.Edit ->
                 navController.navigate(Routes.edit(widgetTarget.reminderId)) { launchSingleTop = true }
+            // 每晚对账通知上点「现在」：回对话页，开一轮对账
+            WidgetTarget.LedgerCheck -> {
+                navController.navigate(Routes.CHAT) {
+                    popUpTo(Routes.CHAT) { inclusive = true }
+                    launchSingleTop = true
+                }
+                vm.startLedgerCheck()
+            }
         }
         onWidgetTargetHandled()
     }
@@ -58,7 +81,9 @@ fun DaodianNavHost(
         composable(Routes.CHAT) {
             ChatScreen(
                 vm = vm,
+                ledger = ledger,
                 onOpenList = { navController.navigate(Routes.LIST) },
+                onOpenLedger = { navController.navigate(Routes.LEDGER) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 onOpenProvider = { navController.navigate(Routes.PROVIDER) },
                 onManualAdd = { navController.navigate(Routes.edit(null)) },
@@ -88,7 +113,8 @@ fun DaodianNavHost(
                 vm = vm,
                 onBack = { navController.popBackStack() },
                 onOpenLog = { navController.navigate(Routes.LOG) },
-                onOpenProvider = { navController.navigate(Routes.PROVIDER) }
+                onOpenProvider = { navController.navigate(Routes.PROVIDER) },
+                ledger = ledger
             )
         }
 
@@ -98,6 +124,68 @@ fun DaodianNavHost(
 
         composable(Routes.LOG) {
             FireLogScreen(vm = vm, onBack = { navController.popBackStack() })
+        }
+
+        // ---- 记账三层：总览 → 类别 → 一笔。只看不改，改账回对话 ----
+
+        /** 回到对话页；[text] 不为空就先填进输入框 */
+        fun backToChat(text: String? = null) {
+            text?.let(vm::prefill)
+            navController.navigate(Routes.CHAT) {
+                popUpTo(Routes.CHAT) { inclusive = false }
+                launchSingleTop = true
+            }
+        }
+
+        composable(Routes.LEDGER) {
+            val checkTime by ledger.checkTime.collectAsState()
+            LedgerOverviewScreen(
+                vm = ledger,
+                checkTime = checkTime.toString().take(5),
+                onBack = { navController.popBackStack() },
+                onOpenCategory = { top, income, p -> navController.navigate(Routes.ledgerCategory(top, income, p)) },
+                onCheckNow = {
+                    backToChat()
+                    vm.startLedgerCheck()
+                }
+            )
+        }
+
+        composable(
+            Routes.LEDGER_CATEGORY,
+            arguments = listOf(
+                navArgument("top") { type = NavType.LongType },
+                navArgument("income") { type = NavType.BoolType; defaultValue = false },
+                navArgument("mode") { type = NavType.StringType; defaultValue = PeriodMode.MONTH.name },
+                navArgument("day") { type = NavType.IntType; defaultValue = 0 }
+            )
+        ) { entry ->
+            val a = entry.arguments!!
+            val day = a.getInt("day")
+            val period = Period(
+                PeriodMode.valueOf(a.getString("mode") ?: PeriodMode.MONTH.name),
+                if (day > 0) Period.dateOf(day) else java.time.LocalDate.now()
+            )
+            LedgerCategoryScreen(
+                vm = ledger,
+                topId = a.getLong("top"),
+                income = a.getBoolean("income"),
+                period = period,
+                onBack = { navController.popBackStack() },
+                onOpenTxn = { navController.navigate(Routes.ledgerTxn(it)) }
+            )
+        }
+
+        composable(
+            Routes.LEDGER_TXN,
+            arguments = listOf(navArgument("id") { type = NavType.LongType })
+        ) { entry ->
+            LedgerTxnScreen(
+                vm = ledger,
+                txnId = entry.arguments!!.getLong("id"),
+                onBack = { navController.popBackStack() },
+                onTalk = { backToChat(it) }
+            )
         }
     }
 }

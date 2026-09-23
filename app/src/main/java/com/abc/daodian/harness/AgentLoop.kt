@@ -38,8 +38,15 @@ class AgentLoop(
         require(maxSteps >= 1)
     }
 
-    fun run(session: Session, input: String, now: ZonedDateTime, permissions: PermissionGate): Flow<AgentEvent> = flow {
-        session.begin(Item.UserMessage(input, now))
+    /** [trigger]：这一轮是 app 自己发起的（见 [Item.UserMessage.trigger]），不是用户说的话 */
+    fun run(
+        session: Session,
+        input: String,
+        now: ZonedDateTime,
+        permissions: PermissionGate,
+        trigger: Boolean = false
+    ): Flow<AgentEvent> = flow {
+        session.begin(Item.UserMessage(input, now, trigger))
         val toolContext = ToolContext(now, input)
         try {
             for (step in 0 until maxSteps) {

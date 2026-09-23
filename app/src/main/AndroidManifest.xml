@@ -117,7 +117,8 @@
         </receiver>
 
         <!--
-            记账调研：支付宝 / 招行 / 掌上生活的通知原样存下来，一周后看样子再设计。
+            记账：支付通知原样存进 ledger.db，由整理 agent 读懂（LEDGER_PLAN.md）。类名还叫 PaySampler ——
+            「通知使用权」按组件名授，改名要重新授权。
             exported 必须 true（系统来绑），BIND_NOTIFICATION_LISTENER_SERVICE 保证只有系统绑得上。
         -->
         <service
@@ -129,6 +130,19 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!--
+            每晚对账的闹钟、通知上的「晚点」「今天算了」只收自己的 PendingIntent；
+            开机、覆盖安装是受保护广播，只有系统能发 —— 闹钟没了靠它们重排。记账自己的，不碰 schedule/
+        -->
+        <receiver
+            android:name=".ledger.check.CheckReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>

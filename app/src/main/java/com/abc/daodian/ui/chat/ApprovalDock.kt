@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.abc.daodian.harness.Item
+import com.abc.daodian.harness.builtin.ledger.LedgerTools
 import com.abc.daodian.harness.builtin.reminder.CreateReminderTool
 import com.abc.daodian.harness.builtin.reminder.PlanValidator
 import com.abc.daodian.ui.common.Format
@@ -49,6 +50,7 @@ fun approvalSummaryOf(call: Item.ToolCall): ApprovalSummary = when (call.name) {
             detail = listOfNotNull(whenText, Format.humanRrule(plan.rrule) ?: "不重复").joinToString(" · ")
         )
     } ?: ApprovalSummary("要建一条提醒", "", call.arguments.take(80))
+    in LedgerTools.NAMES -> ledgerSummaryOf(call.name, call.arguments)
     else -> ApprovalSummary("要执行 ${call.name}", "", call.arguments.take(80))
 }
 

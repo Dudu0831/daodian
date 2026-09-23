@@ -12,10 +12,16 @@ import java.time.format.DateTimeFormatter
  */
 sealed interface Item {
 
-    /** 用户说的话。[at] 是说这句话的时刻，重放时跟着一起给模型，「明天」才算得对 */
-    data class UserMessage(val text: String, val at: ZonedDateTime) : Item {
+    /**
+     * 一轮的开头。通常是用户说的话；[trigger] 为 true 时是 app 自己发起的（比如每晚对账），
+     * 用户没说过这句，界面上画成一条分隔线而不是气泡。
+     * [at] 是这句话的时刻，重放时跟着一起给模型，「明天」才算得对
+     */
+    data class UserMessage(val text: String, val at: ZonedDateTime, val trigger: Boolean = false) : Item {
         /** 喂给模型的样子：`[2026-09-18 21:03 周五 +08:00] 原话`。格式在 HarnessPrompt 里有交代 */
-        fun content(): String = "[${at.format(STAMP)} ${WEEKDAY[at.dayOfWeek.value - 1]} ${at.offset}] $text"
+        fun content(): String =
+            "[${at.format(STAMP)} ${WEEKDAY[at.dayOfWeek.value - 1]} ${at.offset}] " +
+                (if (trigger) "$TRIGGER_MARK$text" else text)
     }
 
     /** agent 说给用户听的话 */
@@ -32,9 +38,12 @@ sealed interface Item {
      */
     data class ToolResult(val callId: String, val output: String, val ok: Boolean, val ref: Long? = null) : Item
 
-    private companion object {
-        val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-        val WEEKDAY = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+    companion object {
+        /** app 自己发起的一轮，开头打这个标记。提示词里有交代：这不是用户说的，别当成他的原话 */
+        const val TRIGGER_MARK = "（app 自动发起，不是用户说的）"
+
+        private val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+        private val WEEKDAY = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
     }
 }
 

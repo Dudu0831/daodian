@@ -38,7 +38,7 @@ class ChatStore private constructor(private val dao: ChatDao) : Session.Listener
 
     private fun toEntity(turnId: Long, seq: Int, item: Item): ChatItemEntity = when (item) {
         is Item.UserMessage -> ChatItemEntity(
-            turnId = turnId, seq = seq, kind = USER, text = item.text,
+            turnId = turnId, seq = seq, kind = if (item.trigger) TRIGGER else USER, text = item.text,
             atMillis = item.at.toInstant().toEpochMilli(), zoneId = item.at.zone.id
         )
         is Item.AssistantMessage -> ChatItemEntity(turnId = turnId, seq = seq, kind = ASSISTANT, text = item.text)
@@ -53,9 +53,10 @@ class ChatStore private constructor(private val dao: ChatDao) : Session.Listener
     }
 
     private fun toItem(row: ChatItemEntity): Item = when (row.kind) {
-        USER -> Item.UserMessage(
+        USER, TRIGGER -> Item.UserMessage(
             row.text,
-            Instant.ofEpochMilli(row.atMillis ?: 0).atZone(row.zoneId?.let(ZoneId::of) ?: ZoneId.systemDefault())
+            Instant.ofEpochMilli(row.atMillis ?: 0).atZone(row.zoneId?.let(ZoneId::of) ?: ZoneId.systemDefault()),
+            trigger = row.kind == TRIGGER
         )
         ASSISTANT -> Item.AssistantMessage(row.text)
         TOOL_CALL -> Item.ToolCall(row.callId.orEmpty(), row.toolName.orEmpty(), row.text)
@@ -68,6 +69,8 @@ class ChatStore private constructor(private val dao: ChatDao) : Session.Listener
         const val LOAD_TURNS = 100
 
         private const val USER = "USER"
+        /** app 自己发起的一轮（每晚对账）。列还是那几列，不用改表 */
+        private const val TRIGGER = "TRIGGER"
         private const val ASSISTANT = "ASSISTANT"
         private const val TOOL_CALL = "TOOL_CALL"
         private const val TOOL_RESULT = "TOOL_RESULT"

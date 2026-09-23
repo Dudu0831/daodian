@@ -4,6 +4,7 @@ import com.abc.daodian.harness.AgentEvent
 import com.abc.daodian.harness.Item
 import com.abc.daodian.harness.StopReason
 import com.abc.daodian.harness.Turn
+import com.abc.daodian.harness.builtin.ledger.LedgerTools
 import com.abc.daodian.harness.builtin.reminder.CreateReminderTool
 import com.abc.daodian.harness.builtin.reminder.ReminderPlan
 import com.abc.daodian.harness.llm.LlmEvent
@@ -25,7 +26,9 @@ sealed interface ChatMessage {
         override val id: Long,
         val text: String,
         /** 气泡只在刚发出时从输入框升起一次，列表滚回来重组时不再升 */
-        val sentAt: Long = System.currentTimeMillis()
+        val sentAt: Long = System.currentTimeMillis(),
+        /** app 自己发起的一轮（每晚对账）：画成一条分隔线，不是气泡 —— 这句话用户没说过 */
+        val trigger: Boolean = false
     ) : ChatMessage
 
     /**
@@ -69,12 +72,14 @@ sealed interface ChatMessage {
         /** 当前是这一轮的第几次模型调用，和这一步的正文从 [text] 的哪里开始。回退时只擦这一步的字 */
         val step: Int = 0,
         val stepTextFrom: Int = 0,
+        /** 这一回合里的记账操作（查账、记一笔、改账）。和提醒卡片分开画，一回合可以有好几个 */
+        val ledgerOps: List<LedgerOp> = emptyList(),
         val startedAt: Long = System.currentTimeMillis()
     ) : ChatMessage {
 
         /** 请求发出去了但一个字都还没回来 —— 界面退回墨条，空着的框比墨条更让人发懵 */
         val isBlank: Boolean
-            get() = reasoning.isEmpty() && text.isEmpty() && toolName == null && plan == null
+            get() = reasoning.isEmpty() && text.isEmpty() && toolName == null && plan == null && ledgerOps.isEmpty()
 
         /** 思考块折成一行「想了 N 秒」：思考流完（后面的内容来了），或者整个回合结束 */
         val reasoningFolded: Boolean
@@ -86,6 +91,23 @@ sealed interface ChatMessage {
     }
 }
 
+/**
+ * 回合里的一次记账操作，画成卡片下面的一行回执。状态只往前走：在跑 →（等你点头）→ 办成 / 没办成。
+ * [arguments] 是工具参数的原始 JSON，回执上的人话从它翻（见 ApprovalDock 的 approvalSummaryOf）。
+ */
+data class LedgerOp(
+    val callId: String,
+    val tool: String,
+    val arguments: String = "",
+    val awaiting: Boolean = false,
+    /** null = 还在跑；true 办成；false 没办成（闸门拦下 / 你说了不） */
+    val ok: Boolean? = null,
+    /** 工具回给模型的第一行（「改好了 1 笔」「共 3 笔：支出 …」），回执上当细节 */
+    val result: String? = null
+)
+
+private fun isLedger(tool: String) = tool in LedgerTools.NAMES
+
 /*
  * 一个回合怎么随着 agent 的事件长大。对话页（MainViewModel）和桌面速记（ui/quick）共用 ——
  * 同一句话在两处长得一模一样，靠的就是这几条规则只有一份。
@@ -94,9 +116,21 @@ sealed interface ChatMessage {
 /** 把一个事件叠到这个回合上 */
 fun ChatMessage.AssistantTurn.patched(event: AgentEvent): ChatMessage.AssistantTurn = when (event) {
     is AgentEvent.Model -> enteringStep(event.step).patchedModel(event.event)
-    is AgentEvent.AwaitingApproval -> copy(awaitingApproval = true)
-    is AgentEvent.ToolDenied -> if (cardSettled) this else copy(awaitingApproval = false, toolRunning = false, toolRejected = true)
-    is AgentEvent.ToolFinished -> if (cardSettled) this else {
+    // 记账的调用走自己的回执，不碰提醒卡片
+    is AgentEvent.AwaitingApproval -> if (isLedger(event.call.name)) {
+        withOp(event.call.callId, event.call.name) { it.copy(arguments = event.call.arguments, awaiting = true) }
+    } else copy(awaitingApproval = true)
+    is AgentEvent.ToolDenied -> if (isLedger(event.call.name)) {
+        withOp(event.call.callId, event.call.name) { it.copy(arguments = event.call.arguments, awaiting = false, ok = false) }
+    } else if (cardSettled) this else copy(awaitingApproval = false, toolRunning = false, toolRejected = true)
+    is AgentEvent.ToolFinished -> if (isLedger(event.call.name)) {
+        withOp(event.call.callId, event.call.name) {
+            it.copy(
+                arguments = event.call.arguments, awaiting = false, ok = event.outcome.ok,
+                result = event.outcome.output.lineSequence().firstOrNull()?.trim()
+            )
+        }
+    } else if (cardSettled) this else {
         val created = event.outcome.payload as? CreateReminderTool.Created
         if (created != null) {
             copy(
@@ -124,6 +158,13 @@ fun ChatMessage.AssistantTurn.patched(event: AgentEvent): ChatMessage.AssistantT
     ).settleThought()
 }
 
+/** 改（没有就先加上）这一回合里的某次记账操作 */
+private fun ChatMessage.AssistantTurn.withOp(callId: String, tool: String, change: (LedgerOp) -> LedgerOp): ChatMessage.AssistantTurn {
+    val existing = ledgerOps.firstOrNull { it.callId == callId }
+    return if (existing == null) copy(ledgerOps = ledgerOps + change(LedgerOp(callId, tool)))
+    else copy(ledgerOps = ledgerOps.map { if (it.callId == callId) change(it) else it })
+}
+
 /** 进入新的一步：记下这一步的正文从哪开始 */
 private fun ChatMessage.AssistantTurn.enteringStep(step: Int) =
     if (step == this.step) this else copy(step = step, stepTextFrom = text.length)
@@ -131,11 +172,18 @@ private fun ChatMessage.AssistantTurn.enteringStep(step: Int) =
 private fun ChatMessage.AssistantTurn.patchedModel(event: LlmEvent): ChatMessage.AssistantTurn = when (event) {
     is LlmEvent.Reasoning -> copy(reasoning = reasoning + event.delta)
     is LlmEvent.Text -> copy(text = text + event.delta).settleThought()
-    is LlmEvent.ToolStarted ->
-        if (cardSettled) settleThought()
-        else copy(toolName = event.name, toolRunning = true, toolArgs = "").settleThought()
+    is LlmEvent.ToolStarted -> when {
+        isLedger(event.name) -> withOp(event.callId, event.name) { it }.settleThought()
+        cardSettled -> settleThought()
+        else -> copy(toolName = event.name, toolRunning = true, toolArgs = "").settleThought()
+    }
     // 参数本身不上屏，只从里面抠草稿卡的标题和时间（见 DraftArgs）
-    is LlmEvent.ToolArgs -> if (cardSettled) this else copy(toolArgs = toolArgs + event.delta)
+    is LlmEvent.ToolArgs -> when {
+        ledgerOps.any { it.callId == event.callId } ->
+            withOp(event.callId, "") { it.copy(arguments = it.arguments + event.delta) }
+        cardSettled -> this
+        else -> copy(toolArgs = toolArgs + event.delta)
+    }
     // 回退了：这一步吐出来的半截全部作废。留着的话，等下一次性结果一到，同一句话会像是被说了两遍。
     // 第一步回退就整个退回墨条；后面的步骤回退，前面已经落定的卡片和正文留着
     LlmEvent.FellBack ->
@@ -144,7 +192,8 @@ private fun ChatMessage.AssistantTurn.patchedModel(event: LlmEvent): ChatMessage
             text = text.take(stepTextFrom),
             toolName = if (cardSettled) toolName else null,
             toolArgs = if (cardSettled) toolArgs else "",
-            toolRunning = false
+            toolRunning = false,
+            ledgerOps = ledgerOps.filter { it.ok != null || it.awaiting }
         )
     is LlmEvent.Done -> this
 }
@@ -164,12 +213,17 @@ private fun ChatMessage.AssistantTurn.settleThought() =
  * 只剩用户一句话的轮（当时失败了、没重试）只画气泡。
  */
 fun restoredMessages(turns: List<Turn>, newId: () -> Long): List<ChatMessage> = turns.flatMap { turn ->
-    val user = ChatMessage.UserText(newId(), turn.input.text, sentAt = 0)
+    val user = ChatMessage.UserText(newId(), turn.input.text, sentAt = 0, trigger = turn.input.trigger)
     val text = turn.items.filterIsInstance<Item.AssistantMessage>().joinToString("") { it.text }
-    val call = turn.items.filterIsInstance<Item.ToolCall>().firstOrNull()
-    if (text.isEmpty() && call == null) return@flatMap listOf(user)
+    val results = turn.items.filterIsInstance<Item.ToolResult>().associateBy { it.callId }
+    val ops = turn.items.filterIsInstance<Item.ToolCall>().filter { isLedger(it.name) }.map { c ->
+        val r = results[c.callId]
+        LedgerOp(c.callId, c.name, c.arguments, ok = r?.ok ?: false, result = r?.output?.lineSequence()?.firstOrNull()?.trim())
+    }
+    val call = turn.items.filterIsInstance<Item.ToolCall>().firstOrNull { !isLedger(it.name) }
+    if (text.isEmpty() && call == null && ops.isEmpty()) return@flatMap listOf(user)
 
-    val result = call?.let { c -> turn.items.firstOrNull { it is Item.ToolResult && it.callId == c.callId } as? Item.ToolResult }
+    val result = call?.let { c -> results[c.callId] }
     val plan = call?.takeIf { result?.ok == true && result.ref != null }
         ?.let { CreateReminderTool.planOf(it.arguments) }
     listOf(
@@ -183,6 +237,7 @@ fun restoredMessages(turns: List<Turn>, newId: () -> Long): List<ChatMessage> = 
             reminderId = if (plan != null) result?.ref else null,
             plan = plan,
             cardCollapsed = true,
+            ledgerOps = ops,
             startedAt = 0
         )
     )

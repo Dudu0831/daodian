@@ -46,7 +46,10 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.abc.daodian.harness.permission.PermissionMode
 import com.abc.daodian.harness.provider.ApiState
 import com.abc.daodian.data.FireLog
-import com.abc.daodian.ledger.PaySamples
+import com.abc.daodian.ledger.LedgerSettings
+import com.abc.daodian.ledger.PaySources
+import com.abc.daodian.ledger.db.AgentRun
+import com.abc.daodian.ui.ledger.LedgerViewModel
 import com.abc.daodian.ui.HealthCheck
 import com.abc.daodian.ui.HealthItem
 import com.abc.daodian.ui.MainViewModel
@@ -78,7 +81,8 @@ fun SettingsScreen(
     vm: MainViewModel,
     onBack: () -> Unit,
     onOpenLog: () -> Unit,
-    onOpenProvider: () -> Unit
+    onOpenProvider: () -> Unit,
+    ledger: LedgerViewModel
 ) {
     val colors = DaodianColors.current
     val context = LocalContext.current
@@ -91,12 +95,17 @@ fun SettingsScreen(
     var pickingCheckTime by remember { mutableStateOf(false) }
 
     var items by remember { mutableStateOf(HealthCheck.run(context)) }
-    var sampling by remember { mutableStateOf(PaySamples.granted(context)) }
-    var sampled by remember { mutableIntStateOf(PaySamples.count(context)) }
+    var listening by remember { mutableStateOf(PaySources.granted(context)) }
+    val organizeHours by ledger.organizeHours.collectAsState()
+    val ledgerCheck by ledger.checkTime.collectAsState()
+    val lastRun by ledger.lastRun.collectAsState()
+    val pendingRaws by ledger.pendingRaws.collectAsState()
+    val organizing by ledger.organizing.collectAsState()
+    var pickingLedgerCheck by remember { mutableStateOf(false) }
+    var pickingHours by remember { mutableStateOf(false) }
     LifecycleResumeEffect(Unit) {
         items = HealthCheck.run(context)
-        sampling = PaySamples.granted(context)
-        sampled = PaySamples.count(context)
+        listening = PaySources.granted(context)
         onPauseOrDispose { }
     }
 
@@ -196,21 +205,89 @@ fun SettingsScreen(
                     else "${logs.size} 条 · 最大漂移 ${drift(logs.maxOf { it.driftMillis })}",
                     onClick = onOpenLog
                 ) { ChevronRightIcon(size = 13.dp, tint = colors.muted) }
-                LedgerRule()
-                // 记账调研的采样器，不算进体检结论 —— 它挂了不影响提醒响
+            }
+
+            // ---- 记账 ----
+            // 不算进体检结论 —— 它挂了不影响提醒响。流程见 LEDGER_PLAN.md
+            LedgerLabel("记账")
+            LedgerGroup {
                 SettingRow(
-                    title = "支付通知采样",
-                    note = if (sampling) "支付宝、招行、掌上生活 · 已存 $sampled 条"
-                    else "没开通知使用权，什么都录不到",
-                    onClick = { launch(PaySamples.grantIntent(context)) }
+                    title = "通知使用权",
+                    note = if (listening) "听${PaySources.names}的通知，原样存下来再交给模型整理"
+                    else "没开，记不了账 —— 点这里去系统设置里打开「到点」",
+                    noteColor = if (listening) colors.muted else colors.red,
+                    onClick = { launch(PaySources.grantIntent(context)) }
                 ) {
-                    if (sampling) ChevronRightIcon(size = 13.dp, tint = colors.muted)
-                    else FixLink()
+                    if (listening) Marker(ok = true) else FixLink()
+                }
+                LedgerRule()
+                SettingRow(
+                    title = "整理间隔",
+                    note = "每隔这么久看一眼有没有新通知，有才叫模型；最近 10 分钟到的等下一轮。荣耀可能会拖后。",
+                    onClick = { pickingHours = true }
+                ) {
+                    Text("$organizeHours 小时", style = DaodianType.settingValue, color = colors.ink)
+                }
+                LedgerRule()
+                SettingRow(
+                    title = "每晚对账",
+                    note = "先整理一遍，还有没认出来的才弹通知问你；一笔都没有就不打扰。",
+                    onClick = { pickingLedgerCheck = true }
+                ) {
+                    Text(ledgerCheck.toString().take(5), style = DaodianType.settingValue, color = colors.ink)
+                }
+                LedgerRule()
+                SettingRow(
+                    title = if (organizing) "正在整理……" else "现在整理一次",
+                    note = runNote(lastRun, pendingRaws, organizing),
+                    noteColor = if (lastRun?.error != null) colors.red else colors.muted,
+                    onClick = if (organizing) null else ({ ledger.organizeNow() })
+                ) {
+                    if (!organizing) ChevronRightIcon(size = 13.dp, tint = colors.muted)
                 }
             }
 
             Spacer(Modifier.height(40.dp))
         }
+    }
+
+    if (pickingHours) {
+        AlertDialog(
+            onDismissRequest = { pickingHours = false },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { pickingHours = false }) { Text("取消") } },
+            title = { Text("多久整理一次") },
+            text = {
+                Column {
+                    LedgerSettings.ORGANIZE_CHOICES.forEach { h ->
+                        Text(
+                            "$h 小时" + if (h == LedgerSettings.DEFAULT_ORGANIZE_HOURS) "（默认）" else "",
+                            style = DaodianType.body,
+                            color = if (h == organizeHours) colors.accent else colors.ink,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { ledger.setOrganizeHours(h); pickingHours = false }
+                                .padding(vertical = 12.dp)
+                        )
+                    }
+                }
+            }
+        )
+    }
+
+    if (pickingLedgerCheck) {
+        val state = rememberTimePickerState(initialHour = ledgerCheck.hour, initialMinute = ledgerCheck.minute, is24Hour = true)
+        AlertDialog(
+            onDismissRequest = { pickingLedgerCheck = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    ledger.setCheckTime(LocalTime.of(state.hour, state.minute))
+                    pickingLedgerCheck = false
+                }) { Text("确定") }
+            },
+            dismissButton = { TextButton(onClick = { pickingLedgerCheck = false }) { Text("取消") } },
+            text = { TimePicker(state = state) }
+        )
     }
 
     if (pickingCheckTime) {
@@ -227,6 +304,16 @@ fun SettingsScreen(
             text = { TimePicker(state = state) }
         )
     }
+}
+
+/** 「上次 14:05 整理 · 看了 12 条，记了 5 笔 · 还有 3 条等下一轮」 */
+private fun runNote(run: AgentRun?, pending: Int, running: Boolean): String {
+    val tail = if (pending > 0) " · 还有 $pending 条待整理" else ""
+    if (running) return "模型在读通知，读完了这里会写记了几笔$tail"
+    if (run == null) return "还没整理过$tail"
+    val at = Format.humanDateTimeShort(run.startedAt)
+    run.error?.let { return "上次 $at 没整理完：$it$tail" }
+    return "上次 $at · 看了 ${run.rawCount} 条，记了 ${run.recorded} 笔$tail"
 }
 
 /**
