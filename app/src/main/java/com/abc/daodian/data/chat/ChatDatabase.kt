@@ -73,6 +73,13 @@ interface ChatDao {
     )
     suspend fun recent(turns: Int): List<ChatItemEntity>
 
+    /** 办成后指向 [ref] 的那次 [tool] 调用的参数（最近一次）。编辑页从 create_reminder 的参数里拿「依据」 */
+    @Query(
+        "SELECT c.text FROM chat_items c JOIN chat_items r ON r.callId = c.callId AND r.kind = 'TOOL_RESULT' " +
+            "WHERE c.kind = 'TOOL_CALL' AND c.toolName = :tool AND r.ok = 1 AND r.ref = :ref ORDER BY c.id DESC LIMIT 1"
+    )
+    suspend fun callArgumentsFor(tool: String, ref: Long): String?
+
     @Query("DELETE FROM chat_items WHERE turnId = :turnId")
     suspend fun deleteTurn(turnId: Long)
 

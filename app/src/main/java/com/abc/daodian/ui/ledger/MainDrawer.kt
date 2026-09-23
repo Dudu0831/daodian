@@ -201,7 +201,7 @@ private fun LedgerPaper(month: Overview?, checkTime: String, onOpen: () -> Unit)
         if ((month?.pending ?: 0) > 0) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 Box(Modifier.size(5.dp).background(colors.accent, CircleShape))
-                Text("${month!!.pending} 笔没认出来，今晚 $checkTime 问你", style = DaodianType.caption, color = colors.accent)
+                Text("${month!!.pending} 笔没认出来，$checkTime 问你", style = DaodianType.caption, color = colors.accent)
             }
         }
     }

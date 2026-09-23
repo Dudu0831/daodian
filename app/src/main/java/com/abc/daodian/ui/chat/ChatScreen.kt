@@ -9,12 +9,12 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.rememberCoroutineScope
 import com.abc.daodian.ui.HealthCheck
+import com.abc.daodian.ui.ledger.LedgerFormat
 import com.abc.daodian.ui.ledger.LedgerViewModel
 import com.abc.daodian.ui.ledger.MainDrawer
 import kotlinx.coroutines.launch
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
-import com.abc.daodian.harness.Item
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.AnimatedVisibility
@@ -100,13 +100,13 @@ fun ChatScreen(
     onOpenSettings: () -> Unit,
     onOpenProvider: () -> Unit,
     onManualAdd: () -> Unit,
-    onEditReminder: (Long) -> Unit
+    onEditReminder: (Long) -> Unit,
+    onOpenTxn: (Long) -> Unit
 ) {
     val colors = DaodianColors.current
     val messages by vm.messages.collectAsState()
-    // 授权条亮着：输入框照样能打字 —— 发出去就是「不」+ 你的话
-    val approvalCall = vm.approvalCall
-    val awaiting = approvalCall != null
+    // 问卡在等你：输入框照样能打字 —— 发出去是给问卡的（点了「其他…」只答那一题，否则算直接说）
+    val asking = vm.asking
     val profile by vm.profile.collectAsState()
     val apiState by vm.apiState.collectAsState()
     var input by remember { mutableStateOf("") }
@@ -198,13 +198,27 @@ fun ChatScreen(
         }
     }
 
+    // 键盘弹起、授权条长出来，列表都是从底下被压矮的：LazyColumn 默认钉住顶上，最新那几句会被压到输入框后面。
+    // 矮了多少就往下滚多少，底边的内容跟着输入框一起往上走；本来贴着底的直接滚到底。
+    // 变高不用管 —— 已经到底的话列表自己会往回补
+    LaunchedEffect(listState) {
+        var lastHeight = 0
+        snapshotFlow { listState.layoutInfo.viewportSize.height }.collect { height ->
+            val shrink = lastHeight - height
+            lastHeight = height
+            if (shrink <= 0 || height == 0) return@collect
+            try {
+                listState.scrollBy(if (follow) 1_000_000f else shrink.toFloat())
+            } catch (e: CancellationException) {
+                if (!isActive) throw e
+            }
+        }
+    }
+
     fun send(text: String) {
         if (text.isBlank()) return
-        when {
-            awaiting -> vm.redirect(text)
-            vm.aiBusy -> return
-            else -> vm.sendMessage(text)
-        }
+        if (vm.aiBusy && asking == null) return
+        vm.sendMessage(text)
         cancelListening()
         input = ""
         follow = true
@@ -234,7 +248,7 @@ fun ChatScreen(
             MainDrawer(
                 reminders = reminders,
                 month = month,
-                checkTime = ledgerCheckTime.toString().take(5),
+                checkTime = LedgerFormat.nextCheck(ledgerCheckTime),
                 healthMissing = healthMissing,
                 onClose = { scope.launch { drawerState.close() } },
                 onOpenList = { leaveTo(onOpenList) },
@@ -281,14 +295,24 @@ fun ChatScreen(
                                 Box(Modifier.animateItem(fadeInSpec = null, placementSpec = Motion.flow(), fadeOutSpec = Motion.exit())) {
                                     when (msg) {
                                         is ChatMessage.UserText -> if (msg.trigger) TriggerDivider(msg) else UserBubble(msg)
-                                        is ChatMessage.AssistantTurn -> AssistantTurnRow(
-                                            msg = msg,
-                                            onToggleReasoning = { vm.toggleReasoning(msg.id) },
-                                            onCollapseCard = { vm.collapseCard(msg.id) },
-                                            onEditReminder = { msg.reminderId?.let(onEditReminder) },
-                                            onManualAdd = onManualAdd,
-                                            onRetry = { vm.retryLast() }
-                                        )
+                                        is ChatMessage.AssistantTurn -> {
+                                            val actions = remember(msg.id) {
+                                                object : TurnActions {
+                                                    override fun toggleReasoning() = vm.toggleReasoning(msg.id)
+                                                    override fun toggleTrace(callId: String) = vm.toggleTrace(msg.id, callId)
+                                                    override fun openTrace(target: TraceTarget) = when (target) {
+                                                        is TraceTarget.Reminder -> onEditReminder(target.id)
+                                                        is TraceTarget.Txn -> onOpenTxn(target.id)
+                                                    }
+                                                    override fun pick(callId: String, question: Int, option: Int) = vm.pickAsk(callId, question, option)
+                                                    override fun other(callId: String, question: Int) = vm.otherAsk(callId, question)
+                                                    override fun submit(callId: String) = vm.submitAsk(callId)
+                                                    override fun manualAdd() = onManualAdd()
+                                                    override fun retry() = vm.retryLast()
+                                                }
+                                            }
+                                            AssistantTurnRow(msg, actions)
+                                        }
                                     }
                                 }
                             }
@@ -298,7 +322,7 @@ fun ChatScreen(
 
                 // 写全包名：外层有 Column，不写的话会解析成 ColumnScope 版本，DSL 作用域不让这么调
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = !follow && vm.aiBusy,
+                    visible = !follow && vm.aiBusy && asking == null,
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
                     enter = fadeIn(Motion.flow()) + slideInVertically(Motion.settle()) { it / 2 },
                     exit = fadeOut(Motion.exit())
@@ -325,26 +349,6 @@ fun ChatScreen(
                     .padding(horizontal = 20.dp)
                     .padding(bottom = 14.dp)
             ) {
-                // 授权条：钉在输入框上方，见 ApprovalDock。收走时和输入框之间不留空
-                AnimatedVisibility(
-                    visible = approvalCall != null,
-                    enter = expandVertically(Motion.settle(), expandFrom = Alignment.Bottom) + fadeIn(Motion.flow()),
-                    exit = shrinkVertically(Motion.flow(), shrinkTowards = Alignment.Bottom) + fadeOut(Motion.exit())
-                ) {
-                    // 退场那几帧 approvalCall 已经是 null 了，用最后一次的内容画完（普通数组，不是快照状态，组合时写它不触发重组）
-                    val last = remember { arrayOfNulls<Item.ToolCall>(1) }
-                    approvalCall?.let { last[0] = it }
-                    last[0]?.let { call ->
-                        val summary = remember(call) { approvalSummaryOf(call) }
-                        ApprovalDock(
-                            summary = summary,
-                            typing = input.isNotBlank(),
-                            onApprove = { vm.answerApproval(true) },
-                            onDeny = { vm.answerApproval(false) },
-                            modifier = Modifier.padding(bottom = 10.dp)
-                        )
-                    }
-                }
                 ChatInputBar(
                     text = input,
                     onTextChange = {
@@ -365,13 +369,14 @@ fun ChatScreen(
                     },
                     listening = listening,
                     level = level,
-                    enabled = !vm.aiBusy || awaiting,
+                    enabled = !vm.aiBusy || asking != null,
                     onStop = { vm.stopStreaming() },
-                    redirecting = awaiting && input.isNotBlank(),
+                    scope = vm.askScope,
                     placeholder = when {
                         listening -> "在听，说吧——"
                         voiceNote != null -> voiceNote.orEmpty()
-                        awaiting -> "或者直接说要怎么改……"
+                        vm.askScope != null -> "说是什么……"
+                        asking != null -> if (asking.single) "都不是？直接说……" else "或者直接说……"
                         vm.aiBusy -> "正在说……"
                         messages.isEmpty() -> "说一句话……"
                         else -> "再说点什么……"

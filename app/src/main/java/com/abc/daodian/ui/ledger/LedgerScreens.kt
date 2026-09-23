@@ -295,7 +295,7 @@ fun LedgerOverviewScreen(
 
             if ((data?.pending ?: 0) > 0) {
                 Spacer(Modifier.height(20.dp))
-                ToChatBand("${data!!.pending} 笔没认出来，今晚 $checkTime 问你", "现在就说 ›", onCheckNow)
+                ToChatBand("${data!!.pending} 笔没认出来，$checkTime 问你", "现在就说 ›", onCheckNow)
             }
             Footnote("点类别看里面每一笔 · 点柱子进到那一段")
         }

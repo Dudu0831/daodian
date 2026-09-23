@@ -35,12 +35,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import com.abc.daodian.data.chat.ChatStore
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
@@ -86,6 +89,7 @@ private val weekdayName = arrayOf("周一", "周二", "周三", "周四", "周�
 @Composable
 fun EditReminderScreen(vm: MainViewModel, reminderId: Long?, onBack: () -> Unit) {
     val colors = DaodianColors.current
+    val context = LocalContext.current
     val reminders by vm.reminders.collectAsState()
     val existing = remember(reminders, reminderId) { reminders.firstOrNull { it.id == reminderId } }
 
@@ -262,6 +266,14 @@ fun EditReminderScreen(vm: MainViewModel, reminderId: Long?, onBack: () -> Unit)
                             "「${existing.rawInput}」", style = DaodianType.basis, color = colors.muted,
                             modifier = Modifier.padding(horizontal = 4.dp)
                         )
+                    }
+                    // 依据：模型当初怎么算出这个时间的（以前在对话卡片底下，卡片没了挪到这儿）。
+                    // 模型算歪的时候，这是唯一能看出哪步歪了的线索
+                    var basis by remember(existing.id) { mutableStateOf<String?>(null) }
+                    LaunchedEffect(existing.id) { basis = ChatStore.get(context).basisOf(existing.id) }
+                    basis?.let {
+                        LedgerLabel("依据")
+                        Text(it, style = DaodianType.basis, color = colors.muted, modifier = Modifier.padding(horizontal = 4.dp))
                     }
                     Box(Modifier.fillMaxWidth().padding(top = 28.dp), contentAlignment = Alignment.Center) {
                         Text(

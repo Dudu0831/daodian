@@ -11,6 +11,7 @@ import androidx.navigation.navArgument
 import com.abc.daodian.ui.chat.ChatScreen
 import com.abc.daodian.ui.edit.EditReminderScreen
 import com.abc.daodian.ui.ledger.LedgerCategoryScreen
+import com.abc.daodian.ui.ledger.LedgerFormat
 import com.abc.daodian.ui.ledger.LedgerOverviewScreen
 import com.abc.daodian.ui.ledger.LedgerTxnScreen
 import com.abc.daodian.ui.ledger.LedgerViewModel
@@ -72,6 +73,14 @@ fun DaodianNavHost(
                 }
                 vm.startLedgerCheck()
             }
+            // 桌面速记交过来的一句话：回对话页，照常发出去（正忙就先放进输入框）
+            is WidgetTarget.Say -> {
+                navController.navigate(Routes.CHAT) {
+                    popUpTo(Routes.CHAT) { inclusive = true }
+                    launchSingleTop = true
+                }
+                if (vm.aiBusy) vm.prefill(widgetTarget.text) else vm.sendMessage(widgetTarget.text)
+            }
         }
         onWidgetTargetHandled()
     }
@@ -87,7 +96,8 @@ fun DaodianNavHost(
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 onOpenProvider = { navController.navigate(Routes.PROVIDER) },
                 onManualAdd = { navController.navigate(Routes.edit(null)) },
-                onEditReminder = { id -> navController.navigate(Routes.edit(id)) }
+                onEditReminder = { id -> navController.navigate(Routes.edit(id)) },
+                onOpenTxn = { id -> navController.navigate(Routes.ledgerTxn(id)) }
             )
         }
 
@@ -141,7 +151,7 @@ fun DaodianNavHost(
             val checkTime by ledger.checkTime.collectAsState()
             LedgerOverviewScreen(
                 vm = ledger,
-                checkTime = checkTime.toString().take(5),
+                checkTime = LedgerFormat.nextCheck(checkTime),
                 onBack = { navController.popBackStack() },
                 onOpenCategory = { top, income, p -> navController.navigate(Routes.ledgerCategory(top, income, p)) },
                 onCheckNow = {

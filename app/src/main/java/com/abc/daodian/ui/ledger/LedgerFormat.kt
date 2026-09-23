@@ -3,6 +3,7 @@ package com.abc.daodian.ui.ledger
 import com.abc.daodian.harness.builtin.ledger.Direction
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalTime
 import java.time.ZoneId
 
 /** 记账页上钱和时间的写法 */
@@ -30,6 +31,16 @@ internal object LedgerFormat {
     fun dayTime(millis: Long): String {
         val t = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault())
         return "${t.monthValue}月${t.dayOfMonth}日 %02d:%02d".format(t.hour, t.minute)
+    }
+
+    /** 下次对账是什么时候：「今晚 21:30」「今天 17:19」，今天的钟点已经过了就是「明天 21:30」 */
+    fun nextCheck(time: LocalTime, now: LocalTime = LocalTime.now()): String {
+        val hm = "%02d:%02d".format(time.hour, time.minute)
+        return when {
+            !time.isAfter(now) -> "明天 $hm"
+            time.hour >= 18 -> "今晚 $hm"
+            else -> "今天 $hm"
+        }
     }
 
     /** 「9月22日 周二 19:20」 */

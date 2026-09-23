@@ -4,18 +4,22 @@ import com.abc.daodian.harness.AgentEvent
 import com.abc.daodian.harness.Item
 import com.abc.daodian.harness.StopReason
 import com.abc.daodian.harness.Turn
-import com.abc.daodian.harness.builtin.ledger.LedgerTools
+import com.abc.daodian.harness.ask.AskAnswer
+import com.abc.daodian.harness.ask.AskRequest
+import com.abc.daodian.harness.ask.AskUserTool
+import com.abc.daodian.harness.ask.Pick
+import com.abc.daodian.harness.builtin.ledger.AddCategoryTool
+import com.abc.daodian.harness.builtin.ledger.AddExpenseTool
+import com.abc.daodian.harness.builtin.ledger.UpdateExpensesTool
 import com.abc.daodian.harness.builtin.reminder.CreateReminderTool
-import com.abc.daodian.harness.builtin.reminder.ReminderPlan
 import com.abc.daodian.harness.llm.LlmEvent
 
 /**
- * 对话流里的一条消息。见 DESIGN.md §02 / §6.7，设计稿见 CLAUDE.md 里的画布链接。
+ * 对话流里的一条消息。见 DESIGN.md §6.9（问卡与痕），动效稿见 CLAUDE.md 里的链接。
  *
  * 只有两类：用户说的话，和助手的一个回合。
- * 助手回合是**原地长大**的 —— 从「一个字都没有」一路长到「正文 + 卡片」，
- * 中途不换消息类型、不清屏。一个回合里 agent 可能调好几次模型（调工具 → 看结果 → 再说话），
- * 在界面上仍然是同一个回合接着长。
+ * 助手回合是**原地长大**的：一个回合里 agent 可能调好几次模型（调工具 → 看结果 → 再说话），
+ * 长出来的东西按到货顺序摞成一串块（[TurnBlock]），中途不换消息类型、不清屏。
  *
  * 这里只是画面的状态；喂给模型的历史在 [com.abc.daodian.harness.Session] 里，两者各管各的。
  */
@@ -31,171 +35,265 @@ sealed interface ChatMessage {
         val trigger: Boolean = false
     ) : ChatMessage
 
-    /**
-     * 助手的一个回合。四块内容按这个顺序摞：
-     * 思考 → 卡片 → 正文（→ 出错时的出路）。
-     *
-     * 卡片和工具行是同一个元素，形态由 [cardPhaseOf] 从这里的字段推出来：
-     * 在建提醒 → 起稿 →（等你点头）→ 落印 → 收起；没建成时退回成「没记下」的工具行。见决策 6.2。
-     *
-     * 一个回合只有一张卡：同一回合里模型要是建了第二条，卡片停在第一条，第二条由它自己在正文里交代。
-     */
     data class AssistantTurn(
         override val id: Long,
         /** 推理模型的思考过程。普通模型压根不发，这里就一直是空的 */
         val reasoning: String = "",
         val reasoningOpen: Boolean = false,
-        /** 思考了多久。第一段正文或工具调用一到就定格；null = 还在想，或者压根没思考 */
+        /** 思考了多久。第一块内容一到就定格；null = 还在想，或者压根没思考 */
         val thoughtMillis: Long? = null,
-        val text: String = "",
-        val toolName: String? = null,
-        /** 工具正在跑 */
-        val toolRunning: Boolean = false,
-        /** 工具参数的原始 JSON 片段。不上屏，只拿来抠草稿卡的标题和时间，见 [DraftArgs] */
-        val toolArgs: String = "",
-        /** 默认授权模式下，卡片停在草稿上等你点「记下」/「不要」 */
-        val awaitingApproval: Boolean = false,
-        /** 工具跑完了但没建成：闸门拦下，或者你点了「不要」。为什么，由模型在正文里说 */
-        val toolRejected: Boolean = false,
-        /** 建成的提醒。null = 这一回合没建出东西 */
-        val reminderId: Long? = null,
-        val plan: ReminderPlan? = null,
-        val cardCollapsed: Boolean = false,
-        /** 落印的时刻。印只在刚落下时盖一次 —— 列表滚回来重组时不能再盖一遍 */
-        val stampedAt: Long = 0,
-        /** 解析失败，挂「手动填一条 / 重试」 */
+        /** 正文 / 痕 / 问卡 / 你直接说的话，按到货顺序 */
+        val blocks: List<TurnBlock> = emptyList(),
+        /** 连不上，挂「手动填一条 / 重试」 */
         val isError: Boolean = false,
-        /** 还在流 —— 决定要不要画光标 */
+        /** 这一轮还没跑完 */
         val streaming: Boolean = false,
+        /**
+         * 模型那边眼下没东西在出：刚发出去、工具跑完了等它接着说、问卡答完等它接着办。
+         * 还在跑的时候据此在末尾画墨条 —— 空着不动比墨条更让人发懵
+         */
+        val idle: Boolean = true,
         /** 流式没走通，正在走一次性请求 —— 墨条上方挂一行小字 */
         val fellBack: Boolean = false,
-        /** 当前是这一轮的第几次模型调用，和这一步的正文从 [text] 的哪里开始。回退时只擦这一步的字 */
+        /** 当前是这一轮的第几次模型调用。回退时只擦这一步长出来的块 */
         val step: Int = 0,
-        val stepTextFrom: Int = 0,
-        /** 这一回合里的记账操作（查账、记一笔、改账）。和提醒卡片分开画，一回合可以有好几个 */
-        val ledgerOps: List<LedgerOp> = emptyList(),
         val startedAt: Long = System.currentTimeMillis()
     ) : ChatMessage {
-
-        /** 请求发出去了但一个字都还没回来 —— 界面退回墨条，空着的框比墨条更让人发懵 */
-        val isBlank: Boolean
-            get() = reasoning.isEmpty() && text.isEmpty() && toolName == null && plan == null && ledgerOps.isEmpty()
 
         /** 思考块折成一行「想了 N 秒」：思考流完（后面的内容来了），或者整个回合结束 */
         val reasoningFolded: Boolean
             get() = !streaming || thoughtMillis != null
 
-        /** 卡片已经有了结局（建成 / 没建成），后面再来的工具调用不再改它 */
-        val cardSettled: Boolean
-            get() = plan != null || toolRejected
+        /** 末尾要不要画墨条。问卡在等你答的时候不画 —— 是它在等你，不是你在等它 */
+        val waiting: Boolean
+            get() = streaming && idle && blocks.none { it is TurnBlock.Ask && it.state == AskState.READY }
+
+        /** 已经办成了点什么（落了库，或者你答了问卡）：失败了也不能整轮重跑，会办两遍 */
+        val committed: Boolean
+            get() = blocks.any {
+                (it is TurnBlock.Trace && it.state == TraceState.OK) ||
+                    (it is TurnBlock.Ask && it.state in ANSWERED_STATES)
+            }
     }
 }
 
-/**
- * 回合里的一次记账操作，画成卡片下面的一行回执。状态只往前走：在跑 →（等你点头）→ 办成 / 没办成。
- * [arguments] 是工具参数的原始 JSON，回执上的人话从它翻（见 ApprovalDock 的 approvalSummaryOf）。
- */
-data class LedgerOp(
-    val callId: String,
-    val tool: String,
-    val arguments: String = "",
-    val awaiting: Boolean = false,
-    /** null = 还在跑；true 办成；false 没办成（闸门拦下 / 你说了不） */
-    val ok: Boolean? = null,
-    /** 工具回给模型的第一行（「改好了 1 笔」「共 3 笔：支出 …」），回执上当细节 */
-    val result: String? = null
-)
+/** 痕的三种样子 */
+enum class TraceState { RUNNING, OK, FAILED }
 
-private fun isLedger(tool: String) = tool in LedgerTools.NAMES
+/** 问卡的状态，见 DESIGN.md §6.9「问卡的状态」 */
+enum class AskState {
+    /** 参数还在流：收全的题先画出来，还不能点 */
+    DRAFT,
+    /** 等你答 */
+    READY,
+    /** 点完了（或者一题的卡点了一颗） */
+    ANSWERED,
+    /** 没点，直接说了一句 */
+    SAID,
+    /** 没答：叫停了，或者 app 被杀了 */
+    UNANSWERED
+}
+
+private val ANSWERED_STATES = setOf(AskState.ANSWERED, AskState.SAID)
+
+/** 回合里的一块。[step] 是它在第几次模型调用里长出来的 —— 流式回退时这一步的都擦掉 */
+sealed interface TurnBlock {
+    val key: String
+    val step: Int
+
+    /** 模型说的话 */
+    data class Prose(override val key: String, override val step: Int, val text: String) : TurnBlock
+
+    /** 一次写操作留下的痕：一行小字，不是卡片。见 Trace.kt */
+    data class Trace(
+        val callId: String,
+        val tool: String,
+        override val step: Int,
+        /** 参数原文。流着的时候是半截，[AgentEvent.ToolStarting] 时换成完整的 */
+        val arguments: String = "",
+        val state: TraceState = TraceState.RUNNING,
+        /** 工具回给模型的话；办成了从里面抠要显示的，没办成从里面抠原因 */
+        val output: String? = null,
+        /** 办成后指向的记录（提醒 id、流水 id），点痕去那儿 */
+        val ref: Long? = null,
+        /** 办成的时刻。对勾只在刚办成时描一次 */
+        val doneAt: Long = 0,
+        val expanded: Boolean = false
+    ) : TurnBlock {
+        override val key: String get() = callId
+    }
+
+    /** 一张问卡。见 AskCard.kt */
+    data class Ask(
+        val callId: String,
+        override val step: Int,
+        val arguments: String = "",
+        /** 参数收全、交到你手上时才有；之前按 [arguments] 画草稿 */
+        val request: AskRequest? = null,
+        val state: AskState = AskState.DRAFT,
+        /** 每题点的是哪个，和 request.questions 一一对应 */
+        val picks: List<Pick?> = emptyList(),
+        /** 正在用输入框填「其他…」的那一题 */
+        val editing: Int? = null,
+        /** 「答」那枚印落下的时刻。只在刚答时盖一次 */
+        val answeredAt: Long = 0
+    ) : TurnBlock {
+        override val key: String get() = callId
+    }
+
+    /** 问卡等着时，你没点、直接在输入框里说的那句话 —— 画成你的气泡，后面的回应另起一个「· 到点」 */
+    data class Said(override val key: String, override val step: Int, val text: String, val sentAt: Long) : TurnBlock
+}
+
+/** 这一回合建成的第一条提醒。桌面速记据此判断「记好了」 */
+val ChatMessage.AssistantTurn.createdReminderId: Long?
+    get() = blocks.firstOrNull { it is TurnBlock.Trace && it.tool == CreateReminderTool.NAME && it.state == TraceState.OK }
+        ?.let { (it as TurnBlock.Trace).ref }
+
+/**
+ * 要画出来的块。模型把参数写坏、紧接着自己改好重来的那一次不画 —— 后面那道痕已经说明了结果，
+ * 留一个红 × 只会让人以为出了事。中间隔着问卡的不算（比如时间过了、转成问你），那个 × 是在解释为什么要问。
+ */
+val ChatMessage.AssistantTurn.visibleBlocks: List<TurnBlock>
+    get() = blocks.filterIndexed { i, b ->
+        if (b !is TurnBlock.Trace || b.state != TraceState.FAILED) return@filterIndexed true
+        val after = blocks.drop(i + 1)
+        val retry = after.indexOfFirst { it is TurnBlock.Trace && it.tool == b.tool }
+        retry < 0 || after.take(retry).any { it is TurnBlock.Ask }
+    }
+
+/** 这些工具会在对话里留痕（都是写操作）。只读的（查账）不留，问人的画问卡 */
+val TRACED_TOOLS = setOf(CreateReminderTool.NAME, AddExpenseTool.NAME, UpdateExpensesTool.NAME, AddCategoryTool.NAME)
 
 /*
  * 一个回合怎么随着 agent 的事件长大。对话页（MainViewModel）和桌面速记（ui/quick）共用 ——
  * 同一句话在两处长得一模一样，靠的就是这几条规则只有一份。
+ * 问卡交到你手上、你答了，这两步不走事件，由界面那边直接改（见 [withAsk]）。
  */
 
 /** 把一个事件叠到这个回合上 */
 fun ChatMessage.AssistantTurn.patched(event: AgentEvent): ChatMessage.AssistantTurn = when (event) {
     is AgentEvent.Model -> enteringStep(event.step).patchedModel(event.event)
-    // 记账的调用走自己的回执，不碰提醒卡片
-    is AgentEvent.AwaitingApproval -> if (isLedger(event.call.name)) {
-        withOp(event.call.callId, event.call.name) { it.copy(arguments = event.call.arguments, awaiting = true) }
-    } else copy(awaitingApproval = true)
-    is AgentEvent.ToolDenied -> if (isLedger(event.call.name)) {
-        withOp(event.call.callId, event.call.name) { it.copy(arguments = event.call.arguments, awaiting = false, ok = false) }
-    } else if (cardSettled) this else copy(awaitingApproval = false, toolRunning = false, toolRejected = true)
-    is AgentEvent.ToolFinished -> if (isLedger(event.call.name)) {
-        withOp(event.call.callId, event.call.name) {
-            it.copy(
-                arguments = event.call.arguments, awaiting = false, ok = event.outcome.ok,
-                result = event.outcome.output.lineSequence().firstOrNull()?.trim()
-            )
-        }
-    } else if (cardSettled) this else {
-        val created = event.outcome.payload as? CreateReminderTool.Created
-        if (created != null) {
-            copy(
-                awaitingApproval = false, toolRunning = false,
-                reminderId = created.reminderId, plan = created.plan,
-                stampedAt = System.currentTimeMillis()
-            )
-        } else {
-            copy(awaitingApproval = false, toolRunning = false, toolRejected = true)
+    is AgentEvent.ToolStarting -> startingTool(event.call)
+    is AgentEvent.ToolFinished -> finishingTool(event)
+    is AgentEvent.Finished -> copy(
+        streaming = false,
+        blocks = if (event.stop == StopReason.STEP_LIMIT && blocks.none { it is TurnBlock.Prose }) {
+            // 撞到步数上限多半是模型在原地打转，一句话都没留下时替它交代一声
+            blocks + TurnBlock.Prose("limit", step, "绕了几圈也没办成，换个说法试试？")
+        } else blocks
+    ).settleThought()
+    // 已经办成了点什么、收尾那步才断：不挂「重试」—— 重试等于把这句话再办一遍
+    is AgentEvent.Failed -> if (committed) copy(
+        streaming = false,
+        blocks = blocks.filterNot { it.step == step && it is TurnBlock.Prose } +
+            TurnBlock.Prose("broken", step, "后面的话没说完就断了。")
+    ).settleThought() else copy(
+        // 第二句「你可以自己填一条」由 UI 补，见 AssistantTurnRow
+        streaming = false, isError = true,
+        blocks = listOf(TurnBlock.Prose("error", step, "连不上服务器，这句话没能解析。"))
+    ).settleThought()
+}
+
+/** 改某张问卡（不在就原样返回） */
+fun ChatMessage.AssistantTurn.withAsk(callId: String, change: (TurnBlock.Ask) -> TurnBlock.Ask): ChatMessage.AssistantTurn =
+    copy(blocks = blocks.map { if (it is TurnBlock.Ask && it.callId == callId) change(it) else it })
+
+/** 你答了问卡：模型接下来要接着办，末尾重新画墨条 */
+fun ChatMessage.AssistantTurn.answered(callId: String, answer: AskAnswer): ChatMessage.AssistantTurn {
+    val now = System.currentTimeMillis()
+    val next = withAsk(callId) {
+        when (answer) {
+            is AskAnswer.Picked -> it.copy(state = AskState.ANSWERED, picks = answer.picks, editing = null, answeredAt = now)
+            is AskAnswer.Said -> it.copy(state = AskState.SAID, editing = null, answeredAt = now)
+            AskAnswer.Unanswered -> it.copy(state = AskState.UNANSWERED, editing = null)
         }
     }
-    is AgentEvent.Finished -> copy(
-        streaming = false, toolRunning = false,
-        // 撞到步数上限多半是模型在原地打转，一句话都没留下时替它交代一声
-        text = if (event.stop == StopReason.STEP_LIMIT && text.isBlank()) "绕了几圈也没办成，换个说法试试？" else text
-    ).settleThought()
-    // 提醒已经建了、收尾那步才断：不挂「重试」—— 重试等于把这句话再办一遍，会建出第二条
-    is AgentEvent.Failed -> if (plan != null) copy(
-        streaming = false, toolRunning = false,
-        text = text.take(stepTextFrom).ifBlank { "提醒建好了，后面的话没说完就断了。" }
-    ) else copy(
-        // 第二句「你可以自己填一条」由 UI 补，见 AssistantTurnRow
-        streaming = false, toolRunning = false, awaitingApproval = false, isError = true,
-        text = "连不上服务器，这句话没能解析。"
-    ).settleThought()
+    return when (answer) {
+        is AskAnswer.Said -> next.copy(blocks = next.blocks + TurnBlock.Said("said-$callId", step, answer.text, now), idle = true)
+        else -> next.copy(idle = true)
+    }
 }
 
-/** 改（没有就先加上）这一回合里的某次记账操作 */
-private fun ChatMessage.AssistantTurn.withOp(callId: String, tool: String, change: (LedgerOp) -> LedgerOp): ChatMessage.AssistantTurn {
-    val existing = ledgerOps.firstOrNull { it.callId == callId }
-    return if (existing == null) copy(ledgerOps = ledgerOps + change(LedgerOp(callId, tool)))
-    else copy(ledgerOps = ledgerOps.map { if (it.callId == callId) change(it) else it })
-}
+fun ChatMessage.AssistantTurn.toggleTrace(callId: String): ChatMessage.AssistantTurn =
+    copy(blocks = blocks.map { if (it is TurnBlock.Trace && it.callId == callId) it.copy(expanded = !it.expanded) else it })
 
-/** 进入新的一步：记下这一步的正文从哪开始 */
+/** 进入新的一步 */
 private fun ChatMessage.AssistantTurn.enteringStep(step: Int) =
-    if (step == this.step) this else copy(step = step, stepTextFrom = text.length)
+    if (step == this.step) this else copy(step = step)
 
 private fun ChatMessage.AssistantTurn.patchedModel(event: LlmEvent): ChatMessage.AssistantTurn = when (event) {
-    is LlmEvent.Reasoning -> copy(reasoning = reasoning + event.delta)
-    is LlmEvent.Text -> copy(text = text + event.delta).settleThought()
+    is LlmEvent.Reasoning -> copy(reasoning = reasoning + event.delta, idle = false)
+    is LlmEvent.Text -> {
+        val last = blocks.lastOrNull()
+        val merged = if (last is TurnBlock.Prose && last.step == step) {
+            blocks.dropLast(1) + last.copy(text = last.text + event.delta)
+        } else {
+            blocks + TurnBlock.Prose("p${blocks.size}-$step", step, event.delta)
+        }
+        copy(blocks = merged, idle = false).settleThought()
+    }
     is LlmEvent.ToolStarted -> when {
-        isLedger(event.name) -> withOp(event.callId, event.name) { it }.settleThought()
-        cardSettled -> settleThought()
-        else -> copy(toolName = event.name, toolRunning = true, toolArgs = "").settleThought()
+        event.name == AskUserTool.NAME -> copy(blocks = blocks + TurnBlock.Ask(event.callId, step), idle = false).settleThought()
+        event.name in TRACED_TOOLS -> copy(blocks = blocks + TurnBlock.Trace(event.callId, event.name, step), idle = false).settleThought()
+        // 只读的工具（查账）不留痕：它在跑的时候照样画墨条
+        else -> copy(idle = true).settleThought()
     }
-    // 参数本身不上屏，只从里面抠草稿卡的标题和时间（见 DraftArgs）
-    is LlmEvent.ToolArgs -> when {
-        ledgerOps.any { it.callId == event.callId } ->
-            withOp(event.callId, "") { it.copy(arguments = it.arguments + event.delta) }
-        cardSettled -> this
-        else -> copy(toolArgs = toolArgs + event.delta)
-    }
-    // 回退了：这一步吐出来的半截全部作废。留着的话，等下一次性结果一到，同一句话会像是被说了两遍。
-    // 第一步回退就整个退回墨条；后面的步骤回退，前面已经落定的卡片和正文留着
+    is LlmEvent.ToolArgs -> copy(blocks = blocks.map {
+        when {
+            it is TurnBlock.Trace && it.callId == event.callId -> it.copy(arguments = it.arguments + event.delta)
+            it is TurnBlock.Ask && it.callId == event.callId -> it.copy(arguments = it.arguments + event.delta)
+            else -> it
+        }
+    })
+    // 回退了：这一步吐出来的半截全部作废。留着的话，等一次性结果一到，同一句话会像是被说了两遍。
+    // 第一步回退就整个退回墨条；后面的步骤回退，前面已经落定的块留着
     LlmEvent.FellBack ->
-        if (step == 0) ChatMessage.AssistantTurn(id, streaming = true, fellBack = true)
-        else copy(
-            text = text.take(stepTextFrom),
-            toolName = if (cardSettled) toolName else null,
-            toolArgs = if (cardSettled) toolArgs else "",
-            toolRunning = false,
-            ledgerOps = ledgerOps.filter { it.ok != null || it.awaiting }
-        )
+        if (step == 0) ChatMessage.AssistantTurn(id, streaming = true, fellBack = true, startedAt = startedAt)
+        else copy(blocks = blocks.filter { it.step < step }, idle = true)
     is LlmEvent.Done -> this
+}
+
+/** 参数收全、马上执行。一次性请求没有流式事件，块在这里才第一次出现 */
+private fun ChatMessage.AssistantTurn.startingTool(call: Item.ToolCall): ChatMessage.AssistantTurn {
+    val exists = blocks.any { it.key == call.callId }
+    return when {
+        call.name == AskUserTool.NAME ->
+            if (exists) withAsk(call.callId) { it.copy(arguments = call.arguments) }.copy(idle = false)
+            else copy(blocks = blocks + TurnBlock.Ask(call.callId, step, call.arguments), idle = false)
+        call.name in TRACED_TOOLS -> copy(
+            blocks = if (exists) blocks.map {
+                if (it is TurnBlock.Trace && it.callId == call.callId) it.copy(arguments = call.arguments) else it
+            } else blocks + TurnBlock.Trace(call.callId, call.name, step, call.arguments),
+            idle = false
+        )
+        else -> copy(idle = true)
+    }.settleThought()
+}
+
+private fun ChatMessage.AssistantTurn.finishingTool(event: AgentEvent.ToolFinished): ChatMessage.AssistantTurn {
+    val call = event.call
+    val outcome = event.outcome
+    return when {
+        call.name == AskUserTool.NAME -> {
+            val answer = outcome.payload as? AskAnswer
+            // 问卡不合规、根本没问出去：卡片拿掉，模型会照原因改好再问一次
+            if (answer == null && !outcome.ok) copy(blocks = blocks.filterNot { it.key == call.callId }, idle = true)
+            else if (answer != null && blocks.any { it is TurnBlock.Ask && it.callId == call.callId && it.state == AskState.READY }) answered(call.callId, answer)
+            else copy(idle = true)
+        }
+        call.name in TRACED_TOOLS -> copy(
+            blocks = blocks.map {
+                if (it is TurnBlock.Trace && it.callId == call.callId) it.copy(
+                    arguments = call.arguments,
+                    state = if (outcome.ok) TraceState.OK else TraceState.FAILED,
+                    output = outcome.output, ref = outcome.ref, doneAt = System.currentTimeMillis()
+                ) else it
+            },
+            idle = true
+        )
+        else -> copy(idle = true)
+    }
 }
 
 /** 思考之后的第一块内容到了（或者整个回合结束）：「想了 N 秒」就定格在这一刻 */
@@ -207,38 +305,50 @@ private fun ChatMessage.AssistantTurn.settleThought() =
 /**
  * 从存下来的轮次重建画面（重启后打开对话页）。见 DESIGN.md §6.8
  *
- * 只还原落定的样子：卡片一律收起、不再盖印，气泡不再升起，思考过程本来就不存。
- * 卡片靠 `create_reminder` 的参数 + 结果里的 ok / ref 还原；那条提醒后来被改过、删过，
- * 这里画的仍是当时建的样子 —— 它是对话记录，不是提醒列表。
+ * 只还原落定的样子：对勾不再描、印不再盖，气泡不再升起，思考过程本来就不存。
+ * 痕靠工具调用的参数 + 结果里的 ok / ref 还原，问卡靠结果末行的 `answer=…`；
+ * 那条提醒后来被改过、删过，这里画的仍是当时的样子 —— 它是对话记录，不是提醒列表。
  * 只剩用户一句话的轮（当时失败了、没重试）只画气泡。
  */
 fun restoredMessages(turns: List<Turn>, newId: () -> Long): List<ChatMessage> = turns.flatMap { turn ->
     val user = ChatMessage.UserText(newId(), turn.input.text, sentAt = 0, trigger = turn.input.trigger)
-    val text = turn.items.filterIsInstance<Item.AssistantMessage>().joinToString("") { it.text }
     val results = turn.items.filterIsInstance<Item.ToolResult>().associateBy { it.callId }
-    val ops = turn.items.filterIsInstance<Item.ToolCall>().filter { isLedger(it.name) }.map { c ->
-        val r = results[c.callId]
-        LedgerOp(c.callId, c.name, c.arguments, ok = r?.ok ?: false, result = r?.output?.lineSequence()?.firstOrNull()?.trim())
+    val blocks = mutableListOf<TurnBlock>()
+    turn.items.forEach { item ->
+        when (item) {
+            is Item.AssistantMessage -> {
+                val last = blocks.lastOrNull()
+                if (last is TurnBlock.Prose) blocks[blocks.lastIndex] = last.copy(text = last.text + item.text)
+                else blocks += TurnBlock.Prose("p${blocks.size}", 0, item.text)
+            }
+            is Item.ToolCall -> {
+                val r = results[item.callId]
+                when {
+                    item.name == AskUserTool.NAME -> {
+                        val request = AskUserTool.requestOf(item.arguments)
+                        when (val answer = r?.output?.let(AskUserTool::answerOf)) {
+                            // 没问出去（参数不合规）的那次不画
+                            null -> if (r == null || request != null && AskUserTool.problemOf(request) == null) {
+                                blocks += TurnBlock.Ask(item.callId, 0, item.arguments, request, AskState.UNANSWERED)
+                            }
+                            is AskAnswer.Picked -> blocks += TurnBlock.Ask(item.callId, 0, item.arguments, request, AskState.ANSWERED, answer.picks)
+                            is AskAnswer.Said -> {
+                                blocks += TurnBlock.Ask(item.callId, 0, item.arguments, request, AskState.SAID)
+                                blocks += TurnBlock.Said("said-${item.callId}", 0, answer.text, 0)
+                            }
+                            AskAnswer.Unanswered -> blocks += TurnBlock.Ask(item.callId, 0, item.arguments, request, AskState.UNANSWERED)
+                        }
+                    }
+                    item.name in TRACED_TOOLS -> blocks += TurnBlock.Trace(
+                        item.callId, item.name, 0, item.arguments,
+                        state = if (r?.ok == true) TraceState.OK else TraceState.FAILED,
+                        output = r?.output, ref = r?.ref
+                    )
+                }
+            }
+            else -> Unit
+        }
     }
-    val call = turn.items.filterIsInstance<Item.ToolCall>().firstOrNull { !isLedger(it.name) }
-    if (text.isEmpty() && call == null && ops.isEmpty()) return@flatMap listOf(user)
-
-    val result = call?.let { c -> results[c.callId] }
-    val plan = call?.takeIf { result?.ok == true && result.ref != null }
-        ?.let { CreateReminderTool.planOf(it.arguments) }
-    listOf(
-        user,
-        ChatMessage.AssistantTurn(
-            id = newId(),
-            text = text,
-            toolName = call?.name,
-            toolArgs = call?.arguments.orEmpty(),
-            toolRejected = call != null && plan == null,
-            reminderId = if (plan != null) result?.ref else null,
-            plan = plan,
-            cardCollapsed = true,
-            ledgerOps = ops,
-            startedAt = 0
-        )
-    )
+    if (blocks.isEmpty()) return@flatMap listOf(user)
+    listOf(user, ChatMessage.AssistantTurn(id = newId(), blocks = blocks, idle = false, startedAt = 0))
 }

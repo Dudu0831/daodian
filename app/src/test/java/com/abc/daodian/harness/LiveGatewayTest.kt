@@ -6,9 +6,6 @@ import com.abc.daodian.harness.llm.LlmClient
 import com.abc.daodian.harness.llm.LlmEvent
 import com.abc.daodian.harness.llm.LlmRequest
 import com.abc.daodian.harness.llm.ResponsesClient
-import com.abc.daodian.harness.permission.Approval
-import com.abc.daodian.harness.permission.PermissionGate
-import com.abc.daodian.harness.permission.PermissionMode
 import com.abc.daodian.harness.prompt.HarnessPrompt
 import com.abc.daodian.harness.tool.ToolRegistry
 import kotlinx.coroutines.flow.Flow
@@ -70,12 +67,11 @@ class LiveGatewayTest {
             1001L
         }))
         val loop = AgentLoop(llm, tools, HarnessPrompt.SYSTEM)
-        val auto = PermissionGate(PermissionMode.AUTO) { _, _ -> Approval.Approved }
         val session = Session()
         val now = ZonedDateTime.now(ZoneId.of("Asia/Shanghai"))
 
         // 第一轮：要走完「调工具 → 结果回传 → 模型收尾」
-        val first = loop.run(session, "明天下午三点提醒我交房租", now, auto).onEach(::log).toList()
+        val first = loop.run(session, "明天下午三点提醒我交房租", now).onEach(::log).toList()
         println("第一轮调模型 ${llm.calls} 次，落库：$committed")
         val end1 = first.last()
         assertTrue("第一轮没正常结束：$end1", end1 is AgentEvent.Finished)
@@ -84,7 +80,7 @@ class LiveGatewayTest {
 
         // 第二轮：历史里带着上一轮的 function_call / output，网关得认
         llm.calls = 0
-        val second = loop.run(session, "我刚才让你提醒我什么？", now.plusMinutes(1), auto).onEach(::log).toList()
+        val second = loop.run(session, "我刚才让你提醒我什么？", now.plusMinutes(1)).onEach(::log).toList()
         val end2 = second.last()
         assertTrue("第二轮没正常结束：$end2", end2 is AgentEvent.Finished)
         val reply = (end2 as AgentEvent.Finished).turn.items.filterIsInstance<Item.AssistantMessage>().joinToString { it.text }

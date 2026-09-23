@@ -7,12 +7,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.abc.daodian.harness.AgentEvent
-import com.abc.daodian.harness.Item
+import com.abc.daodian.harness.AgentLoop
 import com.abc.daodian.harness.Session
-import com.abc.daodian.harness.permission.Approval
-import com.abc.daodian.harness.permission.PermissionGate
-import com.abc.daodian.harness.permission.PermissionMode
-import com.abc.daodian.harness.permission.PermissionStore
+import com.abc.daodian.harness.ask.AskAnswer
+import com.abc.daodian.harness.ask.AskRequest
+import com.abc.daodian.harness.ask.AskUserTool
+import com.abc.daodian.harness.ask.Asker
+import com.abc.daodian.harness.ask.Pick
 import com.abc.daodian.harness.provider.ApiHealth
 import com.abc.daodian.harness.provider.PingResult
 import com.abc.daodian.harness.provider.ProviderProfile
@@ -28,9 +29,15 @@ import com.abc.daodian.data.ReminderStatus
 import com.abc.daodian.notify.Notifier
 import com.abc.daodian.schedule.DayTasks
 import com.abc.daodian.schedule.Rescheduler
+import com.abc.daodian.ui.chat.AskState
 import com.abc.daodian.ui.chat.ChatMessage
+import com.abc.daodian.ui.chat.TurnBlock
+import com.abc.daodian.ui.chat.answered
 import com.abc.daodian.ui.chat.patched
 import com.abc.daodian.ui.chat.restoredMessages
+import com.abc.daodian.ui.chat.scopeLabelOf
+import com.abc.daodian.ui.chat.toggleTrace
+import com.abc.daodian.ui.chat.withAsk
 import com.abc.daodian.widget.WidgetUpdater
 import java.time.LocalDate
 import java.time.LocalTime
@@ -42,6 +49,7 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -64,14 +72,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 上一次调用顺不顺，给印和纸签用。见 [ApiHealth] */
     val apiState = ApiHealth.state
-
-    /** 授权模式：默认先问（[PermissionMode.ASK]），设置页能放开。见 DESIGN.md §6.8 */
-    val permissionMode = PermissionStore.flow(app)
-        .stateIn(viewModelScope, SharingStarted.Eagerly, PermissionMode.ASK)
-
-    fun setPermissionMode(mode: PermissionMode) = viewModelScope.launch {
-        PermissionStore.save(getApplication(), mode)
-    }
 
     init {
         // app 内的增删改一律走 Room，所以盯住这一条流就够了 ——
@@ -97,9 +97,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     private val session: Deferred<Session> = viewModelScope.async {
         val store = ChatStore.get(app)
-        val turns = store.load()
-        _messages.value = restoredMessages(turns, ::newId) + _messages.value
-        Session(turns, store)
+        val session = Session(store.load(), store)
+        // app 在等你答问卡的时候被杀了：那次调用没拿到结果，补上「没答」—— 缺一个下一次请求就会被网关拒掉
+        session.closeDanglingCalls { if (it.name == AskUserTool.NAME) AskUserTool.UNANSWERED else AgentLoop.ABORTED }
+        _messages.value = restoredMessages(session.turns, ::newId) + _messages.value
+        session
     }
 
     var aiBusy by mutableStateOf(false)
@@ -121,36 +123,43 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 这次取消是用户按的「停」，不是离开页面之类 */
     private var stoppedByUser = false
 
-    /** 等你点头的那次调用。非空 = 输入框上方亮着授权条 */
-    var approvalCall by mutableStateOf<Item.ToolCall?>(null)
+    /** 在等你答的那张问卡：循环挂在 [answer] 上，直到你点完、说完 */
+    private class PendingAsk(
+        val turnId: Long,
+        val callId: String,
+        val request: AskRequest,
+        val answer: CompletableDeferred<AskAnswer>
+    )
+
+    private var pendingAsk: PendingAsk? = null
+
+    /** 非空 = 对话里有张问卡在等你。输入框里发出去的话都交给它（见 [sendMessage]） */
+    var asking by mutableStateOf<AskRequest?>(null)
         private set
 
-    /** 授权条亮着时，循环挂在这上面等 [answerApproval] / [redirect] */
-    private var pendingApproval: CompletableDeferred<Approval>? = null
-
-    /** 你借授权条改了口：这一轮收住后，把这句话作为下一句发出去 */
-    private var redirectTo: String? = null
+    /** 点了哪一题的「其他…」。非空时输入框句首垫着 [askScope]，发出去只算这一题 */
+    private var askScopeIndex: Int? = null
+    var askScope by mutableStateOf<String?>(null)
+        private set
 
     /**
      * 一句话 → agent 循环。见 DESIGN.md §6.8
      *
-     * 提醒由 `create_reminder` 工具在循环里落库（[Agents] 里接的 [PlanCommitter]）。
-     * 放开模式下卡片是回执；默认模式下卡片先停在草稿上，你点「记下」工具才执行。
+     * 写操作（建提醒、改账）在循环里直接办，对话里留一道痕；拿不准时模型自己出问卡（§6.9）。
+     * 问卡等着的时候，这里发出去的话是给问卡的：点了「其他…」就只答那一题，否则算直接说。
      */
     fun sendMessage(text: String) {
         val trimmed = text.trim()
-        if (trimmed.isBlank() || aiBusy) return
-
-        // 新一轮开始，上一张还展开的卡片自动收起
-        val collapsedPrev = _messages.value.map {
-            if (it is ChatMessage.AssistantTurn && it.plan != null && !it.cardCollapsed) {
-                it.copy(cardCollapsed = true)
-            } else it
+        if (trimmed.isBlank()) return
+        if (pendingAsk != null) {
+            if (askScopeIndex != null) fillAsk(trimmed) else sayToAsk(trimmed)
+            return
         }
+        if (aiBusy) return
 
         lastUserInput = trimmed
         lastTrigger = false
-        _messages.value = collapsedPrev + ChatMessage.UserText(newId(), trimmed)
+        _messages.value = _messages.value + ChatMessage.UserText(newId(), trimmed)
         runTurn(trimmed)
     }
 
@@ -164,7 +173,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (aiBusy) return@launch
         val text = LedgerCheckPrompt.build(LedgerStore.get(app))
             ?: run {
-                _messages.value = _messages.value + ChatMessage.AssistantTurn(newId(), text = "账都对上了，没有要问你的。")
+                _messages.value = _messages.value + ChatMessage.AssistantTurn(
+                    newId(), blocks = listOf(TurnBlock.Prose("p0", 0, "账都对上了，没有要问你的。")), idle = false
+                )
                 return@launch
             }
         _messages.value = _messages.value + ChatMessage.UserText(newId(), text, trigger = true)
@@ -190,7 +201,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 跑一轮。一个回合**原地长大**：思考 → 卡片 → 正文，中途不换消息类型。见 DESIGN.md §6.7
+     * 跑一轮。一个回合**原地长大**：正文、痕、问卡按到货顺序摞，中途不换消息类型。见 DESIGN.md §6.7
      */
     private fun runTurn(text: String, retry: Boolean = false, trigger: Boolean = false) {
         streamJob = viewModelScope.launch {
@@ -200,28 +211,41 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _messages.value = _messages.value + ChatMessage.AssistantTurn(turnId, streaming = true)
             aiBusy = true
 
-            val gate = PermissionGate(permissionMode.value) { call, _ ->
-                approvalCall = call
+            val asker = Asker { call, request ->
+                val pending = PendingAsk(turnId, call.callId, request, CompletableDeferred())
+                pendingAsk = pending
+                asking = request
+                patchTurnWith(turnId) { t ->
+                    t.withAsk(call.callId) { it.copy(request = request, state = AskState.READY, picks = List(request.questions.size) { null }) }
+                }
                 try {
-                    CompletableDeferred<Approval>().also { pendingApproval = it }.await()
+                    pending.answer.await()
                 } finally {
-                    approvalCall = null
+                    if (pendingAsk === pending) pendingAsk = null
+                    asking = null
+                    askScopeIndex = null
+                    askScope = null
                 }
             }
-            var next: String? = null
             try {
                 Agents.of(getApplication(), profile.value)
-                    .run(session, text, ZonedDateTime.now(), gate, trigger)
+                    .run(session, text, ZonedDateTime.now(), asker, trigger)
                     .collect { event ->
                         patchTurn(turnId, event)
                         if (event is AgentEvent.Finished || event is AgentEvent.Failed) ApiHealth.record(event)
                     }
             } catch (t: CancellationException) {
                 val turn = _messages.value.firstOrNull { it.id == turnId } as? ChatMessage.AssistantTurn
-                if (turn?.plan != null) {
-                    // 提醒已经建了：回合留着（卡片是真的），只是不再往下长
-                    _messages.value = _messages.value.map {
-                        if (it.id == turnId && it is ChatMessage.AssistantTurn) it.copy(streaming = false, toolRunning = false) else it
+                if (turn != null && (turn.committed || turn.blocks.any { it is TurnBlock.Ask })) {
+                    // 已经办成了点什么、或者问过你：回合留着（痕和答案都是真的），只是不再往下长；
+                    // 没答完的问卡画成「没答」—— 循环那边也给它记了「没答」
+                    _messages.value = _messages.value.map { m ->
+                        if (m.id == turnId && m is ChatMessage.AssistantTurn) m.copy(
+                            streaming = false,
+                            blocks = m.blocks.map {
+                                if (it is TurnBlock.Ask && (it.state == AskState.READY || it.state == AskState.DRAFT)) it.copy(state = AskState.UNANSWERED) else it
+                            }
+                        ) else m
                     }
                 } else {
                     // 什么都还没办成：这一回合连同半截字撤掉，那句话也撤下来、退回输入框 ——
@@ -244,37 +268,84 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             } finally {
                 aiBusy = false
                 stoppedByUser = false
-                pendingApproval = null
-                next = redirectTo
-                redirectTo = null
+                pendingAsk = null
             }
-            next?.let(::sendMessage)
         }
     }
 
-    /** 授权条上的「好」/「不」 */
-    fun answerApproval(approved: Boolean) {
-        pendingApproval?.complete(if (approved) Approval.Approved else Approval.Denied)
-        pendingApproval = null
+    // ---------------- 问卡（DESIGN.md §6.9）----------------
+
+    /** 点了一颗猜测。再点同一颗是取消。只有一题的卡点了就算答：停一下让你看清点的是哪个，再收起 */
+    fun pickAsk(callId: String, question: Int, option: Int) {
+        val pending = pendingAsk?.takeIf { it.callId == callId } ?: return
+        var picked: Pick? = null
+        patchTurnWith(pending.turnId) { t ->
+            t.withAsk(callId) { a ->
+                val now = a.picks.getOrNull(question)
+                picked = if (now == Pick.Option(option)) null else Pick.Option(option)
+                a.copy(picks = a.picks.toMutableList().also { it[question] = picked }, editing = a.editing?.takeIf { it != question })
+            }
+        }
+        if (askScopeIndex == question) clearScope()
+        if (pending.request.single && picked != null) viewModelScope.launch {
+            delay(SINGLE_PICK_HOLD_MS)
+            if (pendingAsk === pending) submitAsk(callId)
+        }
     }
 
-    /**
-     * 授权条亮着时在输入框里说的话：这次操作算「不」，这一轮收住，
-     * 这句话随后作为新的一句发出去（模型带着上文重办）。见 DESIGN.md §6.8
-     */
-    fun redirect(text: String) {
-        val trimmed = text.trim()
-        val pending = pendingApproval ?: return
-        if (trimmed.isBlank()) return
-        redirectTo = trimmed
-        pending.complete(Approval.Redirected(trimmed))
-        pendingApproval = null
+    /** 点了某一题的「其他…」：借用输入框，句首垫上那一题。再点一次收回 */
+    fun otherAsk(callId: String, question: Int) {
+        val pending = pendingAsk?.takeIf { it.callId == callId } ?: return
+        val on = askScopeIndex != question
+        askScopeIndex = if (on) question else null
+        askScope = if (on) pending.request.questions.getOrNull(question)?.let(::scopeLabelOf) else null
+        patchTurnWith(pending.turnId) { t -> t.withAsk(callId) { it.copy(editing = if (on) question else null) } }
+    }
+
+    /** 「就这样」/「都先放着」 */
+    fun submitAsk(callId: String) {
+        val pending = pendingAsk?.takeIf { it.callId == callId } ?: return
+        val block = (_messages.value.firstOrNull { it.id == pending.turnId } as? ChatMessage.AssistantTurn)
+            ?.blocks?.firstOrNull { it is TurnBlock.Ask && it.callId == callId } as? TurnBlock.Ask ?: return
+        answerAsk(pending, AskAnswer.Picked(block.picks))
+    }
+
+    /** 「其他…」那一题，在输入框里写的答案：落回那一题，卡片还等着你 */
+    private fun fillAsk(text: String) {
+        val pending = pendingAsk ?: return
+        val q = askScopeIndex ?: return
+        clearScope()
+        patchTurnWith(pending.turnId) { t ->
+            t.withAsk(pending.callId) { a ->
+                a.copy(picks = a.picks.toMutableList().also { it[q] = Pick.Typed(text) }, editing = null)
+            }
+        }
+        if (pending.request.single) submitAsk(pending.callId)
+    }
+
+    /** 没点，直接说了一句：给整张卡的，模型拿原话去对 */
+    private fun sayToAsk(text: String) {
+        val pending = pendingAsk ?: return
+        answerAsk(pending, AskAnswer.Said(text))
+    }
+
+    private fun answerAsk(pending: PendingAsk, answer: AskAnswer) {
+        pendingAsk = null
+        patchTurnWith(pending.turnId) { it.answered(pending.callId, answer) }
+        pending.answer.complete(answer)
+    }
+
+    private fun clearScope() {
+        askScopeIndex = null
+        askScope = null
     }
 
     /** 把一个事件叠到那个回合上。规则本身在 ChatMessage.kt，桌面速记也用同一份 */
-    private fun patchTurn(turnId: Long, event: AgentEvent) {
+    private fun patchTurn(turnId: Long, event: AgentEvent) = patchTurnWith(turnId) { it.patched(event) }
+
+    private fun patchTurnWith(turnId: Long, change: (ChatMessage.AssistantTurn) -> ChatMessage.AssistantTurn) {
         _messages.value = _messages.value.map { m ->
-            if (m.id == turnId && m is ChatMessage.AssistantTurn) m.patched(event) else m
+            if (m.id == turnId && m is ChatMessage.AssistantTurn) change(m) else m
         }
     }
 
@@ -295,11 +366,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun collapseCard(id: Long) {
-        _messages.value = _messages.value.map {
-            if (it.id == id && it is ChatMessage.AssistantTurn) it.copy(cardCollapsed = true) else it
-        }
-    }
+    fun toggleTrace(turnId: Long, callId: String) = patchTurnWith(turnId) { it.toggleTrace(callId) }
 
     // ---------------- 供应商配置（顶栏印章 → 纸签 → 配置页）----------------
 
@@ -477,4 +544,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 某条提醒当前是否真的有闹钟排着 —— 直接问 AlarmManager，不看数据库 */
     fun isArmed(id: Long): Boolean = rescheduler.isScheduled(id)
+
+    private companion object {
+        /** 只有一题的卡，点了之后停这么久再收起：让你看清点的是哪个（动效稿「点选」那一拍） */
+        const val SINGLE_PICK_HOLD_MS = 560L
+    }
 }

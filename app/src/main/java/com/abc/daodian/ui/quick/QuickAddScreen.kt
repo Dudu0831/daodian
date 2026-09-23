@@ -77,13 +77,12 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.abc.daodian.harness.Item
-import com.abc.daodian.ui.chat.ApprovalDock
 import com.abc.daodian.ui.chat.AssistantTurnRow
-import com.abc.daodian.ui.chat.approvalSummaryOf
 import com.abc.daodian.ui.chat.InkText
 import com.abc.daodian.ui.chat.PillButton
 import com.abc.daodian.ui.chat.PillStyle
+import com.abc.daodian.ui.chat.TraceTarget
+import com.abc.daodian.ui.chat.TurnActions
 import com.abc.daodian.ui.common.MicIcon
 import com.abc.daodian.ui.common.StopIcon
 import com.abc.daodian.ui.theme.DaodianColors
@@ -118,7 +117,8 @@ fun QuickAddScreen(
     onClose: () -> Unit,
     onEdit: (Long) -> Unit,
     onManual: () -> Unit,
-    onOpenApp: () -> Unit
+    onOpenApp: () -> Unit,
+    onHandoff: (String) -> Unit
 ) {
     val colors = DaodianColors.current
     val density = LocalDensity.current
@@ -156,6 +156,9 @@ fun QuickAddScreen(
         }
     }
     BackHandler { leave("back") }
+
+    // 模型要出问卡：这张纸放不下，交给对话页
+    LaunchedEffect(vm.handoff) { vm.handoff?.let(onHandoff) }
 
     // 落印之后用户碰了纸，说明还想看 / 还想改 —— 不再自己走
     var held by remember { mutableStateOf(false) }
@@ -233,7 +236,7 @@ fun QuickAddScreen(
                     verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
                 ) {
                     SheetContent(
-                        vm, onVoice, { leave("collapse") }, onEdit, onManual, onOpenApp,
+                        vm, onVoice, onEdit, onManual, onOpenApp,
                         sealFaceVisible = !flying,
                         onSealPlaced = { sealBounds = it }
                     )
@@ -301,7 +304,6 @@ fun QuickAddScreen(
 private fun SheetContent(
     vm: QuickAddViewModel,
     onVoice: () -> Unit,
-    onCollapse: () -> Unit,
     onEdit: (Long) -> Unit,
     onManual: () -> Unit,
     onOpenApp: () -> Unit,
@@ -315,28 +317,15 @@ private fun SheetContent(
     vm.turn?.let { turn ->
         Box(Modifier.padding(top = 14.dp)) {
             AssistantTurnRow(
-                msg = turn,
-                onToggleReasoning = vm::toggleReasoning,
-                onCollapseCard = onCollapse,
-                onEditReminder = { turn.reminderId?.let(onEdit) },
-                onManualAdd = onManual,
-                onRetry = vm::retry
-            )
-        }
-    }
-
-    // 授权条：这里没有输入框，只有「好 / 不」。退场那几帧用最后一次的内容画完
-    val lastCall = remember { arrayOfNulls<Item.ToolCall>(1) }
-    vm.approvalCall?.let { lastCall[0] = it }
-    Reveal(vm.approvalCall != null) {
-        lastCall[0]?.let { call ->
-            ApprovalDock(
-                summary = remember(call) { approvalSummaryOf(call) },
-                typing = false,
-                onApprove = { vm.answerApproval(true) },
-                onDeny = { vm.answerApproval(false) },
-                canRedirect = false,
-                modifier = Modifier.padding(top = 14.dp)
+                turn,
+                object : TurnActions {
+                    override fun toggleReasoning() = vm.toggleReasoning()
+                    override fun openTrace(target: TraceTarget) {
+                        if (target is TraceTarget.Reminder) onEdit(target.id)
+                    }
+                    override fun manualAdd() = onManual()
+                    override fun retry() = vm.retry()
+                }
             )
         }
     }
@@ -350,7 +339,7 @@ private fun SheetContent(
             Row(Modifier.padding(top = 14.dp)) { PillButton("去 app 里说", PillStyle.Solid, onOpenApp) }
         }
     }
-    // 印落下之后墨印退场，只剩卡片上的「就这样 / 改一下」
+    // 记好之后墨印退场，纸停一会儿自己缩回去
     Reveal(vm.blocked == null && vm.savedId == null) {
         SealControls(
             seal = when {

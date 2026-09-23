@@ -4,7 +4,7 @@ import com.abc.daodian.ui.common.Format
 import java.time.OffsetDateTime
 
 /**
- * 从流到一半的工具参数里抠出草稿卡要的两个字段。见 DESIGN.md 决策 6.2 第 2 条。
+ * 从流到一半的工具参数里抠出「在记提醒」那道痕要显示的标题和时间。见 DESIGN.md 决策 6.2 第 2 条。
  *
  * 只抠来画草稿，不拿来落库：落库用的仍是流结束时服务端给的完整参数（§6.7 坑 3）。
  * 参数是半截 JSON，JSON 库解析不了，所以手扫字符串。
@@ -31,6 +31,9 @@ data class DraftArgs(val title: String, val whenText: String?) {
                 }
             return DraftArgs(title, whenText)
         }
+
+        /** 半截参数里某个字符串字段目前流到的样子（没流完也给）。痕在建的时候逐字显示标题用 */
+        fun partialText(raw: String, key: String): String? = stringField(raw, key)?.value
 
         private class Field(val value: String, val closed: Boolean)
 

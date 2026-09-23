@@ -12,8 +12,6 @@ import com.abc.daodian.harness.builtin.ledger.LedgerTools
 import com.abc.daodian.harness.builtin.ledger.RecordExpensesTool
 import com.abc.daodian.harness.context.LastTurns
 import com.abc.daodian.harness.llm.ResponsesClient
-import com.abc.daodian.harness.permission.PermissionGate
-import com.abc.daodian.harness.permission.PermissionMode
 import com.abc.daodian.harness.provider.ApiHealth
 import com.abc.daodian.harness.provider.ProviderStore
 import com.abc.daodian.harness.tool.ToolRegistry
@@ -85,7 +83,6 @@ object Organizer {
         val parsedBy = "${profile.model}@${LedgerPrompt.VERSION}"
         val tools = ToolRegistry(LedgerTools.forOrganizer(store, { parsedBy }))
         val loop = AgentLoop(ResponsesClient(profile), tools, LedgerPrompt.ORGANIZE, context = LastTurns(1), maxSteps = 5)
-        val gate = PermissionGate(PermissionMode.AUTO) { _, _ -> error("后台整理不问人") }
 
         var run = AgentRun(kind = "organize", reason = reason, startedAt = System.currentTimeMillis(), model = profile.model)
         run = run.copy(id = dao.insertRun(run))
@@ -98,7 +95,7 @@ object Organizer {
                 seen = batch.map { it.id }.toSet()
 
                 var failure: String? = null
-                loop.run(Session(), inputOf(store, batch), ZonedDateTime.now(), gate).collect { e ->
+                loop.run(Session(), inputOf(store, batch), ZonedDateTime.now()).collect { e ->
                     when (e) {
                         is AgentEvent.ToolFinished -> (e.outcome.payload as? RecordExpensesTool.Recorded)?.let { r ->
                             run = run.copy(recorded = run.recorded + r.txnIds.size, ignored = run.ignored + r.ignored + r.unreadable)

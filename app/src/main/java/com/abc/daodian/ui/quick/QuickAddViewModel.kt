@@ -8,22 +8,20 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.abc.daodian.harness.AgentEvent
-import com.abc.daodian.harness.Item
 import com.abc.daodian.harness.Session
-import com.abc.daodian.harness.permission.Approval
-import com.abc.daodian.harness.permission.PermissionGate
-import com.abc.daodian.harness.permission.PermissionStore
+import com.abc.daodian.harness.ask.Asker
 import com.abc.daodian.harness.provider.ApiHealth
 import com.abc.daodian.harness.provider.ProviderProfile
 import com.abc.daodian.harness.provider.ProviderStore
 import com.abc.daodian.ui.Agents
 import com.abc.daodian.ui.chat.ChatMessage
+import com.abc.daodian.ui.chat.createdReminderId
 import com.abc.daodian.ui.chat.patched
 import com.abc.daodian.widget.WidgetUpdater
 import java.time.ZonedDateTime
 import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -31,8 +29,8 @@ import kotlinx.coroutines.launch
  * 桌面速记：从小组件右下角那枚墨印拉起来的一小张纸。见 DESIGN.md §8.3
  *
  * **只有语音。** 要聊天、要改字，回 app 的对话页 —— 这里不做第二个输入框。
- * 其余和对话页是同一套东西的缩小版：同一个 agent（[Agents]）、同一套回合规则（[patched]）、
- * 同一个授权模式。只摆最近一问一答，不留对话流。
+ * 其余和对话页是同一套东西的缩小版：同一个 agent（[Agents]）、同一套回合规则（[patched]）。
+ * 只摆最近一问一答，不留对话流。模型要出问卡时这张纸放不下，交给对话页接着问（[handoff]）。
  */
 class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -76,15 +74,12 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
     private var turnIds = 0L
     private var job: Job? = null
     private var stoppedByUser = false
-    /** 等你点头的那次调用。非空 = 纸上亮着授权条 */
-    var approvalCall by mutableStateOf<Item.ToolCall?>(null)
+    /**
+     * 模型要问你（调了 `ask_user`）：纸太小放不下问卡，打开对话页接着问。见 DESIGN.md §6.9
+     * 非空 = 该走了；是那句话本身时对话页会把它照常发出去，空串 = 只打开对话页
+     */
+    var handoff by mutableStateOf<String?>(null)
         private set
-
-    /** 授权条亮着时，循环挂在这上面等 [answerApproval] */
-    private var pendingApproval: CompletableDeferred<Approval>? = null
-
-    /** 这一轮你点了「不」：模型回一句就完，不再自动接着听 */
-    private var deniedThisTurn = false
 
     fun startListening() {
         if (aiBusy || savedId != null) return
@@ -131,55 +126,44 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
             turn = t
             aiBusy = true
             val app = getApplication<Application>()
-            deniedThisTurn = false
-            val gate = PermissionGate(PermissionStore.flow(app).first()) { call, _ ->
-                approvalCall = call
-                try {
-                    CompletableDeferred<Approval>().also { pendingApproval = it }.await()
-                } finally {
-                    approvalCall = null
-                }
+            // 这一轮在这里作废，对话页会把这句话从头办一遍。已经办成了点什么就不能再带过去（会办两遍），只打开对话页
+            val asker = Asker { _, _ ->
+                handoff = if (t.committed) "" else said
+                job?.cancel()
+                awaitCancellation()
             }
             var askBack = false
             try {
-                Agents.of(app, profile()).run(session, said, ZonedDateTime.now(), gate).collect { event ->
+                Agents.of(app, profile()).run(session, said, ZonedDateTime.now(), asker).collect { event ->
                     t = t.patched(event)
                     turn = t
                     if (event is AgentEvent.Finished || event is AgentEvent.Failed) ApiHealth.record(event)
                 }
-                val reminderId = t.reminderId
+                val reminderId = t.createdReminderId
                 if (reminderId != null) {
                     savedId = reminderId
                     // app 多半压根没开着，MainViewModel 盯的那条 observeAll 兜不到这里 —— 自己喊
                     WidgetUpdater.announce(app, reminderId)
                 } else {
-                    // 没建成也没出错 = 模型在反问（或闸门要确认）。纯语音就该一路说下去：自动接着听
-                    askBack = !t.isError && !deniedThisTurn
+                    // 没建成也没出错 = 模型说了句别的（闲聊、闸门拦下后的解释）。纯语音就该一路说下去：自动接着听
+                    askBack = !t.isError
                 }
             } catch (c: CancellationException) {
-                if (t.reminderId == null) {
+                if (!t.committed) {
                     turn = null
                     asked = null
                     session.discardLastTurn()
                     if (stoppedByUser) note = "停了。点一下，重说"
                 } else {
-                    turn = t.copy(streaming = false, toolRunning = false)
+                    turn = t.copy(streaming = false)
                 }
                 throw c
             } finally {
                 aiBusy = false
                 stoppedByUser = false
-                pendingApproval = null
             }
             if (askBack) startListening()
         }
-    }
-
-    /** 授权条上的「好」/「不」 */
-    fun answerApproval(approved: Boolean) {
-        if (!approved) deniedThisTurn = true
-        pendingApproval?.complete(if (approved) Approval.Approved else Approval.Denied)
-        pendingApproval = null
     }
 
     /** 失败后重说同一句：失败那一轮从模型的记录里拿掉，理由同 MainViewModel.retryLast */

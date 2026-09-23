@@ -9,11 +9,8 @@ sealed interface AgentEvent {
     /** 第 [step] 次调模型的过程事件（从 0 数）。界面据此逐字画 */
     data class Model(val step: Int, val event: LlmEvent) : AgentEvent
 
-    /** 这个调用要用户点头才执行，循环在等 [com.abc.daodian.harness.permission.Approver] */
-    data class AwaitingApproval(val call: Item.ToolCall) : AgentEvent
-
-    /** 用户没同意，工具没执行 */
-    data class ToolDenied(val call: Item.ToolCall) : AgentEvent
+    /** 要开始执行这个调用了，参数已经收全（一次性请求没有流式事件，界面靠这一下知道有这个调用） */
+    data class ToolStarting(val call: Item.ToolCall) : AgentEvent
 
     /** 工具执行完了（成没成看 [outcome] 的 ok） */
     data class ToolFinished(val call: Item.ToolCall, val outcome: ToolOutcome) : AgentEvent
@@ -28,8 +25,5 @@ enum class StopReason {
     ANSWERED,
 
     /** 撞到步数上限。多半是模型在原地打转 */
-    STEP_LIMIT,
-
-    /** 用户在授权时改了口（[com.abc.daodian.harness.permission.Approval.Redirected]）。他的话由界面作为下一轮发出 */
-    REDIRECTED
+    STEP_LIMIT
 }

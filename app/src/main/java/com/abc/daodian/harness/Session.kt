@@ -40,14 +40,15 @@ class Session(turns: List<Turn> = emptyList(), private val listener: Listener? =
 
     /**
      * 给最后一轮里没拿到结果的调用补上结果。协议要求每个 function_call 都有对应的 output，
-     * 缺一个下一次请求就会被网关拒掉。
+     * 缺一个下一次请求就会被网关拒掉。循环被停掉时补一次；app 在等人的时候被杀了，
+     * 重启读回来的最后一轮也会缺，由读回的一方补。
      */
-    internal fun closeDanglingCalls(output: String) {
+    fun closeDanglingCalls(output: (Item.ToolCall) -> String) {
         if (_turns.isEmpty()) return
         val answered = current.items.filterIsInstance<Item.ToolResult>().mapTo(HashSet()) { it.callId }
         current.items.filterIsInstance<Item.ToolCall>()
             .filter { it.callId !in answered }
-            .forEach { append(Item.ToolResult(it.callId, output, ok = false)) }
+            .forEach { append(Item.ToolResult(it.callId, output(it), ok = false)) }
     }
 
     /** 把最后一轮整轮拿掉：失败后重试、什么都没办成就被「停」掉时用，不让模型看到跑偏的痕迹 */

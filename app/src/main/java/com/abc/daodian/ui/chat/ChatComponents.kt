@@ -15,7 +15,9 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +25,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -32,6 +35,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
@@ -51,6 +55,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import com.abc.daodian.ui.common.Format
 import com.abc.daodian.ui.theme.DaodianColors
 import com.abc.daodian.ui.theme.DaodianType
 import com.abc.daodian.ui.theme.Motion
@@ -60,13 +65,16 @@ private val AssistantIndent = 14.dp
 
 /** 刚发出的气泡从下方升起；列表滚回来重组时不再升 */
 @Composable
-fun UserBubble(msg: ChatMessage.UserText) {
+fun UserBubble(msg: ChatMessage.UserText) = UserBubble(msg.text, msg.sentAt)
+
+@Composable
+fun UserBubble(text: String, sentAt: Long) {
     val colors = DaodianColors.current
-    val rise = remember { Animatable(if (System.currentTimeMillis() - msg.sentAt < 600) 0f else 1f) }
+    val rise = remember { Animatable(if (System.currentTimeMillis() - sentAt < 600) 0f else 1f) }
     LaunchedEffect(Unit) { rise.animateTo(1f, Motion.settle()) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Text(
-            msg.text,
+            text,
             style = DaodianType.body,
             color = colors.onSolid,
             modifier = Modifier
@@ -110,81 +118,118 @@ private fun BreathingDot(color: Color) {
     Box(Modifier.size(5.dp).graphicsLayer { alpha = a }.background(color, CircleShape))
 }
 
+/** 回合里能点的东西。对话页全接；桌面速记只接它用得上的几样，其余默认什么都不做 */
+interface TurnActions {
+    fun toggleReasoning() {}
+    fun toggleTrace(callId: String) {}
+    fun openTrace(target: TraceTarget) {}
+    fun pick(callId: String, question: Int, option: Int) {}
+    fun other(callId: String, question: Int) {}
+    fun submit(callId: String) {}
+    fun manualAdd() {}
+    fun retry() {}
+}
+
 /**
- * 助手的一个回合。见 DESIGN.md §6.7、决策 6.2 / 6.3。
+ * 助手的一个回合。见 DESIGN.md §6.7、§6.9。
  *
- * 按这个顺序摞：墨条 → 思考 → 卡片 → 正文 → 出路。每一块都是展开着进场、
- * 收起着退场，一个回合在原地长大，中间没有硬切。
- * 卡片在正文上面：两者同时流时，卡片的高度起稿就定了，正文在它下面长，谁也不推谁。
+ * 块按到货顺序摞：正文、痕、问卡，每一块都是展开着进场。还在跑、眼下又没东西在出的时候，
+ * 末尾画两根墨条（刚发出去、工具跑完等它接着说、问卡答完等它接着办）。
+ * 问卡等着时你直接说了一句：那句话画成你的气泡，后面的回应另起一个「· 到点」。
  */
 @Composable
-fun AssistantTurnRow(
-    msg: ChatMessage.AssistantTurn,
-    onToggleReasoning: () -> Unit,
-    onCollapseCard: () -> Unit,
-    onEditReminder: () -> Unit,
-    onManualAdd: () -> Unit,
-    onRetry: () -> Unit
-) {
+fun AssistantTurnRow(msg: ChatMessage.AssistantTurn, actions: TurnActions) {
     val colors = DaodianColors.current
-    val waiting = msg.isBlank && msg.streaming
-    val draft = remember(msg.toolArgs) { DraftArgs.parse(msg.toolArgs) }
-    val phase = cardPhaseOf(msg, draft)
+    // 按「你直接说的话」切段：每段自己一个「· 到点」
+    val segments = remember(msg.blocks) {
+        val out = mutableListOf<Pair<TurnBlock.Said?, List<TurnBlock>>>(null to mutableListOf())
+        msg.visibleBlocks.forEach { b ->
+            if (b is TurnBlock.Said) out += b to mutableListOf() else (out.last().second as MutableList).add(b)
+        }
+        out
+    }
+    // 重启读回来的回合不再一块块长出来
+    val animate = msg.startedAt != 0L
 
     Column {
-        SpeakerTag(isError = msg.isError, breathing = waiting)
-        Column(Modifier.padding(start = AssistantIndent)) {
-            Reveal(waiting && msg.fellBack) {
-                Text(
-                    "换个方式重新问了一次",
-                    style = DaodianType.speakerTag.copy(fontSize = 11.5.sp, letterSpacing = 0.1.em),
-                    color = colors.hint
-                )
+        segments.forEachIndexed { si, (said, blocks) ->
+            val last = si == segments.lastIndex
+            if (said != null) {
+                Spacer(Modifier.height(24.dp))
+                UserBubble(said.text, said.sentAt)
+                Spacer(Modifier.height(24.dp))
             }
-            // 墨条收起和第一块内容进场在同一帧，中间没有空白帧
-            Reveal(waiting, exit = BarsExit) { InkWashBars() }
-
-            Reveal(msg.reasoning.isNotBlank() && !msg.reasoningFolded) { ReasoningStream(msg.reasoning) }
-            Reveal(msg.reasoning.isNotBlank() && msg.reasoningFolded) {
-                ReasoningTrace(
-                    msg.reasoning,
-                    seconds = ((msg.thoughtMillis ?: 0L) / 1000).toInt(),
-                    expanded = msg.reasoningOpen,
-                    onToggle = onToggleReasoning
-                )
-            }
-
-            Reveal(phase != null, enter = CardEnter) {
-                if (phase != null) {
-                    ReminderCard(
-                        phase = phase,
-                        toolName = msg.toolName.orEmpty(),
-                        draft = draft,
-                        plan = msg.plan,
-                        stampedAt = msg.stampedAt,
-                        onCollapse = onCollapseCard,
-                        onEdit = onEditReminder
-                    )
+            SpeakerTag(isError = msg.isError, breathing = last && msg.waiting)
+            Column(Modifier.padding(start = AssistantIndent)) {
+                if (si == 0) {
+                    Reveal(msg.waiting && msg.fellBack && msg.blocks.isEmpty()) {
+                        Text(
+                            "换个方式重新问了一次",
+                            style = DaodianType.speakerTag.copy(fontSize = 11.5.sp, letterSpacing = 0.1.em),
+                            color = colors.hint
+                        )
+                    }
+                    Reveal(msg.reasoning.isNotBlank() && !msg.reasoningFolded) { ReasoningStream(msg.reasoning) }
+                    Reveal(msg.reasoning.isNotBlank() && msg.reasoningFolded) {
+                        ReasoningTrace(
+                            msg.reasoning,
+                            seconds = ((msg.thoughtMillis ?: 0L) / 1000).toInt(),
+                            expanded = msg.reasoningOpen,
+                            onToggle = actions::toggleReasoning
+                        )
+                    }
                 }
-            }
-            // 记账操作的回执：一回合可能有好几个（先查再改），各占一行
-            msg.ledgerOps.forEach { op ->
-                key(op.callId) { Reveal(true) { LedgerOpRow(op) } }
-            }
-            Reveal(msg.text.isNotBlank()) {
-                InkText(msg.text, streaming = msg.streaming, style = DaodianType.prose, color = colors.ink, caret = msg.streaming)
-            }
 
-            Reveal(msg.isError) {
-                Column {
-                    Text("你可以自己填一条，跟解析出来的一样能用。", style = DaodianType.prose, color = colors.muted)
-                    Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                        PillButton("手动填一条", PillStyle.OutlineStrong, onManualAdd)
-                        PillButton("重试", PillStyle.Outline, onRetry)
+                blocks.forEach { b ->
+                    key(b.key) {
+                        Appear(animate, enter = if (b is TurnBlock.Ask) CardEnter else RevealEnter) {
+                            when (b) {
+                                is TurnBlock.Prose -> {
+                                    val streaming = msg.streaming && b.key == msg.blocks.lastOrNull()?.key
+                                    InkText(b.text, streaming = streaming, style = DaodianType.prose, color = colors.ink, caret = streaming)
+                                }
+                                is TurnBlock.Trace -> TraceLine(
+                                    b,
+                                    onOpen = actions::openTrace,
+                                    onToggle = { actions.toggleTrace(b.callId) }
+                                )
+                                is TurnBlock.Ask -> AskCard(
+                                    b,
+                                    onPick = { q, o -> actions.pick(b.callId, q, o) },
+                                    onOther = { q -> actions.other(b.callId, q) },
+                                    onSubmit = { actions.submit(b.callId) }
+                                )
+                                is TurnBlock.Said -> Unit
+                            }
+                        }
+                    }
+                }
+
+                // 墨条收起和下一块内容进场在同一帧，中间没有空白帧
+                if (last) Reveal(msg.waiting, exit = BarsExit) { InkWashBars() }
+
+                if (si == 0) {
+                    Reveal(msg.isError) {
+                        Column {
+                            Text("你可以自己填一条，跟解析出来的一样能用。", style = DaodianType.prose, color = colors.muted)
+                            Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                                PillButton("手动填一条", PillStyle.OutlineStrong, actions::manualAdd)
+                                PillButton("重试", PillStyle.Outline, actions::retry)
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+/** 一块内容第一次出现时长出来；[animate] 为 false（重启读回的）就直接在那儿 */
+@Composable
+private fun ColumnScope.Appear(animate: Boolean, enter: EnterTransition, content: @Composable () -> Unit) {
+    val state = remember { MutableTransitionState(!animate).apply { targetState = true } }
+    AnimatedVisibility(visibleState = state, enter = enter, exit = RevealExit) {
+        Box(Modifier.padding(top = 12.dp)) { content() }
     }
 }
 
@@ -270,5 +315,60 @@ private fun ReasoningTrace(text: String, seconds: Int, expanded: Boolean, onTogg
                 }
             }
         }
+    }
+}
+
+internal enum class PillStyle { Solid, Outline, OutlineStrong }
+
+@Composable
+internal fun PillButton(text: String, style: PillStyle, onClick: () -> Unit) {
+    val colors = DaodianColors.current
+    val shape = RoundedCornerShape(22.dp)
+    Box(
+        Modifier
+            .defaultMinSize(minHeight = 44.dp)
+            .let { if (style == PillStyle.Solid) it.background(colors.solid, shape) else it }
+            .let {
+                when (style) {
+                    PillStyle.Solid -> it
+                    PillStyle.Outline -> it.border(1.dp, colors.rule2, shape)
+                    PillStyle.OutlineStrong -> it.border(1.dp, colors.ink, shape)
+                }
+            }
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text,
+            style = DaodianType.bodySmall,
+            color = when (style) {
+                PillStyle.Solid -> colors.onSolid
+                PillStyle.OutlineStrong -> colors.ink
+                PillStyle.Outline -> colors.ink2
+            }
+        )
+    }
+}
+
+/** app 自己发起的一轮（每晚对账）：不是用户说的话，画成一条分隔线 */
+@Composable
+fun TriggerDivider(msg: ChatMessage.UserText) {
+    val colors = DaodianColors.current
+    val label = when {
+        msg.text.startsWith("每晚对账") -> "每晚对账"
+        else -> msg.text.substringBefore('：').take(12)
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        HorizontalDivider(Modifier.weight(1f), color = colors.rule)
+        Text(
+            (if (msg.sentAt > 0) Format.clock(msg.sentAt) + " · " else "") + label,
+            style = DaodianType.speakerTag, color = colors.hint
+        )
+        HorizontalDivider(Modifier.weight(1f), color = colors.rule)
     }
 }

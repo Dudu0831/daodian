@@ -1,15 +1,24 @@
 package com.abc.daodian.harness.tool
 
+import com.abc.daodian.harness.Item
+import com.abc.daodian.harness.ask.Asker
 import java.time.ZonedDateTime
 
-/** 工具会不会改动用户的东西。决定默认模式下要不要先问用户，见 [com.abc.daodian.harness.permission.PermissionGate] */
+/**
+ * 工具会不会改动用户的东西。写操作在对话里留一道「痕」（见 DESIGN.md §6.9），只读的不留。
+ * 不再决定要不要先问用户 —— 写操作一律直接办，拿不准由模型自己用 `ask_user` 问。
+ */
 enum class ToolEffect { READ, WRITE }
 
 /** 执行时能拿到的上下文 */
 data class ToolContext(
     val now: ZonedDateTime,
     /** 这一轮用户的原话。落库时存成「来源」，出了问题能对照 */
-    val userInput: String
+    val userInput: String,
+    /** 要问用户的时候找它（`ask_user` 用）。没有界面的地方是 [Asker.NONE] */
+    val asker: Asker = Asker.NONE,
+    /** 正在执行的这次调用 */
+    val call: Item.ToolCall? = null
 )
 
 /**
@@ -39,6 +48,12 @@ interface Tool {
     val strict: Boolean get() = true
 
     val effect: ToolEffect
+
+    /**
+     * 这次调用没跑完就被停掉（喊停、页面关了、app 被杀）时记进历史的结果。
+     * null = 用循环的通用说法（[com.abc.daodian.harness.AgentLoop.ABORTED]）
+     */
+    val abortedOutput: String? get() = null
 
     suspend fun execute(arguments: String, context: ToolContext): ToolOutcome
 }

@@ -1,6 +1,11 @@
 package com.abc.daodian.ui.chat
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -20,6 +25,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
@@ -52,14 +58,17 @@ fun ChatInputBar(
     level: Float = 0f,
     onStop: (() -> Unit)? = null,
     placeholder: String = "说一句话……",
-    /** 授权条亮着、你在打字改口：描一圈朱砂，表示这句话走的是「不 + 怎么改」那条路 */
-    redirecting: Boolean = false
+    /**
+     * 点了问卡上某一题的「其他…」：句首垫上「¥219.00 是」，描一圈朱砂 ——
+     * 这时候打的字只算那一题的答案。见 DESIGN.md §6.9
+     */
+    scope: String? = null
 ) {
     val colors = DaodianColors.current
     val canSend = text.isNotBlank() && enabled
     val shape = RoundedCornerShape(26.dp)
     val dim by animateFloatAsState(if (enabled) 1f else 0.55f, tween(Motion.SHORT), label = "inputDim")
-    val edge by animateColorAsState(if (redirecting) colors.accent else colors.rule, tween(Motion.SHORT), label = "inputEdge")
+    val edge by animateColorAsState(if (scope != null) colors.accent else colors.rule, tween(Motion.SHORT), label = "inputEdge")
 
     Row(
         Modifier
@@ -69,6 +78,16 @@ fun ChatInputBar(
             .padding(start = 20.dp, end = 11.dp, top = 11.dp, bottom = 11.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        AnimatedVisibility(
+            visible = scope != null,
+            enter = expandHorizontally(Motion.settle(Motion.SHORT)) + fadeIn(Motion.settle(Motion.SHORT)),
+            exit = shrinkHorizontally(Motion.flow(Motion.SHORT)) + fadeOut(Motion.exit())
+        ) {
+            // 退场那几帧 scope 已经是 null 了，用最后一次的字画完
+            val last = remember { arrayOfNulls<String>(1) }
+            scope?.let { last[0] = it }
+            Text(last[0].orEmpty(), style = DaodianType.body, color = colors.muted, modifier = Modifier.padding(end = 4.dp))
+        }
         Box(Modifier.weight(1f).padding(end = 8.dp).graphicsLayer { alpha = dim }) {
             if (text.isEmpty()) {
                 Crossfade(targetState = placeholder, animationSpec = tween(Motion.SHORT), label = "placeholder") {

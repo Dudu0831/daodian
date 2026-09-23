@@ -72,7 +72,8 @@ class QuickAddActivity : ComponentActivity() {
                     onClose = ::finish,
                     onEdit = { id -> openApp(WidgetTarget.Edit(id)) },
                     onManual = { openApp(WidgetTarget.New) },
-                    onOpenApp = { openApp(WidgetTarget.Chat) }
+                    onOpenApp = { openApp(WidgetTarget.Chat) },
+                    onHandoff = { said -> openApp(if (said.isBlank()) WidgetTarget.Chat else WidgetTarget.Say(said)) }
                 )
             }
         }
