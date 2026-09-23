@@ -16,7 +16,7 @@ import kotlinx.coroutines.launch
 /**
  * 小组件上那个 ✓。
  *
- * 语义和列表页的「完成」完全一致（[com.abc.daodian.agent.conversation.MainViewModel.markDone]）：
+ * 语义和列表页的「完成」完全一致（[com.abc.daodian.reminder.application.Reminders.markDone]）：
  * **先撤闹钟再改状态**，重复提醒也一并停掉整条。顺序不能反 ——
  * 反了就会留下一个指向 DONE 记录的闹钟，到点照响。
  *

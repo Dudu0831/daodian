@@ -9,20 +9,25 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
 
-data class HealthItem(
-    val label: String,
-    val ok: Boolean,
-    val detail: String,
-    val fixIntent: Intent?
-)
-
 /**
  * 权限体检。这几项里挂掉任何一项，提醒都可能不响。见设计文档 §9.1
- * 注意：MagicOS 的「应用启动管理」没有公开 API 可以检测，只能靠 §9.2 手动设置 + 放置测试验证。
+ * 注意：MagicOS 的「应用启动管理」没有公开 API 可以检测，只能靠 §9.2 手动设置 + 放置测试验证（[MANUAL]）。
+ * 设置页、抽屉经接头拿它（ReminderFeature.health）。
  */
 object HealthCheck {
 
-    fun run(context: Context): List<HealthItem> {
+    data class Item(
+        val label: String,
+        val ok: Boolean,
+        val detail: String,
+        val fixIntent: Intent?
+    )
+
+    /** 查不到、只能手动设的那一项 */
+    const val MANUAL_LABEL = "应用启动管理"
+    const val MANUAL_DETAIL = "查不到，只能手动设：设置 → 应用启动管理 → 到点 → 关掉自动管理 → 三个开关全开"
+
+    fun run(context: Context): List<Item> {
         val am = context.getSystemService(AlarmManager::class.java)
         val nm = context.getSystemService(NotificationManager::class.java)
         val pm = context.getSystemService(PowerManager::class.java)
@@ -31,20 +36,20 @@ object HealthCheck {
         val channel = nm.getNotificationChannel(Notifier.CHANNEL_ID)
 
         return listOf(
-            HealthItem(
+            Item(
                 label = "精确闹钟",
                 ok = am.canScheduleExactAlarms(),
                 detail = if (am.canScheduleExactAlarms()) "已授予（USE_EXACT_ALARM 安装即给）" else "没有它闹钟会被系统随意延后",
                 fixIntent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$pkg"))
             ),
-            HealthItem(
+            Item(
                 label = "通知权限",
                 ok = NotificationManagerCompat.from(context).areNotificationsEnabled(),
                 detail = "关掉的话闹钟会响但你看不见",
                 fixIntent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                     .putExtra(Settings.EXTRA_APP_PACKAGE, pkg)
             ),
-            HealthItem(
+            Item(
                 // 实测发现：MagicOS 会把渠道从我们请求的 IMPORTANCE_HIGH(4) 静默降到 DEFAULT(3)，
                 // 且 mUserLockedFields=0 —— 不是用户改的，是 ROM 干的。
                 // 后果：有声音，但不弹横幅。所以门槛必须卡在 4，卡 3 会让降级状态显示成绿的。
@@ -63,13 +68,13 @@ object HealthCheck {
                     .putExtra(Settings.EXTRA_APP_PACKAGE, pkg)
                     .putExtra(Settings.EXTRA_CHANNEL_ID, Notifier.CHANNEL_ID)
             ),
-            HealthItem(
+            Item(
                 label = "电池优化白名单",
                 ok = pm.isIgnoringBatteryOptimizations(pkg),
                 detail = "荣耀上这项没开，深度休眠时大概率漏提醒",
                 fixIntent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$pkg"))
             ),
-            HealthItem(
+            Item(
                 label = "全屏 intent",
                 ok = nm.canUseFullScreenIntent(),
                 detail = "没有就降级成普通横幅，不影响响铃",

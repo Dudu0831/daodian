@@ -43,7 +43,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.abc.daodian.agent.model.provider.PingResult
 import com.abc.daodian.agent.model.provider.ProviderStore
-import com.abc.daodian.agent.conversation.MainViewModel
+import com.abc.daodian.agent.conversation.ChatViewModel
 import com.abc.daodian.shared.ui.ScreenTopBar
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
@@ -58,7 +58,7 @@ import kotlinx.coroutines.launch
  * 有些网关对这句测试话会挑刺，正式调用反而是通的，拦死了就没法绕过去了。
  */
 @Composable
-fun ProviderScreen(vm: MainViewModel, onBack: () -> Unit) {
+fun ProviderScreen(vm: ChatViewModel, onBack: () -> Unit) {
     val colors = DaodianColors.current
     val profile by vm.profile.collectAsState()
     val scope = rememberCoroutineScope()

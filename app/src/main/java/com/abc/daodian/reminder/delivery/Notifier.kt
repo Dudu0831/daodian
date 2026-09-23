@@ -14,14 +14,13 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import com.abc.daodian.MainActivity
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.dueDate
 import com.abc.daodian.reminder.data.isAllDay
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.reminder.presentation.alarm.AlarmActivity
-import com.abc.daodian.shared.navigation.WidgetLaunch
-import com.abc.daodian.shared.navigation.WidgetTarget
+import com.abc.daodian.reminder.ReminderRoutes
+import com.abc.daodian.shared.navigation.Launch
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
@@ -65,8 +64,7 @@ object Notifier {
         val open = PendingIntent.getActivity(
             context,
             reminder.id.toInt(),
-            Intent(context, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            Launch.intent(context).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
@@ -96,7 +94,7 @@ object Notifier {
         if (body.isNotEmpty()) builder.setContentText(body)
 
         // Android 14+ 收紧了全屏 intent，拿不到就安静降级成 heads-up，不要崩。
-        // 全屏页是独立的 AlarmActivity（响铃屏），不是打开 app 本体那个 MainActivity。
+        // 全屏页是独立的 AlarmActivity（响铃屏），不是打开 app 本体的那个宿主 Activity。
         val nm = context.getSystemService(NotificationManager::class.java)
         if (nm.canUseFullScreenIntent()) {
             val ring = PendingIntent.getActivity(
@@ -260,7 +258,7 @@ object Notifier {
         PendingIntent.getActivity(
             context,
             DAY_SUMMARY_ID,
-            WidgetLaunch.intent(context, WidgetTarget.List),
+            Launch.intent(context, route = ReminderRoutes.LIST),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 

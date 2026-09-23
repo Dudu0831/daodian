@@ -39,7 +39,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.abc.daodian.shared.ui.CheckIcon
-import com.abc.daodian.shared.ui.LedgerRule
+import com.abc.daodian.shared.ui.GroupRule
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import java.time.LocalTime
@@ -182,7 +182,7 @@ fun RepeatSheet(options: List<RepeatOption>, current: RepeatChoice, onPick: (Rep
                 modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
             )
             options.forEachIndexed { i, o ->
-                if (i > 0) LedgerRule()
+                if (i > 0) GroupRule()
                 Row(
                     Modifier
                         .fillMaxWidth()

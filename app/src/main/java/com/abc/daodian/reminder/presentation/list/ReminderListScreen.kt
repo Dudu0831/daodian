@@ -70,7 +70,7 @@ import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderStatus
 import com.abc.daodian.reminder.data.dueDate
 import com.abc.daodian.reminder.data.isAllDay
-import com.abc.daodian.agent.conversation.MainViewModel
+import com.abc.daodian.reminder.presentation.ReminderViewModel
 import com.abc.daodian.shared.ui.CheckIcon
 import com.abc.daodian.shared.ui.ChevronRightIcon
 import com.abc.daodian.shared.format.Format
@@ -105,7 +105,7 @@ import java.time.ZoneId
  */
 @Composable
 fun ReminderListScreen(
-    vm: MainViewModel,
+    vm: ReminderViewModel,
     onBack: () -> Unit,
     onAdd: () -> Unit,
     onEdit: (Long) -> Unit

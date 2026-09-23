@@ -22,8 +22,8 @@ import com.abc.daodian.ledger.domain.TxnState
 import com.abc.daodian.ledger.data.LedgerSettings
 import com.abc.daodian.ledger.data.LedgerStore
 import com.abc.daodian.ledger.organize.Organizer
-import com.abc.daodian.shared.navigation.WidgetLaunch
-import com.abc.daodian.shared.navigation.WidgetTarget
+import com.abc.daodian.ledger.LedgerRoutes
+import com.abc.daodian.shared.navigation.Launch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -116,7 +116,7 @@ object LedgerCheck {
             }
         )
         val open = PendingIntent.getActivity(
-            context, 7302, WidgetLaunch.intent(context, WidgetTarget.LedgerCheck),
+            context, 7302, Launch.intent(context, trigger = LedgerRoutes.CHECK),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val text = if (autoCount > 0) "另外自动记了 $autoCount 笔，共 ¥${Money.yuan(autoSum)}" else "点开在对话里说一声就行"

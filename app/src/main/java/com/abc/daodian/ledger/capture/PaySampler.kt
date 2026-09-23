@@ -12,10 +12,6 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.content.ContextCompat
 import com.abc.daodian.ledger.data.LedgerStore
-import java.io.File
-import java.time.LocalDateTime
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -140,50 +136,4 @@ class PaySampler : NotificationListenerService() {
             extras.optJSONArray("_messages")?.let { a -> (0 until a.length()).joinToString(" / ") { a.optString(it) } }
         ).joinToString(" · ").ifBlank { null }
     }
-}
-
-/**
- * 调研阶段存的 `files/pay_samples.jsonl`（9-18 起的真实通知）导进库里，导完改名留底
- * （`pay_samples.imported.jsonl`），不删 —— 那是这几天唯一的原始样本。只在文件还在时做一次。
- */
-object LegacySamples {
-
-    private const val FILE = "pay_samples.jsonl"
-    private const val DONE = "pay_samples.imported.jsonl"
-    private val STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
-
-    suspend fun importOnce(context: Context): Int {
-        val file = File(context.filesDir, FILE)
-        if (!file.exists()) return 0
-        val store = LedgerStore.get(context)
-        var n = 0
-        file.readLines().forEach { line ->
-            runCatching {
-                val o = JSONObject(line)
-                val pkg = o.optString("pkg").ifBlank { null } ?: return@runCatching
-                if (pkg !in PaySources.PACKAGES) return@runCatching
-                val extras = o.optJSONObject("extras") ?: JSONObject()
-                val text = extras.optString("android.text").ifBlank { null }
-                val postTime = millis(o.optString("postTime")) ?: return@runCatching
-                val ok = store.ingest(
-                    pkg = pkg,
-                    key = o.optString("key"),
-                    postTime = postTime,
-                    title = extras.optString("android.title").ifBlank { null },
-                    text = text,
-                    extra = PaySampler.extraOf(extras, text),
-                    extras = extras.toString(),
-                    how = "import",
-                    capturedAt = millis(o.optString("at")) ?: postTime
-                )
-                if (ok) n++
-            }
-        }
-        file.renameTo(File(context.filesDir, DONE))
-        return n
-    }
-
-    private fun millis(s: String?): Long? = runCatching {
-        LocalDateTime.parse(s, STAMP).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-    }.getOrNull()
 }

@@ -81,7 +81,6 @@ import com.abc.daodian.agent.conversation.AssistantTurnRow
 import com.abc.daodian.agent.conversation.InkText
 import com.abc.daodian.agent.conversation.PillButton
 import com.abc.daodian.agent.conversation.PillStyle
-import com.abc.daodian.agent.conversation.TraceTarget
 import com.abc.daodian.agent.conversation.TurnActions
 import com.abc.daodian.shared.ui.MicIcon
 import com.abc.daodian.shared.ui.StopIcon
@@ -115,7 +114,7 @@ fun QuickAddScreen(
     mic: Rect?,
     onVoice: () -> Unit,
     onClose: () -> Unit,
-    onEdit: (Long) -> Unit,
+    onOpen: (String) -> Unit,
     onManual: () -> Unit,
     onOpenApp: () -> Unit,
     onHandoff: (String) -> Unit
@@ -163,8 +162,8 @@ fun QuickAddScreen(
     // 落印之后用户碰了纸，说明还想看 / 还想改 —— 不再自己走
     var held by remember { mutableStateOf(false) }
     val countdown = remember { Animatable(1f) }
-    LaunchedEffect(vm.savedId, held) {
-        if (vm.savedId != null && !held) {
+    LaunchedEffect(vm.saved, held) {
+        if (vm.saved && !held) {
             countdown.snapTo(1f)
             countdown.animateTo(0f, tween(AUTO_CLOSE_MS, easing = LinearEasing))
             leave("auto")
@@ -182,7 +181,7 @@ fun QuickAddScreen(
     // 纸上那枚墨印落定后在窗口里的位置。展开途中，小组件上的墨印从右下角一路飞到这里、放大成它
     var sealBounds by remember { mutableStateOf<Rect?>(null) }
     // 飞行中：纸上的印先藏着，由飞着的那枚代替。纸已经落定、或者纸上已经没有印（落印之后、语音用不了）就不飞
-    val flying = mic != null && sealBounds != null && grow.value < 1f && vm.savedId == null && vm.blocked == null
+    val flying = mic != null && sealBounds != null && grow.value < 1f && !vm.saved && vm.blocked == null
 
     Box(Modifier.fillMaxSize()) {
         // 纸外面：不蒙任何颜色，只接「点一下＝取消」
@@ -206,7 +205,7 @@ fun QuickAddScreen(
                         .pointerInput(Unit) {
                             awaitEachGesture {
                                 awaitFirstDown(requireUnconsumed = false)
-                                if (vm.savedId != null) held = true
+                                if (vm.saved) held = true
                             }
                         }
                         // 纸色在头两成时间里渐显：底下小组件的字被纸盖住，而不是纸一出现就全没了
@@ -214,7 +213,7 @@ fun QuickAddScreen(
                         .drawWithContent {
                             drawContent()
                             // 自动收起的倒计时：底边一根细线走完，纸就缩回去
-                            if (vm.savedId != null && !held) {
+                            if (vm.saved && !held) {
                                 val h = 2.dp.toPx()
                                 drawRect(
                                     colors.ink2.copy(alpha = 0.28f),
@@ -236,7 +235,7 @@ fun QuickAddScreen(
                     verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
                 ) {
                     SheetContent(
-                        vm, onVoice, onEdit, onManual, onOpenApp,
+                        vm, onVoice, onOpen, onManual, onOpenApp,
                         sealFaceVisible = !flying,
                         onSealPlaced = { sealBounds = it }
                     )
@@ -304,7 +303,7 @@ fun QuickAddScreen(
 private fun SheetContent(
     vm: QuickAddViewModel,
     onVoice: () -> Unit,
-    onEdit: (Long) -> Unit,
+    onOpen: (String) -> Unit,
     onManual: () -> Unit,
     onOpenApp: () -> Unit,
     sealFaceVisible: Boolean,
@@ -320,9 +319,7 @@ private fun SheetContent(
                 turn,
                 object : TurnActions {
                     override fun toggleReasoning() = vm.toggleReasoning()
-                    override fun openTrace(target: TraceTarget) {
-                        if (target is TraceTarget.Reminder) onEdit(target.id)
-                    }
+                    override fun openTrace(route: String) = onOpen(route)
                     override fun manualAdd() = onManual()
                     override fun retry() = vm.retry()
                 }
@@ -330,7 +327,7 @@ private fun SheetContent(
         }
     }
 
-    Reveal(vm.blocked == null && !vm.aiBusy && vm.savedId == null) {
+    Reveal(vm.blocked == null && !vm.aiBusy && !vm.saved) {
         Transcript(heard = vm.heard, listening = vm.listening, followUp = vm.turn != null, note = vm.note)
     }
     Reveal(vm.blocked != null) {
@@ -340,7 +337,7 @@ private fun SheetContent(
         }
     }
     // 记好之后墨印退场，纸停一会儿自己缩回去
-    Reveal(vm.blocked == null && vm.savedId == null) {
+    Reveal(vm.blocked == null && !vm.saved) {
         SealControls(
             seal = when {
                 vm.aiBusy -> Seal.Busy
@@ -369,7 +366,7 @@ private fun StateLabel(vm: QuickAddViewModel) {
         vm.blocked != null -> "用不了语音"
         vm.listening -> "在听"
         vm.aiBusy -> "在记"
-        vm.savedId != null -> "记好了"
+        vm.saved -> "记好了"
         else -> "说一句"
     }
     Crossfade(label, animationSpec = Motion.flow(Motion.SHORT), label = "stateLabel") {

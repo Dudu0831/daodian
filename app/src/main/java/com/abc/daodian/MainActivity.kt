@@ -13,31 +13,29 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
-import com.abc.daodian.agent.shell.DaodianNavHost
-import com.abc.daodian.agent.conversation.MainViewModel
-import com.abc.daodian.ledger.presentation.LedgerViewModel
-import com.abc.daodian.shared.theme.DaodianTheme
+import com.abc.daodian.agent.conversation.ChatViewModel
 import com.abc.daodian.agent.entry.quick.WidgetFrame
-import com.abc.daodian.shared.navigation.WidgetLaunch
-import com.abc.daodian.shared.navigation.WidgetTarget
+import com.abc.daodian.agent.shell.AppNavHost
+import com.abc.daodian.shared.navigation.Launch
+import com.abc.daodian.shared.theme.DaodianTheme
 
+/** 唯一的宿主 Activity：挂上 agent/shell 的导航，其余都在里面 */
 class MainActivity : ComponentActivity() {
 
-    private val vm: MainViewModel by viewModels()
-    private val ledger: LedgerViewModel by viewModels()
+    private val vm: ChatViewModel by viewModels()
 
     /**
-     * 从桌面小组件点进来时要去的那一屏。用完置空 ——
+     * 从小组件、通知、桌面速记点进来时要去的那一屏（[Launch]）。用完置空 ——
      * 不置空的话，转屏重组会把「去编辑第 7 条」再执行一遍。
      */
-    private var widgetTarget by mutableStateOf<WidgetTarget?>(null)
+    private var request by mutableStateOf<Launch.Request?>(null)
 
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        widgetTarget = WidgetLaunch.targetOf(intent)
+        request = Launch.requestOf(intent)
         WidgetFrame.remember(this, intent)
         // 全屏绘制：窗口不再为键盘自己缩一次，inset 只有 Compose 这一个来源。
         // 少了这行，键盘弹起时窗口缩一遍、imePadding 再顶一遍，输入框会飞到半空。
@@ -52,11 +50,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             DaodianTheme {
-                DaodianNavHost(
+                AppNavHost(
                     vm = vm,
-                    ledger = ledger,
-                    widgetTarget = widgetTarget,
-                    onWidgetTargetHandled = { widgetTarget = null }
+                    request = request,
+                    onRequestHandled = { request = null }
                 )
             }
         }
@@ -66,7 +63,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        widgetTarget = WidgetLaunch.targetOf(intent)
+        request = Launch.requestOf(intent)
         WidgetFrame.remember(this, intent)
     }
 }

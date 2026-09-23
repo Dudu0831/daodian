@@ -5,7 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import com.abc.daodian.MainActivity
+import com.abc.daodian.shared.navigation.Launch
 import com.abc.daodian.reminder.data.ReminderDatabase
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.domain.Rrule
@@ -30,7 +30,7 @@ class Rescheduler(private val context: Context) {
         val op = alarmIntent(reminder) ?: return
         val show = PendingIntent.getActivity(
             context, 0,
-            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            Launch.intent(context),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 

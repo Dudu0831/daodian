@@ -36,7 +36,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import com.abc.daodian.agent.conversation.data.ChatStore
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,12 +49,12 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import com.abc.daodian.reminder.data.dueDate
 import com.abc.daodian.reminder.data.isAllDay
-import com.abc.daodian.agent.conversation.MainViewModel
+import com.abc.daodian.reminder.presentation.ReminderViewModel
 import com.abc.daodian.shared.ui.ChevronRightIcon
 import com.abc.daodian.shared.format.Format
-import com.abc.daodian.shared.ui.LedgerGroup
-import com.abc.daodian.shared.ui.LedgerLabel
-import com.abc.daodian.shared.ui.LedgerRule
+import com.abc.daodian.shared.ui.PaperGroup
+import com.abc.daodian.shared.ui.GroupLabel
+import com.abc.daodian.shared.ui.GroupRule
 import com.abc.daodian.shared.ui.RepeatBadge
 import com.abc.daodian.shared.ui.ScreenTopBar
 import com.abc.daodian.shared.theme.DaodianColors
@@ -87,7 +86,7 @@ private val weekdayName = arrayOf("周一", "周二", "周三", "周四", "周�
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EditReminderScreen(vm: MainViewModel, reminderId: Long?, onBack: () -> Unit) {
+fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> Unit) {
     val colors = DaodianColors.current
     val context = LocalContext.current
     val reminders by vm.reminders.collectAsState()
@@ -188,8 +187,8 @@ fun EditReminderScreen(vm: MainViewModel, reminderId: Long?, onBack: () -> Unit)
                 }
 
                 // ---- 时间 ----
-                LedgerLabel("时间")
-                LedgerGroup {
+                GroupLabel("时间")
+                PaperGroup {
                     Segmented(
                         left = "定个钟点", right = "当天之内", rightOn = allDay,
                         onPick = { allDay = it },
@@ -199,7 +198,7 @@ fun EditReminderScreen(vm: MainViewModel, reminderId: Long?, onBack: () -> Unit)
                         title = if (repeat == RepeatChoice.NONE) "哪天" else "从哪天起",
                         onClick = { showDatePicker = true }
                     ) { Value("${relativeDay(date)?.let { "$it · " } ?: ""}${Format.humanDay(date)}") }
-                    LedgerRule()
+                    GroupRule()
                     if (allDay) {
                         FormRow(
                             title = "几点",
@@ -215,12 +214,12 @@ fun EditReminderScreen(vm: MainViewModel, reminderId: Long?, onBack: () -> Unit)
                 }
 
                 // ---- 重复 ----
-                LedgerLabel("重复")
-                LedgerGroup {
+                GroupLabel("重复")
+                PaperGroup {
                     FormRow(title = "重复", onClick = { showRepeatSheet = true }) { Value(repeatLabel) }
                     // 当天事项没有钟点，「跟着时区走」对它没意义（一律按当地晚上提醒）
                     if (!allDay) {
-                        LedgerRule()
+                        GroupRule()
                         FormRow(
                             title = "跟着我所在时区走",
                             note = if (wallClockAnchored) "飞到哪儿都是当地这个点，适合「每天早上 8 点吃药」"
@@ -244,8 +243,8 @@ fun EditReminderScreen(vm: MainViewModel, reminderId: Long?, onBack: () -> Unit)
                 }
 
                 // ---- 备注 ----
-                LedgerLabel("备注")
-                LedgerGroup {
+                GroupLabel("备注")
+                PaperGroup {
                     Box(Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 18.dp, vertical = 14.dp)) {
                         if (note.isEmpty()) Text("补充说明，可以不填", style = DaodianType.body, color = colors.hint)
                         BasicTextField(
@@ -261,7 +260,7 @@ fun EditReminderScreen(vm: MainViewModel, reminderId: Long?, onBack: () -> Unit)
                     // 原话：这条当初是怎么说的。只有模型建的才有（parsedBy 非空）——
                     // 手动建的 rawInput 存的就是标题，摆出来是把标题再念一遍
                     if (existing.parsedBy != null && existing.rawInput.isNotBlank()) {
-                        LedgerLabel("原话")
+                        GroupLabel("原话")
                         Text(
                             "「${existing.rawInput}」", style = DaodianType.basis, color = colors.muted,
                             modifier = Modifier.padding(horizontal = 4.dp)
@@ -270,9 +269,9 @@ fun EditReminderScreen(vm: MainViewModel, reminderId: Long?, onBack: () -> Unit)
                     // 依据：模型当初怎么算出这个时间的（以前在对话卡片底下，卡片没了挪到这儿）。
                     // 模型算歪的时候，这是唯一能看出哪步歪了的线索
                     var basis by remember(existing.id) { mutableStateOf<String?>(null) }
-                    LaunchedEffect(existing.id) { basis = ChatStore.get(context).basisOf(existing.id) }
+                    LaunchedEffect(existing.id) { basis = vm.basisOf(existing.id) }
                     basis?.let {
-                        LedgerLabel("依据")
+                        GroupLabel("依据")
                         Text(it, style = DaodianType.basis, color = colors.muted, modifier = Modifier.padding(horizontal = 4.dp))
                     }
                     Box(Modifier.fillMaxWidth().padding(top = 28.dp), contentAlignment = Alignment.Center) {

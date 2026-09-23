@@ -14,7 +14,7 @@ import kotlinx.coroutines.launch
  * 「数据变了，桌面重画一次」的唯一入口。
  *
  * 桌面小组件收不到 Room 的 Flow —— 它在别的进程里。所以每个会改动提醒的地方
- * 都要主动喊一声：建/改/删（MainViewModel）、桌面速记（QuickAddViewModel）、响铃（FireHandler）、
+ * 都要主动喊一声：建/改/删、模型建的（Reminders）、响铃（FireHandler）、
  * 完成/稍后（NotificationActionReceiver、WidgetActionReceiver）、重排（RescheduleReceiver）。
  *
  * 漏喊的后果是**桌面显示旧数据**，不是漏提醒 —— 触发链路完全不依赖这里。

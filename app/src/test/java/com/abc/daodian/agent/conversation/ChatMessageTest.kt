@@ -6,7 +6,8 @@ import com.abc.daodian.agent.engine.Turn
 import com.abc.daodian.agent.engine.ask.AskAnswer
 import com.abc.daodian.agent.engine.ask.AskUserTool
 import com.abc.daodian.agent.engine.ask.Pick
-import com.abc.daodian.reminder.tools.CreateReminderTool
+import com.abc.daodian.agent.engine.FakeWriteTool
+import com.abc.daodian.agent.feature.TraceState
 import com.abc.daodian.agent.model.LlmEvent
 import com.abc.daodian.agent.engine.tool.ToolOutcome
 import org.junit.Assert.assertEquals
@@ -19,15 +20,18 @@ class ChatMessageTest {
 
     private val now = ZonedDateTime.parse("2026-09-23T21:30:00+08:00[Asia/Shanghai]")
     private val askArgs = """{"label":"4 笔","questions":[{"context":null,"amount":"¥36.50","question":null,"hint":null,"options":[{"label":"午饭","detail":null}]}]}"""
-    private val reminderArgs = """{"title":"带伞","firstTriggerAt":"2026-09-24T08:00:00+08:00","basis":"b","note":null,"rrule":null,"wallClockAnchored":false,"allDay":false}"""
+    private val writeArgs = """{"title":"带伞"}"""
 
-    private fun ChatMessage.AssistantTurn.with(vararg events: AgentEvent) = events.fold(this) { t, e -> t.patched(e) }
+    /** 会留痕的工具：只有那个假的写工具 */
+    private val traced = setOf(FakeWriteTool.NAME)
+
+    private fun ChatMessage.AssistantTurn.with(vararg events: AgentEvent) = events.fold(this) { t, e -> t.patched(e, traced) }
 
     @Test
     fun `blocks stack in arrival order and a new step starts a new prose block`() {
-        val call = Item.ToolCall("c1", CreateReminderTool.NAME, reminderArgs)
+        val call = Item.ToolCall("c1", FakeWriteTool.NAME, writeArgs)
         val t = ChatMessage.AssistantTurn(1, streaming = true).with(
-            AgentEvent.Model(0, LlmEvent.ToolStarted("c1", CreateReminderTool.NAME)),
+            AgentEvent.Model(0, LlmEvent.ToolStarted("c1", FakeWriteTool.NAME)),
             AgentEvent.ToolStarting(call),
             AgentEvent.ToolFinished(call, ToolOutcome("已建好", ok = true, ref = 7)),
             AgentEvent.Model(1, LlmEvent.Text("好，")),
@@ -39,7 +43,6 @@ class ChatMessageTest {
         assertEquals(TraceState.OK, trace.state)
         assertEquals(7L, trace.ref)
         assertEquals("好，明早叫你。", (t.blocks[1] as TurnBlock.Prose).text)
-        assertEquals(7L, t.createdReminderId)
         assertTrue(t.committed)
     }
 
@@ -77,6 +80,7 @@ class ChatMessageTest {
         var n = 0L
         val msgs = restoredMessages(
             listOf(turn(1, AskAnswer.Picked(listOf(Pick.Option(0)))), turn(2, AskAnswer.Said("午饭")), turn(3, null)),
+            traced,
             newId = { n++ }
         ).filterIsInstance<ChatMessage.AssistantTurn>()
 
@@ -90,7 +94,7 @@ class ChatMessageTest {
 
     @Test
     fun `an immediate retry hides the failed attempt, a retry after asking keeps it`() {
-        fun trace(id: String, state: TraceState) = TurnBlock.Trace(id, CreateReminderTool.NAME, 0, state = state)
+        fun trace(id: String, state: TraceState) = TurnBlock.Trace(id, FakeWriteTool.NAME, 0, state = state)
         val retried = ChatMessage.AssistantTurn(1, blocks = listOf(trace("c1", TraceState.FAILED), trace("c2", TraceState.OK)))
         assertEquals(listOf("c2"), retried.visibleBlocks.map { it.key })
 

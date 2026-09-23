@@ -15,9 +15,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Rect
+import com.abc.daodian.agent.feature.FeatureRegistry
+import com.abc.daodian.agent.shell.ShellRoutes
+import com.abc.daodian.shared.navigation.Launch
 import com.abc.daodian.shared.theme.DaodianTheme
-import com.abc.daodian.shared.navigation.WidgetLaunch
-import com.abc.daodian.shared.navigation.WidgetTarget
 
 /**
  * 桌面速记。小组件右下角那枚墨印点下去，拉起的是它，不是 MainActivity —— 见 DESIGN.md §8.3
@@ -69,10 +70,10 @@ class QuickAddActivity : ComponentActivity() {
                     mic = mic,
                     onVoice = ::requestVoice,
                     onClose = ::finish,
-                    onEdit = { id -> openApp(WidgetTarget.Edit(id)) },
-                    onManual = { openApp(WidgetTarget.New) },
-                    onOpenApp = { openApp(WidgetTarget.Chat) },
-                    onHandoff = { said -> openApp(if (said.isBlank()) WidgetTarget.Chat else WidgetTarget.Say(said)) }
+                    onOpen = { route -> openApp(route = route) },
+                    onManual = { openApp(route = FeatureRegistry.manualEntry ?: ShellRoutes.CHAT) },
+                    onOpenApp = { openApp(route = ShellRoutes.CHAT) },
+                    onHandoff = { said -> if (said.isBlank()) openApp(route = ShellRoutes.CHAT) else openApp(say = said) }
                 )
             }
         }
@@ -121,8 +122,8 @@ class QuickAddActivity : ComponentActivity() {
         }
     }
 
-    private fun openApp(target: WidgetTarget) {
-        startActivity(WidgetLaunch.intent(this, target))
+    private fun openApp(route: String? = null, say: String? = null) {
+        startActivity(Launch.intent(this, route = route, say = say))
         finish()
     }
 

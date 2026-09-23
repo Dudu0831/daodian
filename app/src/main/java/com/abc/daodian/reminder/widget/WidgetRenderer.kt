@@ -14,8 +14,9 @@ import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.dueDate
 import com.abc.daodian.reminder.data.isAllDay
 import com.abc.daodian.shared.format.Format
-import com.abc.daodian.shared.navigation.WidgetLaunch
-import com.abc.daodian.shared.navigation.WidgetTarget
+import com.abc.daodian.agent.shell.ShellRoutes
+import com.abc.daodian.reminder.ReminderRoutes
+import com.abc.daodian.shared.navigation.Launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -151,7 +152,7 @@ object WidgetRenderer {
         // 纸要从整块小组件里长出来，整块的框靠「点空白处进 app」那一下记住，见 WidgetFrame
         views.setOnClickPendingIntent(android.R.id.background, openApp(context))
         views.setOnClickPendingIntent(R.id.widget_mic, quickAdd(context))
-        views.setOnClickPendingIntent(R.id.widget_header, activity(context, RC_LIST, WidgetTarget.List))
+        views.setOnClickPendingIntent(R.id.widget_header, activity(context, RC_LIST, ReminderRoutes.LIST))
 
         views.removeAllViews(R.id.widget_list)
         val empty = items.isEmpty()
@@ -227,7 +228,7 @@ object WidgetRenderer {
             views.setViewVisibility(R.id.hero_rule, View.VISIBLE)
         }
 
-        views.setOnClickPendingIntent(R.id.hero_root, activity(context, reminder.id.toInt(), WidgetTarget.Edit(reminder.id)))
+        views.setOnClickPendingIntent(R.id.hero_root, activity(context, reminder.id.toInt(), ReminderRoutes.edit(reminder.id)))
         views.setOnClickPendingIntent(R.id.hero_done, done(context, reminder.id))
         return views
     }
@@ -247,7 +248,7 @@ object WidgetRenderer {
 
         // 每条提醒各占一个 requestCode —— PendingIntent 比对时不看 extra，
         // 共用 0 的话所有行会指向同一条提醒。
-        views.setOnClickPendingIntent(R.id.row_root, activity(context, reminder.id.toInt(), WidgetTarget.Edit(reminder.id)))
+        views.setOnClickPendingIntent(R.id.row_root, activity(context, reminder.id.toInt(), ReminderRoutes.edit(reminder.id)))
         views.setOnClickPendingIntent(R.id.row_done, done(context, reminder.id))
         return views
     }
@@ -328,24 +329,24 @@ object WidgetRenderer {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-    private fun activity(context: Context, requestCode: Int, target: WidgetTarget): PendingIntent =
+    private fun activity(context: Context, requestCode: Int, route: String): PendingIntent =
         PendingIntent.getActivity(
             context,
             requestCode,
-            WidgetLaunch.intent(context, target),
+            Launch.intent(context, route = route),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
     /**
      * 挂在整块小组件上：点空白处进 app。桌面点它时把整块的屏幕位置填进 sourceBounds，
-     * MainActivity 拿它记下整块的宽高（[WidgetFrame.remember]），下次点墨印时纸才知道该从多大的框长出来。
+     * 宿主 Activity 拿它记下整块的宽高（agent 的 WidgetFrame.remember），下次点墨印时纸才知道该从多大的框长出来。
      * FLAG_MUTABLE 的理由同 [quickAdd]。
      */
     private fun openApp(context: Context): PendingIntent =
         PendingIntent.getActivity(
             context,
             RC_APP,
-            WidgetLaunch.intent(context, WidgetTarget.Chat),
+            Launch.intent(context, route = ShellRoutes.CHAT),
             PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 

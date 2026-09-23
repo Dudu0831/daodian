@@ -4,7 +4,6 @@ import android.content.Context
 import com.abc.daodian.agent.engine.Item
 import com.abc.daodian.agent.engine.Session
 import com.abc.daodian.agent.engine.Turn
-import com.abc.daodian.reminder.tools.CreateReminderTool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -29,12 +28,10 @@ class ChatStore private constructor(private val dao: ChatDao) : Session.Listener
         dao.recent(turns).groupBy { it.turnId }.map { (id, rows) -> Turn(id, rows.map(::toItem)) }
 
     /**
-     * 这条提醒当初是模型怎么算出来的（create_reminder 的 basis）。模型算歪的时候，这是唯一能看出哪步歪了的线索 ——
-     * 对话里不再有卡片，它挪到编辑页。桌面速记建的、手动建的没有。
+     * 对话里建出 [ref] 这条记录的那次 [tool] 调用，当时的参数原文。模块拿它翻出模型当初的想法
+     * （比如提醒编辑页的「依据」）；桌面速记建的（不落盘）、手动建的没有。
      */
-    suspend fun basisOf(reminderId: Long): String? =
-        dao.callArgumentsFor(CreateReminderTool.NAME, reminderId)
-            ?.let(CreateReminderTool::planOf)?.basis?.takeIf { it.isNotBlank() }
+    suspend fun callArguments(tool: String, ref: Long): String? = dao.callArgumentsFor(tool, ref)
 
     override fun changed(turn: Turn) {
         val rows = turn.items.mapIndexed { i, item -> toEntity(turn.id, i, item) }

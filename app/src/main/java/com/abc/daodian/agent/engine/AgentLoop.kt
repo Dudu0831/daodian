@@ -51,7 +51,7 @@ class AgentLoop(
         trigger: Boolean = false
     ): Flow<AgentEvent> = flow {
         session.begin(Item.UserMessage(input, now, trigger))
-        val toolContext = ToolContext(now, input, asker)
+        val toolContext = ToolContext(now, input, asker, model = llm.model)
         try {
             for (step in 0 until maxSteps) {
                 val output = try {

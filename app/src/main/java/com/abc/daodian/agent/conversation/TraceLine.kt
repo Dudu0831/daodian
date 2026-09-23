@@ -45,148 +45,37 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import com.abc.daodian.agent.feature.DraftArgs
-import com.abc.daodian.ledger.domain.Money
-import com.abc.daodian.ledger.tools.AddCategoryTool
-import com.abc.daodian.ledger.tools.AddExpenseTool
-import com.abc.daodian.ledger.tools.UpdateExpensesTool
-import com.abc.daodian.reminder.domain.PlanValidator
-import com.abc.daodian.reminder.domain.ReminderPlan
-import com.abc.daodian.reminder.tools.CreateReminderTool
-import com.abc.daodian.shared.format.Format
+import com.abc.daodian.agent.feature.FeatureRegistry
+import com.abc.daodian.agent.feature.ToolTrace
+import com.abc.daodian.agent.feature.TraceState
+import com.abc.daodian.agent.feature.TraceView
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.theme.Motion
 import com.abc.daodian.shared.ui.ChevronRightIcon
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.ObjectMapper
 
 /*
  * 痕：一次写操作在对话里留下的一行小字。见 DESIGN.md §6.9，动效稿「动手」「办成」「没办成」三拍。
  *
  * 它是代码按工具结果画的，不是模型说的 —— 模型嘴上说「记下了」却没调工具，这里就是空的。
  * 所以它不能省：真机上出过只回一句「明白」、什么都没建的情形。
+ * 字怎么写归模块（Feature.trace），这里只管画和点了去哪（[TraceView.route]）。
  */
 
-/** 点痕去哪 */
-sealed interface TraceTarget {
-    data class Reminder(val id: Long) : TraceTarget
-    data class Txn(val id: Long) : TraceTarget
-}
-
-/** 痕上要写的字，从工具名 + 参数 + 结果推出来。在建、办成、没办成三种状态用同一份规则，重建历史也用它 */
-data class TraceView(
-    /** 在办时的标签：「在记提醒」 */
-    val working: String,
-    /** 办成 / 没办成的标签：「提醒」「没建成」 */
-    val settled: String,
-    val text: String,
-    /** 一次改了好几笔：点开逐笔看 */
-    val lines: List<String> = emptyList(),
-    val target: TraceTarget? = null
-)
-
-private val mapper = ObjectMapper()
-private fun JsonNode.s(field: String): String? = get(field)?.takeUnless { it.isNull }?.asText()?.trim()?.takeIf { it.isNotEmpty() }
-
-/** 结果的第一行去掉工具自己的前缀（「没建。」「没记。」），再截到第一句 */
-private fun reasonOf(output: String?, vararg prefixes: String): String {
-    var s = output?.lineSequence()?.firstOrNull()?.trim().orEmpty()
-    prefixes.forEach { s = s.removePrefix(it).trim() }
-    // 模型自己把参数写坏了：原因里贴着半截 JSON，给人看没意义
-    if (s.startsWith("参数不是合法的 JSON")) return "参数没写对"
-    return s.substringBefore("照这个意思").substringBefore('。').trim().ifEmpty { "没办成" }
-}
-
-fun traceViewOf(block: TurnBlock.Trace): TraceView {
-    val args = runCatching { mapper.readTree(block.arguments) }.getOrNull()
-    val ok = block.state == TraceState.OK
-    val failed = block.state == TraceState.FAILED
-    return when (block.tool) {
-        CreateReminderTool.NAME -> {
-            val plan = if (ok) CreateReminderTool.planOf(block.arguments) else null
-            TraceView(
-                working = "在记提醒",
-                settled = if (failed) "没建成" else "提醒",
-                text = when {
-                    failed -> reasonOf(block.output, "没建。")
-                    plan != null -> "${whenOf(plan)} · ${plan.title}"
-                    else -> DraftArgs.partialText(block.arguments, "title").orEmpty()
-                },
-                target = block.ref?.takeIf { ok }?.let { TraceTarget.Reminder(it) }
-            )
-        }
-        AddExpenseTool.NAME -> TraceView(
-            working = "在记账",
-            settled = if (failed) "没记成" else "记账",
-            text = when {
-                failed -> reasonOf(block.output, "没记。")
-                args != null -> listOfNotNull(
-                    args.s("summary"),
-                    Money.parseCents(args.s("amount"))?.let { "¥" + Money.yuan(it) },
-                ).joinToString(" ") + if (ok) " · " + (args.s("category") ?: "未归类") else ""
-                else -> DraftArgs.partialText(block.arguments, "summary").orEmpty()
-            },
-            target = block.ref?.takeIf { ok }?.let { TraceTarget.Txn(it) }
-        )
-        UpdateExpensesTool.NAME -> {
-            // 结果第一行：「改好了 3 笔：午饭 36.50 → 餐饮/堂食；…」
-            val head = block.output?.lineSequence()?.firstOrNull().orEmpty()
-            val lines = head.substringAfter('：', "").split('；').map { it.trim() }.filter { it.isNotEmpty() }
-            TraceView(
-                working = "在改账",
-                settled = if (failed) "没改成" else "记账",
-                text = when {
-                    failed -> head.ifEmpty { "没改成" }
-                    !ok -> ""
-                    lines.size == 1 -> lines.single()
-                    else -> "改了 ${lines.size} 笔"
-                },
-                lines = if (ok && lines.size > 1) lines else emptyList(),
-                target = block.ref?.takeIf { ok && lines.size == 1 }?.let { TraceTarget.Txn(it) }
-            )
-        }
-        AddCategoryTool.NAME -> TraceView(
-            working = "在加类别",
-            settled = if (failed) "没加成" else "类别",
-            text = when {
-                failed -> reasonOf(block.output, "没建。")
-                ok -> block.output?.lineSequence()?.firstOrNull()?.removePrefix("建好了：").orEmpty()
-                else -> listOfNotNull(args?.s("parent"), args?.s("name")).joinToString("/")
-            }
-        )
-        else -> TraceView("在办", if (failed) "没办成" else "办了", block.tool)
-    }
-}
-
-/**
- * 什么时候响，写人话。重复的报「每天 08:00」，一次性的报完整日期；
- * 当天事项没有钟点：「9月18日 周五 · 今天之内」/「每天 · 当天之内」
- */
-private fun whenOf(plan: ReminderPlan): String {
-    val rrule = Format.humanRrule(plan.rrule)
-    val dueDay = if (plan.allDay) runCatching { PlanValidator.dueDayOf(plan) }.getOrNull() else null
-    val millis = runCatching { PlanValidator.triggerMillis(plan) }.getOrNull()
-    return when {
-        dueDay != null && rrule != null -> "$rrule · 当天之内"
-        // 离得远的，dayTaskWhen 给的是「9月30日之内」—— 前面已经写了日期，不再说一遍
-        dueDay != null -> "${Format.humanDay(dueDay)} · " +
-            Format.dayTaskWhen(dueDay).let { if (it.startsWith("${dueDay.monthValue}月")) "当天之内" else it }
-        millis == null -> Format.humanDateTime(plan.firstTriggerAt)
-        rrule != null -> "$rrule ${Format.clock(millis)}"
-        else -> Format.humanDateTime(millis)
-    }
-}
+/** 痕上写什么由它的模块决定；没有模块认领（不该发生）就只写工具名 */
+fun traceViewOf(block: TurnBlock.Trace): TraceView =
+    FeatureRegistry.trace(ToolTrace(block.tool, block.arguments, block.state, block.output, block.ref))
+        ?: TraceView("在办", if (block.state == TraceState.FAILED) "没办成" else "办了", block.tool)
 
 /** 对勾只在刚办成时描一次；列表滚回来、重启读回来的都直接画好 */
 private fun isFresh(at: Long) = System.currentTimeMillis() - at < 1_500
 
 @Composable
-fun TraceLine(block: TurnBlock.Trace, onOpen: (TraceTarget) -> Unit, onToggle: () -> Unit) {
+fun TraceLine(block: TurnBlock.Trace, onOpen: (String) -> Unit, onToggle: () -> Unit) {
     val colors = DaodianColors.current
     val view = remember(block.state, block.arguments, block.output, block.ref) { traceViewOf(block) }
     val expandable = view.lines.isNotEmpty()
-    val tappable = block.state == TraceState.OK && (expandable || view.target != null)
+    val tappable = block.state == TraceState.OK && (expandable || view.route != null)
     val failed = block.state == TraceState.FAILED
     val tone by animateColorAsState(if (failed) colors.red else colors.ink2, Motion.flow(Motion.SHORT), label = "traceTone")
     val labelTone by animateColorAsState(if (failed) colors.red else colors.muted, Motion.flow(Motion.SHORT), label = "traceLabel")
@@ -195,7 +84,7 @@ fun TraceLine(block: TurnBlock.Trace, onOpen: (TraceTarget) -> Unit, onToggle: (
         Row(
             Modifier
                 .heightIn(min = 36.dp)
-                .clickable(enabled = tappable) { if (expandable) onToggle() else view.target?.let(onOpen) },
+                .clickable(enabled = tappable) { if (expandable) onToggle() else view.route?.let(onOpen) },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {

@@ -1,37 +1,14 @@
 package com.abc.daodian
 
 import android.app.Application
-import android.util.Log
-import com.abc.daodian.ledger.capture.LegacySamples
-import com.abc.daodian.ledger.capture.PaySources
-import com.abc.daodian.ledger.reconciliation.LedgerCheck
-import com.abc.daodian.ledger.organize.OrganizeWorker
-import com.abc.daodian.reminder.delivery.Notifier
-import com.abc.daodian.reminder.scheduling.Rescheduler
-import com.abc.daodian.reminder.scheduling.SweepWorker
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import com.abc.daodian.agent.feature.FeatureRegistry
 
+/** 只做装配：把模块清单装进注册表，挨个做冷启动要做的事（重排闹钟、排巡检、排对账……） */
 class DaodianApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        Notifier.ensureChannel(this)
-        SweepWorker.enqueue(this)
-        PaySources.rebind(this)
-
-        // 冷启动也当作一次重排触发源 —— 被强杀后用户点开 app 就是最好的自愈时机
-        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
-            runCatching { Rescheduler(this@DaodianApp).rescheduleAll() }
-                .onFailure { Log.e("Daodian/App", "启动重排失败", it) }
-        }
-        // 记账：调研时存的 jsonl 导进库（只一次）、排上定期整理、排上每晚对账
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            runCatching { LegacySamples.importOnce(this@DaodianApp) }
-            runCatching { OrganizeWorker.schedule(this@DaodianApp) }
-            runCatching { LedgerCheck.arm(this@DaodianApp) }
-        }
+        FeatureRegistry.install(FEATURES)
+        FEATURES.forEach { it.onAppStart(this) }
     }
 }

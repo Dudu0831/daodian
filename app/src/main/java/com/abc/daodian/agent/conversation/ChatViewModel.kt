@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.abc.daodian.agent.conversation.data.ChatStore
 import com.abc.daodian.agent.engine.AgentEvent
 import com.abc.daodian.agent.engine.AgentLoop
 import com.abc.daodian.agent.engine.Session
@@ -14,34 +15,15 @@ import com.abc.daodian.agent.engine.ask.AskRequest
 import com.abc.daodian.agent.engine.ask.AskUserTool
 import com.abc.daodian.agent.engine.ask.Asker
 import com.abc.daodian.agent.engine.ask.Pick
+import com.abc.daodian.agent.engine.background.AgentActivity
+import com.abc.daodian.agent.feature.FeatureRegistry
+import com.abc.daodian.agent.feature.Trigger
 import com.abc.daodian.agent.model.provider.ApiHealth
 import com.abc.daodian.agent.model.provider.PingResult
-import com.abc.daodian.agent.model.provider.ProviderProfile
 import com.abc.daodian.agent.model.provider.ProviderStore
 import com.abc.daodian.agent.model.provider.ProviderTest
-import com.abc.daodian.reminder.data.ReminderDatabase
-import com.abc.daodian.agent.conversation.data.ChatStore
-import com.abc.daodian.ledger.data.LedgerStore
-import com.abc.daodian.ledger.reconciliation.LedgerCheck
-import com.abc.daodian.ledger.reconciliation.LedgerCheckPrompt
-import com.abc.daodian.reminder.data.Reminder
-import com.abc.daodian.reminder.data.ReminderStatus
-import com.abc.daodian.reminder.delivery.Notifier
-import com.abc.daodian.reminder.scheduling.DayTasks
-import com.abc.daodian.reminder.scheduling.Rescheduler
-import com.abc.daodian.agent.conversation.answered
-import com.abc.daodian.agent.conversation.patched
-import com.abc.daodian.agent.conversation.restoredMessages
-import com.abc.daodian.agent.conversation.scopeLabelOf
-import com.abc.daodian.agent.conversation.toggleTrace
-import com.abc.daodian.agent.conversation.withAsk
-import com.abc.daodian.reminder.widget.WidgetUpdater
-import java.time.LocalDate
-import java.time.LocalTime
-import java.time.ZoneId
 import java.time.ZonedDateTime
 import kotlin.coroutines.cancellation.CancellationException
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
@@ -55,10 +37,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-class MainViewModel(app: Application) : AndroidViewModel(app) {
-
-    private val db = ReminderDatabase.get(app)
-    private val rescheduler = Rescheduler(app)
+/**
+ * 对话页（和顶栏印章、模型配置页）的状态。见 DESIGN.md §6.7–6.9
+ *
+ * 只管对话：说一句、问卡、停、重试、app 发起的一轮、模型配置。提醒、账的页面各有自己的 ViewModel。
+ */
+class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * 供应商配置。存在机器上、随时可改（[ProviderStore]），所以是一条流，不是一个常量 ——
@@ -70,14 +54,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 上一次调用顺不顺，给印和纸签用。见 [ApiHealth] */
     val apiState = ApiHealth.state
 
-    init {
-        // app 内的增删改一律走 Room，所以盯住这一条流就够了 ——
-        // 不用在 upsert/markDone/delete 里各插一行刷新，也就不会漏。
-        // app 没开着时的改动（响铃、通知按钮、巡检）由各自的调用点自己喊，见 WidgetUpdater。
-        viewModelScope.launch {
-            db.reminderDao().observeAll().collect { WidgetUpdater.refresh(app) }
-        }
-    }
+    /** 后台正在跑的 agent：印外面转一圈细线 */
+    val running = AgentActivity.running
+
+    /** 会在对话里留痕的工具（写操作）。模块清单启动时就装好了，取一次就够 */
+    private val traced by lazy { ChatAgent.traced(app) }
 
     // ---------------- 对话 ----------------
 
@@ -88,7 +69,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
     /**
-     * 喂给模型的历史（完整结构），落盘在 `data/chat/`，重启接着聊。
+     * 喂给模型的历史（完整结构），落盘在 `conversation/data/`，重启接着聊。
      * [_messages] 是画面、这里是模型看到的，两者各管各的；启动时画面从它重建一次。
      * 读库要一会儿，用到它的地方都先 await —— 读完之前说的第一句话也不会丢上文。
      */
@@ -97,7 +78,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val session = Session(store.load(), store)
         // app 在等你答问卡的时候被杀了：那次调用没拿到结果，补上「没答」—— 缺一个下一次请求就会被网关拒掉
         session.closeDanglingCalls { if (it.name == AskUserTool.NAME) AskUserTool.UNANSWERED else AgentLoop.ABORTED }
-        _messages.value = restoredMessages(session.turns, ::newId) + _messages.value
+        _messages.value = restoredMessages(session.turns, traced, ::newId) + _messages.value
         session
     }
 
@@ -161,24 +142,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 每晚对账（通知上点「现在」、记账页点「现在就说」）：app 自己开一轮，把没认出来的几笔列给模型，
-     * 由它在对话里一笔笔问你。这一轮画成一条分隔线，不是你的气泡。见 LEDGER_PLAN.md §4 ③
+     * app 自己开一轮（比如每晚对账：通知上点「现在」、记账页点「现在就说」）。开场白由模块给
+     * （[com.abc.daodian.agent.feature.Feature.trigger]），画成一条分隔线，不是你的气泡。
+     * [key] 形如 `ledger:check`。
      */
-    fun startLedgerCheck() = viewModelScope.launch {
-        val app = getApplication<Application>()
-        LedgerCheck.done(app)
+    fun startTrigger(key: String) = viewModelScope.launch {
+        val trigger = FeatureRegistry.trigger(getApplication(), key) ?: return@launch
         if (aiBusy) return@launch
-        val text = LedgerCheckPrompt.build(LedgerStore.get(app))
-            ?: run {
-                _messages.value = _messages.value + ChatMessage.AssistantTurn(
-                    newId(), blocks = listOf(TurnBlock.Prose("p0", 0, "账都对上了，没有要问你的。")), idle = false
-                )
-                return@launch
+        when (trigger) {
+            is Trigger.Note -> _messages.value = _messages.value + ChatMessage.AssistantTurn(
+                newId(), blocks = listOf(TurnBlock.Prose("p0", 0, trigger.text)), idle = false
+            )
+            is Trigger.Turn -> {
+                _messages.value = _messages.value + ChatMessage.UserText(newId(), trigger.text, trigger = true)
+                lastUserInput = trigger.text
+                lastTrigger = true
+                runTurn(trigger.text, trigger = true)
             }
-        _messages.value = _messages.value + ChatMessage.UserText(newId(), text, trigger = true)
-        lastUserInput = text
-        lastTrigger = true
-        runTurn(text, trigger = true)
+        }
     }
 
     /** 从记账页「这笔不对？去对话里说」过来：把开头替你写好，放进输入框 */
@@ -225,7 +206,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             try {
-                Agents.of(getApplication(), profile.value)
+                ChatAgent.of(getApplication(), profile.value)
                     .run(session, text, ZonedDateTime.now(), asker, trigger)
                     .collect { event ->
                         patchTurn(turnId, event)
@@ -338,7 +319,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** 把一个事件叠到那个回合上。规则本身在 ChatMessage.kt，桌面速记也用同一份 */
-    private fun patchTurn(turnId: Long, event: AgentEvent) = patchTurnWith(turnId) { it.patched(event) }
+    private fun patchTurn(turnId: Long, event: AgentEvent) = patchTurnWith(turnId) { it.patched(event, traced) }
 
     private fun patchTurnWith(turnId: Long, change: (ChatMessage.AssistantTurn) -> ChatMessage.AssistantTurn) {
         _messages.value = _messages.value.map { m ->
@@ -379,7 +360,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         ApiHealth.reset()
     }
 
-    /** 测一下框里正在填的这份，不用先保存 */
+    /** 测一下框里正在填的这份，不用先保存。带的是和真实请求一样的 system 和工具 */
     suspend fun testProvider(baseUrl: String, apiKey: String, model: String, thinking: Boolean): PingResult =
         ProviderTest.run(
             profile.value.copy(
@@ -387,160 +368,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 apiKey = apiKey.trim(),
                 model = model.trim(),
                 thinking = thinking
-            )
+            ),
+            system = ChatAgent.system,
+            tools = ChatAgent.tools(getApplication())
         )
-
-    // ---------------- 提醒 / 日志（列表、编辑、体检、投递日志共用）----------------
-
-    val reminders = db.reminderDao().observeAll()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val logs = db.fireLogDao().observeRecent()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    /** 非 ALARM 来源的条数。大于 0 就说明主闹钟路径在被掐，见设计文档 §9.3 */
-    val nonAlarmCount = db.fireLogDao().observeNonAlarmCount()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
-    /** 当天事项晚上几点提醒。设置页改它 */
-    val dayCheckTime = DayTasks.checkTimeFlow(app)
-        .stateIn(viewModelScope, SharingStarted.Eagerly, DayTasks.DEFAULT_CHECK)
-
-    fun setDayCheckTime(time: LocalTime) = viewModelScope.launch { DayTasks.setCheckTime(getApplication(), time) }
-
-    /**
-     * 手动建 / 改一条提醒 —— 逃生舱，必须能完全脱离 AI 用。见 DESIGN.md §05
-     *
-     * [dueDay] 不为 null 就是当天事项：[triggerAt] 不看，换成那天的收尾时刻，一律墙钟锚定。
-     */
-    fun upsertManual(
-        id: Long?,
-        title: String,
-        note: String?,
-        triggerAt: Long,
-        rrule: String?,
-        wallClockAnchored: Boolean,
-        dueDay: LocalDate? = null
-    ) = viewModelScope.launch {
-        val now = System.currentTimeMillis()
-        val zone = ZoneId.systemDefault()
-        if (dueDay != null) {
-            val check = DayTasks.checkTime(getApplication())
-            upsert(
-                id, title, note, rrule,
-                triggerAt = DayTasks.triggerFor(dueDay, check, zone, now),
-                localTime = check.toString(), wallClockAnchored = true, dueDay = dueDay.toString(), now = now
-            )
-            return@launch
-        }
-        val localTime = if (wallClockAnchored) {
-            java.time.Instant.ofEpochMilli(triggerAt).atZone(zone).toLocalTime()
-                .withSecond(0).withNano(0).toString()
-        } else null
-        upsert(id, title, note, rrule, triggerAt, localTime, wallClockAnchored, dueDay = null, now = now)
-    }
-
-    private suspend fun upsert(
-        id: Long?,
-        title: String,
-        note: String?,
-        rrule: String?,
-        triggerAt: Long,
-        localTime: String?,
-        wallClockAnchored: Boolean,
-        dueDay: String?,
-        now: Long
-    ) {
-        val zone = ZoneId.systemDefault()
-
-        if (id == null) {
-            val reminder = Reminder(
-                title = title, note = note, rawInput = title,
-                nextTriggerAt = triggerAt, rrule = rrule, zoneId = zone.id,
-                localTime = localTime, wallClockAnchored = wallClockAnchored, dueDay = dueDay,
-                createdAt = now, updatedAt = now
-            )
-            val newId = db.reminderDao().insert(reminder)
-            db.reminderDao().byId(newId)?.let { rescheduler.schedule(it) }
-        } else {
-            val existing = db.reminderDao().byId(id) ?: return
-            rescheduler.cancel(id)
-            val updated = existing.copy(
-                title = title, note = note, nextTriggerAt = triggerAt, rrule = rrule,
-                localTime = localTime, wallClockAnchored = wallClockAnchored, dueDay = dueDay,
-                status = ReminderStatus.SCHEDULED, updatedAt = now
-            )
-            db.reminderDao().update(updated)
-            rescheduler.schedule(updated)
-        }
-    }
-
-    fun addIn(title: String, minutes: Long) = viewModelScope.launch {
-        val now = System.currentTimeMillis()
-        val reminder = Reminder(
-            title = title, rawInput = title,
-            nextTriggerAt = now + TimeUnit.MINUTES.toMillis(minutes),
-            zoneId = ZoneId.systemDefault().id,
-            createdAt = now, updatedAt = now
-        )
-        val id = db.reminderDao().insert(reminder)
-        db.reminderDao().byId(id)?.let { rescheduler.schedule(it) }
-    }
-
-    /**
-     * M1 的出口条件：20 条覆盖未来 48 小时、必然包含凌晨时段的提醒。
-     * 排完就把手机揣兜里别碰，48 小时后回来看日志。见设计文档 §9.3
-     */
-    fun startSoakTest() = viewModelScope.launch {
-        val now = System.currentTimeMillis()
-        val step = TimeUnit.HOURS.toMillis(48) / 20
-        repeat(20) { i ->
-            val at = now + step * (i + 1)
-            val r = Reminder(
-                title = "放置测试 #${i + 1}",
-                rawInput = "soak",
-                nextTriggerAt = at,
-                zoneId = ZoneId.systemDefault().id,
-                createdAt = now,
-                updatedAt = now
-            )
-            val id = db.reminderDao().insert(r)
-            db.reminderDao().byId(id)?.let { rescheduler.schedule(it) }
-        }
-    }
-
-    fun markDone(r: Reminder) = viewModelScope.launch {
-        // 当天事项有自己的「完成」：重复的只算今天这一次。见 DayTasks.complete
-        if (DayTasks.complete(getApplication(), r)) return@launch
-        rescheduler.cancel(r.id)
-        Notifier.cancel(getApplication(), r.id)
-        db.reminderDao().setStatus(r.id, ReminderStatus.DONE, System.currentTimeMillis())
-    }
-
-    fun delete(r: Reminder) = viewModelScope.launch {
-        rescheduler.cancel(r.id)
-        Notifier.cancel(getApplication(), r.id)
-        db.reminderDao().delete(r)
-    }
-
-    /**
-     * 列表页的「撤销」：把完成 / 删除之前那一整条原样放回去。
-     * 删除是当场真删的（不是等撤销过期再删）—— 进程在这几秒里被杀，结果也只是「删了」，
-     * 不会留下一条库里有、闹钟没有的记录。放回来之后照常排闹钟；已经过点的交给巡检补发。
-     */
-    fun restore(r: Reminder) = viewModelScope.launch {
-        if (db.reminderDao().byId(r.id) != null) db.reminderDao().update(r) else db.reminderDao().insert(r)
-        if (r.status == ReminderStatus.SCHEDULED && r.nextTriggerAt > System.currentTimeMillis()) {
-            rescheduler.schedule(r)
-        }
-    }
-
-    fun rescheduleAll() = viewModelScope.launch { rescheduler.rescheduleAll() }
-
-    fun clearLogs() = viewModelScope.launch { db.fireLogDao().clear() }
-
-    /** 某条提醒当前是否真的有闹钟排着 —— 直接问 AlarmManager，不看数据库 */
-    fun isArmed(id: Long): Boolean = rescheduler.isScheduled(id)
 
     private companion object {
         /** 只有一题的卡，点了之后停这么久再收起：让你看清点的是哪个（动效稿「点选」那一拍） */

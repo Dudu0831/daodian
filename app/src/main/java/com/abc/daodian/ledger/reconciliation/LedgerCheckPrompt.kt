@@ -8,7 +8,7 @@ import java.time.ZoneId
 
 /**
  * 对账那一轮的开场：app 替你发起，列出没认出来的几笔，交给对话 agent 去问。
- * 以「每晚对账：」开头 —— 界面据此把它画成分隔线，提示词里也交代了这一轮的规矩（LedgerPrompt.CHAT）。
+ * 以「每晚对账：」开头 —— 对话页把冒号前那段写在分隔线上，提示词里也交代了这一轮的规矩（LedgerPrompt.CHAT）。
  */
 object LedgerCheckPrompt {
 

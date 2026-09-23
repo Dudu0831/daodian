@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.abc.daodian.reminder.data.FireLog
 import com.abc.daodian.reminder.data.FireSource
-import com.abc.daodian.agent.conversation.MainViewModel
+import com.abc.daodian.reminder.presentation.ReminderViewModel
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.ui.ScreenTopBar
 import com.abc.daodian.shared.theme.DaodianColors
@@ -35,7 +35,7 @@ import com.abc.daodian.shared.theme.DaodianType
  * 投递日志 —— 把「感觉挺准的」变成可核对的数据。见 DESIGN.md §9.3 的验收标准就是靠这一页看的。
  */
 @Composable
-fun FireLogScreen(vm: MainViewModel, onBack: () -> Unit) {
+fun FireLogScreen(vm: ReminderViewModel, onBack: () -> Unit) {
     val colors = DaodianColors.current
     val logs by vm.logs.collectAsState()
     val nonAlarm by vm.nonAlarmCount.collectAsState()

@@ -1,6 +1,5 @@
 package com.abc.daodian.agent.engine
 
-import com.abc.daodian.reminder.tools.CreateReminderTool
 import com.abc.daodian.agent.engine.context.LastTurns
 import com.abc.daodian.agent.model.LlmClient
 import com.abc.daodian.agent.model.LlmEvent
@@ -30,8 +29,7 @@ class AgentLoopTest {
 
     private val now = ZonedDateTime.parse("2026-09-18T21:00:00+08:00[Asia/Shanghai]")
 
-    private val validArgs = """{"title":"交房租","firstTriggerAt":"2026-09-19T15:00:00+08:00","basis":"明天 15:00",
-        |"note":null,"rrule":null,"wallClockAnchored":false,"allDay":false}""".trimMargin()
+    private val validArgs = """{"title":"交房租"}"""
 
     /** 每调一次吐剧本里的下一步，并记下收到的请求 */
     private class ScriptedLlm(private vararg val steps: StepOutput) : LlmClient {
@@ -43,12 +41,12 @@ class AgentLoopTest {
         }
     }
 
-    private fun call(id: String, args: String) = Item.ToolCall(id, CreateReminderTool.NAME, args)
+    private fun call(id: String, args: String) = Item.ToolCall(id, FakeWriteTool.NAME, args)
     private fun answer(text: String) = StepOutput(text, emptyList(), "")
     private fun calls(vararg c: Item.ToolCall) = StepOutput("", c.toList(), "")
 
     private val committed = mutableListOf<String>()
-    private val tools = ToolRegistry(listOf(CreateReminderTool { plan, _ -> committed += plan.title; 42L }))
+    private val tools = ToolRegistry(listOf(FakeWriteTool { title -> committed += title; 42L }))
 
     @Test
     fun `tool result goes back to the model and the loop ends on a plain answer`() = runBlocking {
@@ -71,7 +69,7 @@ class AgentLoopTest {
         |"hint":"房租一般每个月都要交","options":[{"label":"每个月最后一天","detail":"20:00 · 每月"},
         |{"label":"9月30日 周三","detail":"20:00 · 只这一次"}]}]}""".trimMargin()
 
-    private val withAsk = ToolRegistry(listOf(AskUserTool(), CreateReminderTool { plan, _ -> committed += plan.title; 42L }))
+    private val withAsk = ToolRegistry(listOf(AskUserTool(), FakeWriteTool { title -> committed += title; 42L }))
 
     @Test
     fun `ask_user waits for the answer and hands it back to the model`() = runBlocking {
@@ -127,9 +125,8 @@ class AgentLoopTest {
     }
 
     @Test
-    fun `validator rejection is fed back instead of committing`() = runBlocking {
-        val past = validArgs.replace("2026-09-19T15:00", "2026-09-17T15:00")
-        val llm = ScriptedLlm(calls(call("c1", past)), answer("你是指哪天？"))
+    fun `a rejected write is fed back instead of committing`() = runBlocking {
+        val llm = ScriptedLlm(calls(call("c1", """{"title":"交房租","reject":true}""")), answer("你是指哪天？"))
         val session = Session()
 
         AgentLoop(llm, tools, "sys").run(session, "昨天三点提醒我", now).toList()

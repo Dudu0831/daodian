@@ -35,6 +35,8 @@ import kotlin.coroutines.cancellation.CancellationException
  */
 class ResponsesClient(private val profile: ProviderProfile) : LlmClient {
 
+    override val model: String get() = profile.model
+
     private val client: OpenAIClient by lazy {
         OpenAIOkHttpClient.builder()
             .apiKey(profile.apiKey)

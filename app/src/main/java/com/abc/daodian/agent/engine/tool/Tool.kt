@@ -18,7 +18,9 @@ data class ToolContext(
     /** 要问用户的时候找它（`ask_user` 用）。没有界面的地方是 [Asker.NONE] */
     val asker: Asker = Asker.NONE,
     /** 正在执行的这次调用 */
-    val call: Item.ToolCall? = null
+    val call: Item.ToolCall? = null,
+    /** 这一轮用的模型。落库时记成「谁解析的」 */
+    val model: String = ""
 )
 
 /**

@@ -10,8 +10,9 @@ import com.abc.daodian.agent.model.LlmEvent
 import com.abc.daodian.agent.model.LlmRequest
 import com.abc.daodian.agent.model.ResponsesClient
 import com.abc.daodian.agent.model.provider.ProviderProfile
-import com.abc.daodian.agent.prompt.HarnessPrompt
+import com.abc.daodian.agent.prompt.BasePrompt
 import com.abc.daodian.reminder.tools.CreateReminderTool
+import com.abc.daodian.reminder.tools.ReminderPrompt
 import java.io.File
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -70,7 +71,7 @@ class LiveGatewayTest {
             committed += "${plan.title} @ ${plan.firstTriggerAt}"
             1001L
         }))
-        val loop = AgentLoop(llm, tools, HarnessPrompt.SYSTEM)
+        val loop = AgentLoop(llm, tools, BasePrompt.SYSTEM + "\n\n" + ReminderPrompt.RULES)
         val session = Session()
         val now = ZonedDateTime.now(ZoneId.of("Asia/Shanghai"))
 

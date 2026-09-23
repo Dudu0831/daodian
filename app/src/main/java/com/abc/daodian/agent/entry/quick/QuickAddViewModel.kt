@@ -7,9 +7,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.abc.daodian.agent.conversation.Agents
+import com.abc.daodian.agent.conversation.ChatAgent
 import com.abc.daodian.agent.conversation.ChatMessage
-import com.abc.daodian.agent.conversation.createdReminderId
 import com.abc.daodian.agent.conversation.patched
 import com.abc.daodian.agent.engine.AgentEvent
 import com.abc.daodian.agent.engine.Session
@@ -18,7 +17,6 @@ import com.abc.daodian.agent.model.provider.ApiHealth
 import com.abc.daodian.agent.model.provider.ProviderProfile
 import com.abc.daodian.agent.model.provider.ProviderStore
 import com.abc.daodian.agent.voice.VoiceInput
-import com.abc.daodian.reminder.widget.WidgetUpdater
 import java.time.ZonedDateTime
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
@@ -30,7 +28,7 @@ import kotlinx.coroutines.launch
  * 桌面速记：从小组件右下角那枚墨印拉起来的一小张纸。见 DESIGN.md §8.3
  *
  * **只有语音。** 要聊天、要改字，回 app 的对话页 —— 这里不做第二个输入框。
- * 其余和对话页是同一套东西的缩小版：同一个 agent（[Agents]）、同一套回合规则（[patched]）。
+ * 其余和对话页是同一套东西的缩小版：同一个 agent（[ChatAgent]）、同一套回合规则（[patched]）。
  * 只摆最近一问一答，不留对话流。模型要出问卡时这张纸放不下，交给对话页接着问（[handoff]）。
  */
 class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
@@ -66,9 +64,12 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var aiBusy by mutableStateOf(false)
         private set
-    /** 刚建好的那条。非空之后纸停一会儿自己缩回去 */
-    var savedId by mutableStateOf<Long?>(null)
+    /** 办成了（建了提醒、记了账）。之后纸停一会儿自己缩回去 */
+    var saved by mutableStateOf(false)
         private set
+
+    /** 会留痕的工具（写操作），同对话页 */
+    private val traced by lazy { ChatAgent.traced(app) }
 
     /** 喂给下一轮的历史。模型反问之后接着答，得看得见上文 */
     private val session = Session()
@@ -83,7 +84,7 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     fun startListening() {
-        if (aiBusy || savedId != null) return
+        if (aiBusy || saved) return
         QuickTrace.log(getApplication(), "vm startListening")
         blocked = null
         note = null
@@ -135,16 +136,14 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
             }
             var askBack = false
             try {
-                Agents.of(app, profile()).run(session, said, ZonedDateTime.now(), asker).collect { event ->
-                    t = t.patched(event)
+                ChatAgent.of(app, profile()).run(session, said, ZonedDateTime.now(), asker).collect { event ->
+                    t = t.patched(event, traced)
                     turn = t
                     if (event is AgentEvent.Finished || event is AgentEvent.Failed) ApiHealth.record(event)
                 }
-                val reminderId = t.createdReminderId
-                if (reminderId != null) {
-                    savedId = reminderId
-                    // app 多半压根没开着，MainViewModel 盯的那条 observeAll 兜不到这里 —— 自己喊
-                    WidgetUpdater.announce(app, reminderId)
+                // 桌面上那一行「刚记下」由模块落库时自己点亮（提醒：Reminders.commitPlan）
+                if (t.committed) {
+                    saved = true
                 } else {
                     // 没建成也没出错 = 模型说了句别的（闲聊、闸门拦下后的解释）。纯语音就该一路说下去：自动接着听
                     askBack = !t.isError
@@ -167,7 +166,7 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 失败后重说同一句：失败那一轮从模型的记录里拿掉，理由同 MainViewModel.retryLast */
+    /** 失败后重说同一句：失败那一轮从模型的记录里拿掉，理由同 ChatViewModel.retryLast */
     fun retry() {
         val said = asked ?: return
         session.discardLastTurn()

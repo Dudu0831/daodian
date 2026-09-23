@@ -1,14 +1,12 @@
 package com.abc.daodian.agent.entry.quick
 
 import android.appwidget.AppWidgetManager
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Rect
-import com.abc.daodian.reminder.widget.DaodianWidget
-import com.abc.daodian.shared.navigation.WidgetLaunch
-import com.abc.daodian.shared.navigation.WidgetTarget
+import com.abc.daodian.agent.shell.ShellRoutes
+import com.abc.daodian.shared.navigation.Launch
 import kotlin.math.roundToInt
 
 /**
@@ -36,7 +34,7 @@ object WidgetFrame {
     /** 点空白处进 app 的那一下：记下整块的宽高。从 app 图标、从某一行进来的不算 */
     fun remember(context: Context, intent: Intent?) {
         val bounds = intent?.sourceBounds ?: return
-        if (WidgetLaunch.targetOf(intent) != WidgetTarget.Chat) return
+        if (Launch.requestOf(intent)?.route != ShellRoutes.CHAT) return
         val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putInt(KEY_W, bounds.width())
             .putInt(KEY_H, bounds.height())
@@ -96,9 +94,14 @@ object WidgetFrame {
         ).joinToString(",") { o.getInt(it).toString() }
     }
 
-    /** 桌面上摆了不止一块也只看第一块 —— 自用 app，桌面上就一块 */
+    /**
+     * 按包名找本 app 摆在桌面上的小组件，不认具体是哪个类（小组件归提醒模块，速记归 agent）。
+     * 摆了不止一块也只看第一块 —— 自用 app，桌面上就一块
+     */
     private fun options(context: Context) = AppWidgetManager.getInstance(context).let { manager ->
-        manager.getAppWidgetIds(ComponentName(context, DaodianWidget::class.java))
+        manager.getInstalledProvidersForPackage(context.packageName, null)
+            .asSequence()
+            .flatMap { manager.getAppWidgetIds(it.provider).asSequence() }
             .firstOrNull()
             ?.let { manager.getAppWidgetOptions(it) }
     }

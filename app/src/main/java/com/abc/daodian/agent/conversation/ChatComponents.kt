@@ -122,7 +122,8 @@ private fun BreathingDot(color: Color) {
 interface TurnActions {
     fun toggleReasoning() {}
     fun toggleTrace(callId: String) {}
-    fun openTrace(target: TraceTarget) {}
+    /** 点了痕：去它指向的那条（路由） */
+    fun openTrace(route: String) {}
     fun pick(callId: String, question: Int, option: Int) {}
     fun other(callId: String, question: Int) {}
     fun submit(callId: String) {}
@@ -355,10 +356,8 @@ internal fun PillButton(text: String, style: PillStyle, onClick: () -> Unit) {
 @Composable
 fun TriggerDivider(msg: ChatMessage.UserText) {
     val colors = DaodianColors.current
-    val label = when {
-        msg.text.startsWith("每晚对账") -> "每晚对账"
-        else -> msg.text.substringBefore('：').take(12)
-    }
+    // 开场白都是「每晚对账：……」这样，冒号前一段就是标签
+    val label = msg.text.substringBefore('：').take(12)
     Row(
         Modifier.fillMaxWidth().padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,

@@ -8,10 +8,7 @@ import com.abc.daodian.agent.engine.ask.AskAnswer
 import com.abc.daodian.agent.engine.ask.AskRequest
 import com.abc.daodian.agent.engine.ask.AskUserTool
 import com.abc.daodian.agent.engine.ask.Pick
-import com.abc.daodian.ledger.tools.AddCategoryTool
-import com.abc.daodian.ledger.tools.AddExpenseTool
-import com.abc.daodian.ledger.tools.UpdateExpensesTool
-import com.abc.daodian.reminder.tools.CreateReminderTool
+import com.abc.daodian.agent.feature.TraceState
 import com.abc.daodian.agent.model.LlmEvent
 
 /**
@@ -77,9 +74,6 @@ sealed interface ChatMessage {
     }
 }
 
-/** 痕的三种样子 */
-enum class TraceState { RUNNING, OK, FAILED }
-
 /** 问卡的状态，见 DESIGN.md §6.9「问卡的状态」 */
 enum class AskState {
     /** 参数还在流：收全的题先画出来，还不能点 */
@@ -104,7 +98,7 @@ sealed interface TurnBlock {
     /** 模型说的话 */
     data class Prose(override val key: String, override val step: Int, val text: String) : TurnBlock
 
-    /** 一次写操作留下的痕：一行小字，不是卡片。见 Trace.kt */
+    /** 一次写操作留下的痕：一行小字，不是卡片。见 TraceLine.kt */
     data class Trace(
         val callId: String,
         val tool: String,
@@ -145,11 +139,6 @@ sealed interface TurnBlock {
     data class Said(override val key: String, override val step: Int, val text: String, val sentAt: Long) : TurnBlock
 }
 
-/** 这一回合建成的第一条提醒。桌面速记据此判断「记好了」 */
-val ChatMessage.AssistantTurn.createdReminderId: Long?
-    get() = blocks.firstOrNull { it is TurnBlock.Trace && it.tool == CreateReminderTool.NAME && it.state == TraceState.OK }
-        ?.let { (it as TurnBlock.Trace).ref }
-
 /**
  * 要画出来的块。模型把参数写坏、紧接着自己改好重来的那一次不画 —— 后面那道痕已经说明了结果，
  * 留一个红 × 只会让人以为出了事。中间隔着问卡的不算（比如时间过了、转成问你），那个 × 是在解释为什么要问。
@@ -162,20 +151,19 @@ val ChatMessage.AssistantTurn.visibleBlocks: List<TurnBlock>
         retry < 0 || after.take(retry).any { it is TurnBlock.Ask }
     }
 
-/** 这些工具会在对话里留痕（都是写操作）。只读的（查账）不留，问人的画问卡 */
-val TRACED_TOOLS = setOf(CreateReminderTool.NAME, AddExpenseTool.NAME, UpdateExpensesTool.NAME, AddCategoryTool.NAME)
-
 /*
- * 一个回合怎么随着 agent 的事件长大。对话页（MainViewModel）和桌面速记（ui/quick）共用 ——
+ * 一个回合怎么随着 agent 的事件长大。对话页（ChatViewModel）和桌面速记（entry/quick）共用 ——
  * 同一句话在两处长得一模一样，靠的就是这几条规则只有一份。
  * 问卡交到你手上、你答了，这两步不走事件，由界面那边直接改（见 [withAsk]）。
+ *
+ * [traced] 是会留痕的工具名（写操作，见 [ChatAgent.traced]）。只读的（查账）不留，问人的画问卡。
  */
 
 /** 把一个事件叠到这个回合上 */
-fun ChatMessage.AssistantTurn.patched(event: AgentEvent): ChatMessage.AssistantTurn = when (event) {
-    is AgentEvent.Model -> enteringStep(event.step).patchedModel(event.event)
-    is AgentEvent.ToolStarting -> startingTool(event.call)
-    is AgentEvent.ToolFinished -> finishingTool(event)
+fun ChatMessage.AssistantTurn.patched(event: AgentEvent, traced: Set<String>): ChatMessage.AssistantTurn = when (event) {
+    is AgentEvent.Model -> enteringStep(event.step).patchedModel(event.event, traced)
+    is AgentEvent.ToolStarting -> startingTool(event.call, traced)
+    is AgentEvent.ToolFinished -> finishingTool(event, traced)
     is AgentEvent.Finished -> copy(
         streaming = false,
         blocks = if (event.stop == StopReason.STEP_LIMIT && blocks.none { it is TurnBlock.Prose }) {
@@ -222,7 +210,7 @@ fun ChatMessage.AssistantTurn.toggleTrace(callId: String): ChatMessage.Assistant
 private fun ChatMessage.AssistantTurn.enteringStep(step: Int) =
     if (step == this.step) this else copy(step = step)
 
-private fun ChatMessage.AssistantTurn.patchedModel(event: LlmEvent): ChatMessage.AssistantTurn = when (event) {
+private fun ChatMessage.AssistantTurn.patchedModel(event: LlmEvent, traced: Set<String>): ChatMessage.AssistantTurn = when (event) {
     is LlmEvent.Reasoning -> copy(reasoning = reasoning + event.delta, idle = false)
     is LlmEvent.Text -> {
         val last = blocks.lastOrNull()
@@ -235,7 +223,7 @@ private fun ChatMessage.AssistantTurn.patchedModel(event: LlmEvent): ChatMessage
     }
     is LlmEvent.ToolStarted -> when {
         event.name == AskUserTool.NAME -> copy(blocks = blocks + TurnBlock.Ask(event.callId, step), idle = false).settleThought()
-        event.name in TRACED_TOOLS -> copy(blocks = blocks + TurnBlock.Trace(event.callId, event.name, step), idle = false).settleThought()
+        event.name in traced -> copy(blocks = blocks + TurnBlock.Trace(event.callId, event.name, step), idle = false).settleThought()
         // 只读的工具（查账）不留痕：它在跑的时候照样画墨条
         else -> copy(idle = true).settleThought()
     }
@@ -255,13 +243,13 @@ private fun ChatMessage.AssistantTurn.patchedModel(event: LlmEvent): ChatMessage
 }
 
 /** 参数收全、马上执行。一次性请求没有流式事件，块在这里才第一次出现 */
-private fun ChatMessage.AssistantTurn.startingTool(call: Item.ToolCall): ChatMessage.AssistantTurn {
+private fun ChatMessage.AssistantTurn.startingTool(call: Item.ToolCall, traced: Set<String>): ChatMessage.AssistantTurn {
     val exists = blocks.any { it.key == call.callId }
     return when {
         call.name == AskUserTool.NAME ->
             if (exists) withAsk(call.callId) { it.copy(arguments = call.arguments) }.copy(idle = false)
             else copy(blocks = blocks + TurnBlock.Ask(call.callId, step, call.arguments), idle = false)
-        call.name in TRACED_TOOLS -> copy(
+        call.name in traced -> copy(
             blocks = if (exists) blocks.map {
                 if (it is TurnBlock.Trace && it.callId == call.callId) it.copy(arguments = call.arguments) else it
             } else blocks + TurnBlock.Trace(call.callId, call.name, step, call.arguments),
@@ -271,7 +259,7 @@ private fun ChatMessage.AssistantTurn.startingTool(call: Item.ToolCall): ChatMes
     }.settleThought()
 }
 
-private fun ChatMessage.AssistantTurn.finishingTool(event: AgentEvent.ToolFinished): ChatMessage.AssistantTurn {
+private fun ChatMessage.AssistantTurn.finishingTool(event: AgentEvent.ToolFinished, traced: Set<String>): ChatMessage.AssistantTurn {
     val call = event.call
     val outcome = event.outcome
     return when {
@@ -282,7 +270,7 @@ private fun ChatMessage.AssistantTurn.finishingTool(event: AgentEvent.ToolFinish
             else if (answer != null && blocks.any { it is TurnBlock.Ask && it.callId == call.callId && it.state == AskState.READY }) answered(call.callId, answer)
             else copy(idle = true)
         }
-        call.name in TRACED_TOOLS -> copy(
+        call.name in traced -> copy(
             blocks = blocks.map {
                 if (it is TurnBlock.Trace && it.callId == call.callId) it.copy(
                     arguments = call.arguments,
@@ -310,7 +298,7 @@ private fun ChatMessage.AssistantTurn.settleThought() =
  * 那条提醒后来被改过、删过，这里画的仍是当时的样子 —— 它是对话记录，不是提醒列表。
  * 只剩用户一句话的轮（当时失败了、没重试）只画气泡。
  */
-fun restoredMessages(turns: List<Turn>, newId: () -> Long): List<ChatMessage> = turns.flatMap { turn ->
+fun restoredMessages(turns: List<Turn>, traced: Set<String>, newId: () -> Long): List<ChatMessage> = turns.flatMap { turn ->
     val user = ChatMessage.UserText(newId(), turn.input.text, sentAt = 0, trigger = turn.input.trigger)
     val results = turn.items.filterIsInstance<Item.ToolResult>().associateBy { it.callId }
     val blocks = mutableListOf<TurnBlock>()
@@ -339,7 +327,7 @@ fun restoredMessages(turns: List<Turn>, newId: () -> Long): List<ChatMessage> = 
                             AskAnswer.Unanswered -> blocks += TurnBlock.Ask(item.callId, 0, item.arguments, request, AskState.UNANSWERED)
                         }
                     }
-                    item.name in TRACED_TOOLS -> blocks += TurnBlock.Trace(
+                    item.name in traced -> blocks += TurnBlock.Trace(
                         item.callId, item.name, 0, item.arguments,
                         state = if (r?.ok == true) TraceState.OK else TraceState.FAILED,
                         output = r?.output, ref = r?.ref

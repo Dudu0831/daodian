@@ -1,11 +1,10 @@
 package com.abc.daodian.agent.model.provider
 
 import com.abc.daodian.agent.engine.Item
-import com.abc.daodian.reminder.tools.CreateReminderTool
+import com.abc.daodian.agent.engine.tool.Tool
 import com.abc.daodian.agent.model.LlmException
 import com.abc.daodian.agent.model.LlmRequest
 import com.abc.daodian.agent.model.ResponsesClient
-import com.abc.daodian.agent.prompt.HarnessPrompt
 import kotlinx.coroutines.flow.collect
 import java.time.ZonedDateTime
 
@@ -18,25 +17,22 @@ sealed interface PingResult {
 /**
  * 测一下这份配置能不能用。
  *
- * 走的就是**真正那条路**：同一个 [ResponsesClient]、同一份 system、同样挂着工具，
- * 只是换成一句最短的话、只调一步。不另外拿 `/models` 之类的接口试探 ——
+ * 走的就是**真正那条路**：同一个 [ResponsesClient]、同一份 system、同样挂着工具（调用方传进来的，
+ * 就是对话 agent 用的那一套），只是换成一句最短的话、只调一步 —— 一步调用不会执行工具。不另外拿 `/models` 之类的接口试探 ——
  * 第三方网关不一定实现它，测通了也不代表正式调用能通，那种「绿灯」比没有还坏。
  *
  * 测的是**传进来的**配置，不是已保存的：配置页里改完能先测再存。
  */
 object ProviderTest {
 
-    /** 只拿来让请求带上工具定义；一步调用不会执行它 */
-    private val probeTool = CreateReminderTool { _, _ -> error("「测一下」不该执行工具") }
-
-    suspend fun run(profile: ProviderProfile): PingResult {
+    suspend fun run(profile: ProviderProfile, system: String, tools: Collection<Tool>): PingResult {
         if (!profile.isConfigured) {
             return PingResult.Failed("三格还没填全", profile.redacted())
         }
         val request = LlmRequest(
-            system = HarnessPrompt.SYSTEM,
+            system = system,
             input = listOf(Item.UserMessage("你好", ZonedDateTime.now())),
-            tools = listOf(probeTool)
+            tools = tools
         )
         val started = System.currentTimeMillis()
         return try {

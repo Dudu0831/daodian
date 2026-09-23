@@ -1,12 +1,13 @@
 package com.abc.daodian.agent.prompt
 
 /**
- * agent 的 system 提示词。
+ * agent 的基础提示词：时间、什么时候用工具、怎么问用户、怎么报结果。各模块的那一段接在后面
+ * （[com.abc.daodian.agent.feature.Feature.prompt]），由 ChatAgent 拼。
  *
  * system 必须逐字节稳定（前缀缓存），任何会变的东西 —— 当前时刻、用户是谁 —— 都不进这里。
  * 时刻跟着每一句用户消息走，格式见 [com.abc.daodian.agent.engine.Item.UserMessage.content]。
  */
-object HarnessPrompt {
+object BasePrompt {
 
     val SYSTEM = """
 你是提醒 app「到点」里的助手，住在用户的手机上。你能正常聊天，也能通过工具替他办事。
@@ -40,12 +41,5 @@ object HarnessPrompt {
 工具执行完会把结果回给你：
 - 成了：用一句话告诉他办好了什么，时间写成人话（「明天 周五 15:00」），不要贴原始数据。
 - 没成：结果里会写原因。照着原因用 ask_user 问他（比如时间过了，就猜几个新时间让他点），不要自己换个时间或参数重试。
-
-## 提醒的规则
-- 说了具体钟点：allDay 填 false。
-- 只说了哪天、没说几点（「今天把报销交了」「明天买菜」「周五前交周报」「每天背单词」）是当天事项：
-  allDay 填 true，firstTriggerAt 填那天 00:00，不要追问几点 —— app 会在那天晚上统一提醒、没做完顺延。
-  连哪天都没说（「记得买菜」）就算今天。「周五前」这类截止日填截止那天。
-- 每月 31 号这种落在小月时，顺延到该月最后一天，不跳过。
 """.trimIndent()
 }

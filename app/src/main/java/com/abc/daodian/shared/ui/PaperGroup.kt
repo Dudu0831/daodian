@@ -24,7 +24,7 @@ import com.abc.daodian.shared.theme.DaodianType
 
 /** 组上方的小标签，大字距（§8.1 第 4 条） */
 @Composable
-fun LedgerLabel(text: String, modifier: Modifier = Modifier) {
+fun GroupLabel(text: String, modifier: Modifier = Modifier) {
     val colors = DaodianColors.current
     Text(
         text, style = DaodianType.sectionLabel, color = colors.muted,
@@ -34,7 +34,7 @@ fun LedgerLabel(text: String, modifier: Modifier = Modifier) {
 
 /** 一组 = 一张纸。圆角 5dp，同卡片（§8.1 第 3 条） */
 @Composable
-fun LedgerGroup(content: @Composable ColumnScope.() -> Unit) {
+fun PaperGroup(content: @Composable ColumnScope.() -> Unit) {
     val colors = DaodianColors.current
     Column(
         Modifier
@@ -47,7 +47,7 @@ fun LedgerGroup(content: @Composable ColumnScope.() -> Unit) {
 
 /** 组内行间的细线，左边缩进和字对齐，不贯穿到纸边 */
 @Composable
-fun LedgerRule() {
+fun GroupRule() {
     val colors = DaodianColors.current
     Box(Modifier.padding(start = 18.dp).fillMaxWidth().height(1.dp).background(colors.ruleSoft))
 }

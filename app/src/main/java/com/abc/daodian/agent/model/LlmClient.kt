@@ -38,5 +38,8 @@ class LlmException(message: String, cause: Throwable? = null) : Exception(messag
 
 /** 只管「调一次模型」。不认识任何具体工具，也不管循环 */
 interface LlmClient {
+    /** 用的是哪个模型。工具落库时记成「谁解析的」，不影响调用 */
+    val model: String get() = ""
+
     fun step(request: LlmRequest): Flow<LlmEvent>
 }
