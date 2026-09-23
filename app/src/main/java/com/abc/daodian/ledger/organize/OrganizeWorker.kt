@@ -12,7 +12,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.abc.daodian.ledger.LedgerSettings
+import com.abc.daodian.ledger.data.LedgerSettings
 import java.util.concurrent.TimeUnit
 
 /**

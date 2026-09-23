@@ -13,13 +13,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
-import com.abc.daodian.ui.DaodianNavHost
-import com.abc.daodian.ui.MainViewModel
-import com.abc.daodian.ui.ledger.LedgerViewModel
-import com.abc.daodian.ui.theme.DaodianTheme
-import com.abc.daodian.widget.WidgetFrame
-import com.abc.daodian.widget.WidgetLaunch
-import com.abc.daodian.widget.WidgetTarget
+import com.abc.daodian.agent.shell.DaodianNavHost
+import com.abc.daodian.agent.conversation.MainViewModel
+import com.abc.daodian.ledger.presentation.LedgerViewModel
+import com.abc.daodian.shared.theme.DaodianTheme
+import com.abc.daodian.agent.entry.quick.WidgetFrame
+import com.abc.daodian.shared.navigation.WidgetLaunch
+import com.abc.daodian.shared.navigation.WidgetTarget
 
 class MainActivity : ComponentActivity() {
 

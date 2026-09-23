@@ -49,7 +49,7 @@
 
         <!-- 到点全屏页（响铃屏），从通知的 fullScreenIntent 拉起，不是 MainActivity。见 §06 -->
         <activity
-            android:name=".ui.alarm.AlarmActivity"
+            android:name=".reminder.presentation.alarm.AlarmActivity"
             android:exported="false"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
@@ -62,7 +62,7 @@
             exported=false 就够 —— 小组件的 PendingIntent 是以我们自己的身份发的。见 §8.3
         -->
         <activity
-            android:name=".ui.quick.QuickAddActivity"
+            android:name=".agent.entry.quick.QuickAddActivity"
             android:exported="false"
             android:excludeFromRecents="true"
             android:taskAffinity="com.abc.daodian.quick"
@@ -72,12 +72,12 @@
 
         <!-- 闹钟到点。只接收我们自己的 PendingIntent，不对外暴露 -->
         <receiver
-            android:name=".schedule.AlarmReceiver"
+            android:name=".reminder.scheduling.AlarmReceiver"
             android:exported="false" />
 
         <!-- 通知上的「完成」「稍后 10 分钟」 -->
         <receiver
-            android:name=".schedule.NotificationActionReceiver"
+            android:name=".reminder.delivery.NotificationActionReceiver"
             android:exported="false" />
 
         <!--
@@ -85,7 +85,7 @@
             另外三条 DATE/TIME/TIMEZONE 也都是受保护广播，别的 app 伪造不了。见 DESIGN.md §8.2
         -->
         <receiver
-            android:name=".widget.DaodianWidget"
+            android:name=".reminder.widget.DaodianWidget"
             android:exported="true"
             android:label="@string/widget_label">
             <intent-filter>
@@ -101,12 +101,12 @@
 
         <!-- 小组件上那个 ✓。只接自己发的 PendingIntent -->
         <receiver
-            android:name=".widget.WidgetActionReceiver"
+            android:name=".reminder.widget.WidgetActionReceiver"
             android:exported="false" />
 
         <!-- 重排触发源。BOOT_COMPLETED 等都是受保护广播，只有系统能发 -->
         <receiver
-            android:name=".schedule.RescheduleReceiver"
+            android:name=".reminder.scheduling.RescheduleReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
@@ -122,7 +122,7 @@
             exported 必须 true（系统来绑），BIND_NOTIFICATION_LISTENER_SERVICE 保证只有系统绑得上。
         -->
         <service
-            android:name=".ledger.PaySampler"
+            android:name=".ledger.capture.PaySampler"
             android:exported="true"
             android:label="到点 · 支付通知采样"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
@@ -136,7 +136,7 @@
             开机、覆盖安装是受保护广播，只有系统能发 —— 闹钟没了靠它们重排。记账自己的，不碰 schedule/
         -->
         <receiver
-            android:name=".ledger.check.CheckReceiver"
+            android:name=".ledger.reconciliation.CheckReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
