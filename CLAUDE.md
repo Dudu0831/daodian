@@ -6,7 +6,7 @@
 
 - **包结构重排**（2026-09-23，分支 `restructure-modules`）：三个模块 `agent` / `reminder` / `ledger` + `shared` 地基，模块经 `Feature` / `FeatureUi` 一个接头接到 agent 上。结构、依赖规则、旧路径 → 新路径的对照表全在 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)；**下面各条里的旧路径（`harness/`、`ui/`、`schedule/`、`data/`…）按那张表对照**。
   挪包改了全类名（通知使用权、小组件、闹钟、WorkManager 都按全类名记），所以**装新包前要连数据卸载**（`adb uninstall com.abc.daodian.debug`，会清空提醒、账本、对话、配置、权限）；提醒库改名 `reminder.db`、回到 v1。
-  **只验过编译、37 条单测、打包**，真机一条都没验 —— 验收清单在 PROJECT_STRUCTURE.md「迁移顺序」最后一步。
+  **只验过编译、37 条单测、打包**，真机一条都没验 —— 这个分支相对 main 的完整测试清单（连同后面的记账提示词、Markdown、画图）在 [TEST_PLAN.md](TEST_PLAN.md)。
 - **M1 调度内核**：代码完成，真机冒烟测试通过（零漂移），**48 小时放置测试没跑过**——这是唯一还没拿到的硬证据。
 - **M2 AI 解析**：用的是**工具调用**（`create_reminder`），不是让模型输出 JSON。真机测试成功：模型正确调用工具，字段名、时间推算都对。**2026-09-18 起整层换成了 `harness/` agent 循环**（现 `agent/engine/`，见下面 harness 那条），这一条及下面流式、「停」、思考开关几条里提到的 `ToolCallParser` 已删除，机制由 `agent/model/ResponsesClient` 继承。
 - **M3 UI**：八块 Compose 屏幕（对话/卡片/到点全屏/列表/编辑/设置/日志）全部写完、编译通过、lint 干净。
