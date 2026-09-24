@@ -38,7 +38,7 @@ class UpdateExpensesTool(
     override val effect = ToolEffect.WRITE
 
     override val description =
-        "改已有的流水（按 # 编号）。用户说「197 那笔是理发」「山姆那笔一半是吃的」「这笔不是我花的，删掉」时用。" +
+        "改已有的流水（按 # 编号）。用户说「197 那笔是理发」「山姆那笔一半是吃的」「这笔重复了」「根本没这笔钱」时用。" +
             "不知道编号先用 list_expenses 查。用户明说了类别就 confirm=true；" +
             "他说「以后这家都算 X」才 remember_merchant=true。"
 
@@ -61,7 +61,7 @@ class UpdateExpensesTool(
                 "merchant" to LedgerJson.strOrNull("商户名；不改 null"),
                 "remember_merchant" to LedgerJson.bool("以后这个商户默认归这个类别（只有用户这么说了才 true）"),
                 "confirm" to LedgerJson.bool("用户确认了这笔（类别对了）"),
-                "void_reason" to LedgerJson.strOrNull("作废这笔（不是账、重复了、记错了），写原因；不作废 null"),
+                "void_reason" to LedgerJson.strOrNull("作废这笔（重复了、根本没这笔钱、记错了），写原因；转账给别人是支出，不作废。不作废 null"),
                 "refund_of" to LedgerJson.intOrNull("这笔退款退的是哪笔 #；不改 null")
             )
         )
