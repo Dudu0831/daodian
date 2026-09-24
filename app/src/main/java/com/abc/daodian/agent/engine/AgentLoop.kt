@@ -24,7 +24,7 @@ import kotlin.coroutines.cancellation.CancellationException
  *  - 每一步按 [context] 选出要喂的历史
  *  - 边跑边把每一项写进 [Session]，中途被「停」也不丢已经发生的事
  *
- * 写操作直接执行，不先问用户（DESIGN.md §6.9）。要问人是模型自己的决定：它调 `ask_user`，
+ * 写操作直接执行，不先问用户（DESIGN.md §6.1）。要问人是模型自己的决定：它调 `ask_user`，
  * 那个工具通过 [Asker] 找界面、挂起到用户答完。
  */
 class AgentLoop(

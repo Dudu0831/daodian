@@ -39,7 +39,7 @@ object ChatAgent {
     @Synchronized
     fun of(context: Context, profile: ProviderProfile): AgentLoop {
         cached?.let { (p, loop) -> if (p == profile) return loop }
-        // 旧轮次里画过的图折成一句再喂回去（DESIGN.md §6.11）
+        // 旧轮次里画过的图折成一句再喂回去（DESIGN.md §6.8）
         return AgentLoop(ResponsesClient(profile), ToolRegistry(tools(context)), system, FoldDrawings())
             .also { cached = profile to it }
     }

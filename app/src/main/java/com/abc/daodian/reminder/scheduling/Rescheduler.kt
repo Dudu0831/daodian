@@ -25,7 +25,7 @@ class Rescheduler(private val context: Context) {
 
     fun canScheduleExact(): Boolean = am.canScheduleExactAlarms()
 
-    /** 排一条。用 setAlarmClock —— 系统最高优先级那一档，见 决策 5.1 */
+    /** 排一条。用 setAlarmClock —— 系统最高优先级那一档，见 DESIGN.md §5.1 */
     fun schedule(reminder: Reminder) {
         val op = alarmIntent(reminder) ?: return
         val show = PendingIntent.getActivity(

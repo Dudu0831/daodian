@@ -6,8 +6,7 @@ import java.time.ZonedDateTime
 
 /**
  * RFC 5545 的一个**子集**。超出子集的规则一律当成一次性提醒处理。
- * 见设计文档 §7.2 —— M3 的正式实现会补全 COUNT/UNTIL 的持久化计数，
- * M1 先保证「有 rrule 的提醒响完能自己排下一次」这条链路是通的。
+ * 见设计文档 §7.2。UNTIL 照常生效；COUNT 认，但还没有持久化计数（响过几次没记）。
  */
 object Rrule {
 

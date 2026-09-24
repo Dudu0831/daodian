@@ -47,7 +47,7 @@
             </intent-filter>
         </activity>
 
-        <!-- 到点全屏页（响铃屏），从通知的 fullScreenIntent 拉起，不是 MainActivity。见 §06 -->
+        <!-- 到点全屏页（响铃屏），从通知的 fullScreenIntent 拉起，不是 MainActivity。见 DESIGN.md §5.6 -->
         <activity
             android:name=".reminder.presentation.alarm.AlarmActivity"
             android:exported="false"
@@ -117,7 +117,7 @@
         </receiver>
 
         <!--
-            记账：支付通知原样存进 ledger.db，由整理 agent 读懂（LEDGER_PLAN.md）。类名还叫 PaySampler ——
+            记账：支付通知原样存进 ledger.db，由整理 agent 读懂（DESIGN.md §10）。类名还叫 PaySampler ——
             「通知使用权」按组件名授，改名要重新授权。
             exported 必须 true（系统来绑），BIND_NOTIFICATION_LISTENER_SERVICE 保证只有系统绑得上。
         -->

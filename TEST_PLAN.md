@@ -26,7 +26,7 @@
 - [ ] `./gradlew :app:assembleDebug` 通过。Markdown、画图、抓取页的代码这是第一次按 Android 编译（抓取页用到的 DAO 查询也是第一次过 Room 的 SQL 检查），新依赖 `com.caverock:androidsvg-aar:1.4` 也是第一次拉。要报错，最可能在 `MarkdownText.kt`（链接用的 `LinkAnnotation`）和 `SvgBlock.kt`。
 - [ ] （可选）卸载前把要留的东西拷出来，比如调研样本：
   `adb exec-out run-as com.abc.daodian.debug cat files/pay_samples.imported.jsonl > pay_samples.jsonl`
-- [ ] **连数据一起卸载**，再装新包：`adb uninstall com.abc.daodian.debug` → `./gradlew :app:installDebug`。全类名和提醒库都改了，不能直接覆盖安装。卸载会清空这些：提醒、账本、对话、模型配置、收尾时刻、所有权限、桌面小组件。完整的表在 PROJECT_STRUCTURE.md「卸载重装」。
+- [ ] **连数据一起卸载**，再装新包：`adb uninstall com.abc.daodian.debug` → `./gradlew :app:installDebug`。全类名和提醒库都改了，不能直接覆盖安装。卸载会清空这些：提醒、投递日志、账本、对话、模型配置（退回 `secrets.properties` 种子，那个旧网关已经 503，要在配置页重新填火山方舟）、收尾时刻和记账设置（回到默认）、所有权限、桌面小组件。
 
 ## 2. 包结构重排的回归（`5f01cd3` `71550a2` `7758556`）
 
@@ -35,7 +35,7 @@
 ### 2.1 装好、配好
 
 - [ ] 设置页从上到下：体检结论 → 模型服务 → 系统权限 → 提醒 → 记录 → 记账。以前「提醒」在最上面，现在这个顺序是故意改的。
-- [ ] 体检逐条开到全绿：通知、精确闹钟、全屏通知、通知使用权、电池 / 应用启动管理。从系统设置回来，对应那条自己变成对勾（体检项现在由各模块的 `Feature.health` 给）。
+- [ ] 体检逐条开到全绿：通知、精确闹钟、全屏通知、电池 / 应用启动管理。从系统设置回来，对应那条自己变成对勾（体检项现在由各模块的 `Feature.health` 给）。记账的通知使用权不在体检里，在设置页记账那一组，也打开。
 - [ ] 配置页填火山方舟 → 点「测一下」能通过（`ProviderTest` 现在带着真实的提示词和全部工具，请求比以前大）。
 - [ ] 抽屉：顶上「到点 · 回到对话」，中间提醒、记账各一张纸，底下是「设置」和「还差 N 项」。
 - [ ] 库文件对：`adb shell run-as com.abc.daodian.debug ls databases` 里有 `reminder.db`、`chat.db`、`ledger.db`，没有 `daodian.db`。

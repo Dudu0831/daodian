@@ -304,7 +304,7 @@ fun LedgerOverviewScreen(
                 style = DaodianType.caption, color = colors.hint, textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = Gutter).padding(top = 28.dp)
             )
-            // 实时回调会漏（LEDGER_PLAN.md §2.3）：账上少了一笔，去抓取页看抓到没有、手动抓一下
+            // 实时回调会漏（DESIGN.md §10.2）：账上少了一笔，去抓取页看抓到没有、手动抓一下
             Text(
                 "少了一笔？看看抓到的通知 ›",
                 style = DaodianType.caption, color = colors.muted, textAlign = TextAlign.Center,

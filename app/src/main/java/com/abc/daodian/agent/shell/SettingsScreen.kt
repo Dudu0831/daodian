@@ -48,7 +48,7 @@ import com.abc.daodian.shared.ui.ScreenTopBar
 import com.abc.daodian.shared.ui.SettingRow
 
 /**
- * 设置 + 权限体检。见 DESIGN.md §08、§09.1
+ * 设置 + 权限体检。见 DESIGN.md §08、§9.1
  *
  * 版式是一本账：顶上一句体检结论，底下一组一张纸、行间细线。壳只管框和自己的两组 ——
  * 「模型服务」「系统权限」（汇总各模块的 [com.abc.daodian.agent.feature.Feature.health]）；

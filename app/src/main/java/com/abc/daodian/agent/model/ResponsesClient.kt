@@ -31,7 +31,7 @@ import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * [LlmClient] 的 Responses API 实现。流式为主，流没跑起来就退回一次性请求 ——
- * 第三方兼容网关不一定实现 SSE。取消和回退的规矩见 DESIGN.md §6.7。
+ * 第三方兼容网关不一定实现 SSE。取消和回退的规矩见 DESIGN.md §6.2。
  */
 class ResponsesClient(private val profile: ProviderProfile) : LlmClient {
 

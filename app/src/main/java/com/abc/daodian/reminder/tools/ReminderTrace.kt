@@ -11,7 +11,7 @@ import com.abc.daodian.reminder.domain.ReminderText
 import com.abc.daodian.reminder.domain.Rrule
 import com.abc.daodian.shared.format.Format
 
-/** 建提醒在对话里留的痕：「✓ 提醒 9月24日 周四 08:00 · 带伞 ›」，点了去编辑页。见 DESIGN.md §6.9 */
+/** 建提醒在对话里留的痕：「✓ 提醒 9月24日 周四 08:00 · 带伞 ›」，点了去编辑页。见 DESIGN.md §6.6 */
 object ReminderTrace {
 
     fun of(call: ToolTrace): TraceView? {

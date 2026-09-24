@@ -7,7 +7,7 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 
 /**
- * 把时间戳变成人话。见 DESIGN.md §03「时间：写人话，不要 ISO 时间戳」
+ * 把时间戳变成人话：界面上不出现 ISO 时间戳
  * 只放各模块都用得上的；重复规则、当天事项的写法在提醒模块（Rrule.human、ReminderText），到点全屏页的汉字日期在 alarm/。
  */
 object Format {

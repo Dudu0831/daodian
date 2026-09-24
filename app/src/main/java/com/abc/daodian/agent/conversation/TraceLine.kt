@@ -55,7 +55,7 @@ import com.abc.daodian.shared.theme.Motion
 import com.abc.daodian.shared.ui.ChevronRightIcon
 
 /*
- * 痕：一次写操作在对话里留下的一行小字。见 DESIGN.md §6.9，动效稿「动手」「办成」「没办成」三拍。
+ * 痕：一次写操作在对话里留下的一行小字。见 DESIGN.md §6.6，动效稿「动手」「办成」「没办成」三拍。
  *
  * 它是代码按工具结果画的，不是模型说的 —— 模型嘴上说「记下了」却没调工具，这里就是空的。
  * 所以它不能省：真机上出过只回一句「明白」、什么都没建的情形。

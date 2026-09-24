@@ -16,7 +16,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * 细线图标，手绘复刻视觉稿里的 20x20 viewBox SVG（见 DESIGN.md §8.1「图标一律细线，不要填充」）。
+ * 细线图标，手绘复刻视觉稿里的 20x20 viewBox SVG（见 DESIGN.md §8.1「图标一律细线、不填充」）。
  * 稿子里线宽是 1.1，落到 20dp 的图标上约等于 1.1dp —— 别加粗，粗了就不是墨线是记号笔了。
  * 没有引入 material-icons-extended：那个库不小，这几个图标手画成本更低。
  */

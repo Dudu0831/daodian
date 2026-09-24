@@ -3,7 +3,7 @@ package com.abc.daodian.agent.engine.ask
 import com.abc.daodian.agent.engine.Item
 
 /**
- * 问卡要问的东西：模型拿不准时先猜好几个答案，让用户点一下，或者自己说。见 DESIGN.md §6.9
+ * 问卡要问的东西：模型拿不准时先猜好几个答案，让用户点一下，或者自己说。见 DESIGN.md §6.6
  *
  * 一张卡 = 一次 `ask_user` 调用，最多 [AskUserTool.MAX_QUESTIONS] 题。
  */

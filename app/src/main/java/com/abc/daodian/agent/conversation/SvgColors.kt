@@ -7,7 +7,7 @@ import com.abc.daodian.shared.theme.DarkPalette
 import com.abc.daodian.shared.theme.LightPalette
 
 /**
- * 模型画的图按当前主题上色（DESIGN.md §6.11「颜色」）。提示词让它不画背景、字和线用 currentColor、
+ * 模型画的图按当前主题上色（DESIGN.md §6.8「颜色」）。提示词让它不画背景、字和线用 currentColor、
  * 数据只用浅色色板里的几种；这里在交给 AndroidSVG 之前改一遍原文。
  */
 internal object SvgColors {

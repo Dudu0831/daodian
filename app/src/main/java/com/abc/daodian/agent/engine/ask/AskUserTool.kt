@@ -10,7 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.JsonNodeFactory
 
 /**
- * 拿不准的时候问用户：先猜好答案，他点一下就行，也可以自己写或者直接说一句。见 DESIGN.md §6.9
+ * 拿不准的时候问用户：先猜好答案，他点一下就行，也可以自己写或者直接说一句。见 DESIGN.md §6.6
  *
  * 执行时挂起，直到 [ToolContext.asker] 交回答案 —— 一轮对话会在这里停住等人，可能停很久。
  * 回给模型的结果末尾多一行 `answer=…`（机读），重启后把问卡原样画回来靠它。

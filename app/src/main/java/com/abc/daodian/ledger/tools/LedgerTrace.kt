@@ -9,7 +9,7 @@ import com.abc.daodian.ledger.domain.Money
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 
-/** 记账的写操作在对话里留的痕：记了一笔、改了几笔、加了类别。点了去那一笔。见 DESIGN.md §6.9 */
+/** 记账的写操作在对话里留的痕：记了一笔、改了几笔、加了类别。点了去那一笔。见 DESIGN.md §6.6 */
 object LedgerTrace {
 
     private val mapper = ObjectMapper()

@@ -19,7 +19,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * 听哪几家的通知，以及跟「通知使用权」、监听连没连着打交道的几件事。
  *
  * 加一家：在 [ALL] 里加一行（包名 + 人话名字）就行 —— 采集、整理、界面都从这里取。
- * 各家通知给得出什么，见 LEDGER_PLAN.md §2.1。
+ * 各家通知给得出什么，见 DESIGN.md §10.2。
  */
 object PaySources {
 
@@ -42,7 +42,7 @@ object PaySources {
     /**
      * 系统遮蔽敏感通知时填进正文的那句话。直接问 framework 要（隐藏资源
      * `android:string/redacted_notification_message`），跟着系统语言走；问不到才退回中文原句。
-     * 为什么会被遮蔽见 LEDGER_PLAN.md §2.2。
+     * 为什么会被遮蔽见 DESIGN.md §10.2。
      */
     val REDACTED: String by lazy {
         runCatching {
@@ -89,7 +89,7 @@ object PaySources {
 
     /**
      * 监听现在连没连着。只是这个进程里的状态：进程被杀、重新起来、系统还没绑回来之前是没连着。
-     * 连着也不保证回调都来（荣耀冻住进程时会丢，LEDGER_PLAN.md §2.3），所以才有手动抓。
+     * 连着也不保证回调都来（荣耀冻住进程时会丢，DESIGN.md §10.2），所以才有手动抓。
      */
     val listener: StateFlow<Listener> = _listener.asStateFlow()
 

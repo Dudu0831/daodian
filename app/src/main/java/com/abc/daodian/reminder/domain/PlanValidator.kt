@@ -16,7 +16,7 @@ sealed interface Verdict {
 }
 
 /**
- * 校验闸门。见 DESIGN.md §6.5
+ * 校验闸门。见 DESIGN.md §6.4
  *
  * 这道闸门比换更强的模型值钱得多：它把「静默出错」变成「当场问你一句」。
  */

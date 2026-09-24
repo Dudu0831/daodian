@@ -7,7 +7,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 
 /**
- * 动效 token。见 DESIGN.md 决策 6.3，动效稿：
+ * 动效 token。见 DESIGN.md §6.5，动效稿：
  * https://claude.ai/code/artifact/c0493995-43b7-4220-8a00-35adb5990804
  *
  * 所有时长和曲线只从这里取 —— 稿子里的 CSS 和这里一一对应，改一边就得改另一边。

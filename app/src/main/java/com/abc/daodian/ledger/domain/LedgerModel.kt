@@ -7,7 +7,7 @@ import java.math.RoundingMode
  * 记账的领域模型：工具、护栏和存储层都说这一套话。纯 Kotlin，不碰 Android ——
  * 存储由 ledger/ 包实现 [LedgerBackend]，这里的东西都能在 JVM 单测里跑。
  *
- * 口径见 LEDGER_PLAN.md §10：金额一律整数分、永远是正数，正负由 [Direction] 决定。
+ * 口径见 DESIGN.md §10.3：金额一律整数分、永远是正数，正负由 [Direction] 决定。
  */
 
 /** 钱往哪走。统计口径：月支出 = OUT − REFUND，月收入 = IN，TRANSFER 哪里都不算 */

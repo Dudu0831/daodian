@@ -196,7 +196,7 @@ interface LedgerDao {
     @Query("SELECT * FROM agent_run ORDER BY startedAt DESC LIMIT 1")
     fun observeLastRun(): Flow<AgentRun?>
 
-    // ---------------- 统计（口径见 LEDGER_PLAN.md §10.4）----------------
+    // ---------------- 统计（口径见 DESIGN.md §10.3、§10.5）----------------
 
     /** 一段日子里各方向的合计 */
     @Query(

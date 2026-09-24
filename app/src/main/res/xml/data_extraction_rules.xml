@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- API key 和提醒数据都不参与云备份/设备迁移，见设计文档 §11 -->
+<!-- API key 和提醒数据都不参与云备份/设备迁移，见 DESIGN.md 决策 8.4 -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="root" />

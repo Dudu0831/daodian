@@ -39,7 +39,7 @@ import java.time.LocalTime
 
 /**
  * 设置页里记账那一组：通知使用权、抓到的通知（进抓取页）、整理间隔、每晚对账、现在整理一次。
- * 不算进体检结论 —— 它挂了不影响提醒响。流程见 LEDGER_PLAN.md
+ * 不算进体检结论 —— 它挂了不影响提醒响。流程见 DESIGN.md §10
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

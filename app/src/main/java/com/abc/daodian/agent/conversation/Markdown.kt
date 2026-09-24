@@ -1,11 +1,11 @@
 package com.abc.daodian.agent.conversation
 
 /*
- * 模型正文里的 Markdown。见 DESIGN.md §6.10
+ * 模型正文里的 Markdown。见 DESIGN.md §6.7
  *
  * 不靠提示词去管模型怎么写 —— 它写什么这里认什么。先认最常见的几样：粗体、斜体、删除线、行内代码、链接，
  * 标题、列表、引用、分隔线、表格、代码块。认不出的原样当字画，一个字都不吞。
- * 模型画的图（```svg 代码块，或者直接写的 <svg>…</svg>）单独成块，交给 SvgBlock.kt 画成图，见 DESIGN.md §6.11。
+ * 模型画的图（```svg 代码块，或者直接写的 <svg>…</svg>）单独成块，交给 SvgBlock.kt 画成图，见 DESIGN.md §6.8。
  * 纯 Kotlin、不碰 Compose（画在 MarkdownText.kt），JVM 单测直接测。
  *
  * 去掉标记符之后，每段字仍记着自己在原文里的下标（[MdRun.src]）：逐字洇开记的是原文下标的到货时刻，靠它对上。

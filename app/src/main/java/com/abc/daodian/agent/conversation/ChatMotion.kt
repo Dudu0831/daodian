@@ -42,7 +42,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 
 /*
- * 对话里那几样会自己动的小东西。时长曲线一律取 Motion，见 DESIGN.md 决策 6.3。
+ * 对话里那几样会自己动的小东西。时长曲线一律取 Motion，见 DESIGN.md §6.5。
  * 无限循环的动画只在真正需要时才进组合 —— 挂着不用也会一直要帧、一直耗电。
  */
 

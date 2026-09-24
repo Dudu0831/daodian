@@ -77,7 +77,7 @@ import kotlinx.coroutines.launch
 
 /*
  * 问卡：对话里唯一的卡片。模型拿不准时先猜好几个答案，你点一下；都不对就点「其他…」自己写，
- * 或者什么都不点、直接在输入框里说一句。见 DESIGN.md §6.9，动效稿：
+ * 或者什么都不点、直接在输入框里说一句。见 DESIGN.md §6.6，动效稿：
  * https://claude.ai/artifact/BTqaHuU6hbgjmG6NqPv5HP
  *
  * 答完原地收成一行行记录，「问」换成「答」、印盖下来 —— 整个对话里唯一的一枚印。不震动。

@@ -1,6 +1,7 @@
-# 到点 · 技术设计文档
+# 到点 · 设计与决策
 
-> v1.2 · 单人单设备 · 目标机 荣耀 MagicOS / Android 15
+这份只记两样东西：**为什么是这样**，和**改的时候要守的规矩**。代码怎么写以代码为准；哪些真机验过、哪些还没验，看 [CLAUDE.md](CLAUDE.md)。
+代码注释里的 `§5.3`、`决策 8.4` 都指这份文档。
 
 一句话：**AI 只负责把一句话翻译成一条记录，绝不负责在正确的时间叫醒你。**
 
@@ -8,28 +9,27 @@
 
 ## 01 目标与非目标
 
-非目标砍掉的复杂度，比目标带来的还多。
-
 **做**
 
-- 一句自然语言 → 一条精确定时的提醒
-- 相对时间（「二十分钟后」）、绝对时间（「9 月 2 号下午三点」）、简单重复（「每周二早上」）
-- 到点强提醒：响铃 + 锁屏弹出 + 可稍后
-- 断网、API key 失效、供应商跑路时，**已排期的提醒不受任何影响**
-- 任何 AI 解析结果都能手动改；完全不用 AI 也能建提醒
+- 一句话 → 一条精确定时的提醒：相对时间（「二十分钟后」）、绝对时间（「9 月 2 号下午三点」）、重复（「每周二早上」）、只说了哪天（「今天把报销交了」）
+- 到点强提醒：响铃 + 锁屏弹出 + 稍后
+- 断网、key 失效、供应商跑路时，**已排期的提醒照响**
+- 模型建的都能手动改；完全不用模型也能建提醒
+- 记账：支付通知自动变成流水，模型读懂、归类，拿不准的每晚在对话里问一次（§10）
 
 **不做**
 
-- 多用户、账号体系、云同步、跨设备 —— 因此没有后端，一行服务端代码都不写
-- 上架任何应用商店 —— 因此不受 Google Play 权限政策约束（见 §05）
-- 日历双向同步、分享、协作
-- 项目管理（子任务、标签、看板、优先级矩阵）
+- 多用户、账号、云同步、跨设备 —— 没有后端，一行服务端代码都不写
+- 上架应用商店 —— 所以不受 Google Play 的权限政策约束（§5.2）
+- 日历同步、分享、协作、项目管理
 
-**前置约束**：目标机是国行荣耀，**没有 Google Play 服务**。FCM 推送和任何依赖 GMS 的后台调度方案全部不可用。这条约束不是限制，是验证 —— 它从一开始就排除了「服务端定时推送」，把本地闹钟确立为唯一正确的实现。
+**前置约束**：目标机是国行荣耀（MagicOS / Android 15），**没有 Google Play 服务**。FCM 和依赖 GMS 的后台调度都用不了 —— 本地闹钟是唯一的路。
 
 ---
 
-## 02 总体架构
+## 02 架构
+
+### 2.1 两条路径
 
 ```
                     ┌─────────── 本地可靠区 · 飞行模式下完整工作 ───────────┐
@@ -41,166 +41,142 @@
         (逃生舱)        └──────────────────────────────────────────────────┘
 ```
 
-网络只参与「把一句话变成一条记录」这一步。记录一旦落进 Room，触发链路就完全由 `AlarmManager` 和 `BroadcastReceiver` 承担 —— 拔掉网络、删掉 API key、供应商倒闭，已排期的提醒照响。
-
-虚线那条是逃生舱：**不经过任何 AI 也能建一条完整提醒**，这条路径必须始终可用。
-
-两条路径的可靠性要求差一个数量级，工程投入也应该差一个数量级：
+网络只参与「把一句话变成一条记录」。记录落进 Room 之后，触发链路全由 `AlarmManager` 和 `BroadcastReceiver` 承担 —— 拔掉网络、删掉 key、供应商倒闭，已排期的提醒照响。
+手动添加 / 编辑是逃生舱：**不经过模型也能建一条完整提醒**，这条路必须一直能用。
 
 | 路径 | 失败会怎样 | 应对 |
 |---|---|---|
-| **解析路径**（网络） | 你当场就看得见 —— 界面报错或时间不对，立刻能改 | 重试、降级、手动兜底。**允许失败** |
-| **触发路径**（本地） | 你三天后才发现房租忘了交 | 四重重排 + 兜底巡检 + 投递日志。**不允许失败** |
+| **解析**（网络） | 当场看得见，立刻能改 | 重试、问你、手动兜底。**允许失败** |
+| **触发**（本地） | 三天后才发现房租忘了交 | 四重重排 + 兜底巡检 + 投递日志。**不允许失败** |
 
-这个不对称是整份文档的主线，也是 §10 里程碑排序的唯一理由。
+整个 AI 层的风险加起来，都不如「闹钟没响」这一条。工程投入按这个比例分。
 
-代码也按这条线分：`reminder`（触发路径全在它的 `scheduling/` 和 `data/` 里，离了模型照样跑）、`ledger`、
-和把它们接到模型上的 `agent`。模块只通过一个接头（`Feature` / `FeatureUi`）接到 agent 上，agent 不认识提醒和账。
-包结构、依赖规则、每个文件放哪见 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)。
+### 2.2 模块与接头
+
+一个 Gradle 模块，包层面分三个模块 + 地基（目录树见 [README](README.md)）：
+
+- **`agent`** 智能交互：循环、调模型、对话页、桌面速记、宿主壳（导航、抽屉、设置页和模型配置页的框）。**只认识接头，不知道提醒和账是什么。**
+- **`reminder`** 提醒：断网、不经过模型也要能用。触发路径全在它的 `scheduling/` 和 `data/` 里。
+- **`ledger`** 记账：自己在后台采集、整理、对账（§10）。
+- **`shared`** 地基：色板、字体、动效、通用组件、人话时间、`Launch`。谁也不依赖。
+
+**接头**：模块用一个 object 同时实现两个接口，在 `Features.kt` 里列一行就接上了。加模块 = 新目录 + 一个接头 + 这里一行；抽屉里的纸、设置页的组也按这个顺序摆。
+
+| 接口 | 模块给什么 |
+|---|---|
+| `agent/feature/Feature`（不碰 Compose） | 工具、接在基础提示词后面的一段、写操作留什么痕（`trace`）、空状态例句、连不上模型时「手动填一条」去哪、app 自己发起的一轮（`trigger`，如每晚对账）、体检项、冷启动要做的事 |
+| `agent/shell/FeatureUi` | 自己的页面（路由以模块 id 开头）、抽屉里的一张纸、设置页里的一组、体检结论底下补的一行 |
+
+**依赖规则**
+
+1. `agent` 不 import `reminder`、`ledger`，要什么都经接头拿。
+2. `reminder`、`ledger` 互不 import。
+3. 模块的核心层不 import `agent`：提醒的 `domain / data / application / scheduling / delivery`，记账的 `domain / data / capture`。能 import `agent` 的只有接头文件、`tools/`、`presentation/`、`widget/`、`organize/`、`reconciliation/`。
+4. `shared` 不 import 任何模块。
+5. 跨模块跳转只用路由字符串。模块不 import `MainActivity`，从外面拉起 app 走 `shared/navigation/Launch`（`route` 去哪页、`trigger` 开一轮 app 发起的、`say` 替你发一句话）。
+6. 根目录只做装配。
+
+**路由**：agent 用 `chat`、`settings`、`provider`；提醒 `reminder/list`、`reminder/edit?id=`、`reminder/log`；记账 `ledger`、`ledger/category/…`、`ledger/txn/{id}`、`ledger/capture`。
+路由常量放在 `ReminderRoutes` / `LedgerRoutes`，不挂在接头上 —— 通知、小组件（核心层）要用，又不该 import 接头。
+
+**界面归属**：对话的画法（回合、问卡、痕、输入框、速记的纸）归 `agent`；模块自己的页面归各自的 `presentation/`；导航、抽屉、设置页、模型配置页的框归 `agent/shell`，内容由模块塞。
+ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、抽屉、设置组拿到同一份。
+
+**三个库互不牵连**：`reminder.db`（提醒、投递日志）、`chat.db`（对话）、`ledger.db`（账）。对话表、账表出岔子，连累不到闹钟。以后改表都是 version + 1、在各自 `autoMigrations` 里加一条。
+
+**挪包 = 改全类名**。通知使用权、桌面小组件、已排的闹钟、WorkManager 的 Worker、Room 的 schemas 目录都按全类名记，挪了包的新版本要连数据卸载再装。
 
 ---
 
 ## 03 技术栈
 
-| 层 | 选择 | 说明 |
-|---|---|---|
-| 语言 / UI | Kotlin + Jetpack Compose | Material 3，单 Activity |
-| SDK | minSdk 34 · targetSdk 35 · compileSdk 35 | 见 决策 3.2 |
-| 持久化 | Room（KSP） | 两张表，见 §04 |
-| 配置 / 密钥 | DataStore (Preferences) | `allowBackup="false"` |
-| 定时 | `AlarmManager.setAlarmClock()` | 核心，见 §05 |
-| 兜底 | WorkManager 周期任务 | 6 小时一次巡检 |
-| 网络 / LLM | `openai-java`（OkHttp backend） | 官方 SDK，`baseUrl` 指向任意兼容 endpoint |
-| 日期时间 | `java.time` | 原生可用，不需要 desugaring |
+| 层 | 选择 |
+|---|---|
+| 语言 / UI | Kotlin + Jetpack Compose，Material 3，单 Activity |
+| SDK | minSdk 34 · targetSdk 35 · compileSdk 35（决策 3.2） |
+| 持久化 | Room（KSP），三个库见 §2.2；配置和 key 存 DataStore，`allowBackup="false"` |
+| 定时 | `AlarmManager.setAlarmClock()`（§05）；兜底巡检、记账整理用 WorkManager |
+| 模型 | `openai-java`（OkHttp backend），Responses API，`baseUrl` 指向任意兼容网关（决策 3.1） |
+| 语音 | sherpa-onnx 本地识别（决策 8.3） |
+| 画图 | AndroidSVG 1.4（§6.8） |
+| 日期时间 | `java.time`，不需要 desugaring |
 
-### 决策 3.1 · 已修订：用 openai-java 官方 SDK
+### 决策 3.1 · 用 openai-java 官方 SDK，不手写客户端
 
-- **选**：`openai-java`，OkHttp backend，`baseUrl` 可改
-- **弃**：~~OkHttp + kotlinx.serialization 手写客户端~~
+请求 / 响应类型由官方维护，新参数不用自己追文档。两个前提都验过：走的是 OkHttp backend（`java/net/http` 引用为 0，Android 上不会因为缺 `HttpClient` 崩）；第三方网关（DeepSeek、火山方舟）认它发的请求。
 
-好处是实打实的：请求/响应类型由官方维护，新参数跟进不用自己追文档，`response_format` 这类结构有现成类型可用。
+**代价是包体**：R8 之后 2.2MB → 35MB（Jackson + kotlin-reflect + victools），接受了。调模型只在 `agent/model/ResponsesClient` 一处，真要换回手写客户端只动这一个类。
 
-**但有两个前提要在 M2 第一步就验掉**：
+### 决策 3.2 · minSdk 34
 
-1. **Android 可用性** —— 这类 JVM SDK 有的走 `java.net.http.HttpClient`（Android 上根本没有）。必须确认走的是 OkHttp backend，并实际在真机上跑通，同时看 R8 之后的包体增量。
-2. **非 OpenAI 供应商的兼容性** —— SDK 会按 OpenAI 的完整形状发字段，某些供应商见到不认识的字段会直接 400。「用官方 SDK」和「兼容性更高」不完全等价，实测为准。
-
-好消息是这个决定几乎不花钱：SDK 藏在 `ReminderParser` 接口后面（§6.1）。真撞上任何一条，换回手写客户端只动一个类。
-
-### 决策 3.2 · 已修订：minSdk 34
-
-原定 33，理由是「33 是 `USE_EXACT_ALARM` 和 `POST_NOTIFICATIONS` 落地的版本，定在这里就不用写任何 `Build.VERSION` 分支」。
-
-写代码时发现这个理由本身要求的是 **34**：
-
-- `NotificationManager.canUseFullScreenIntent()` —— API 34
-- `Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT` —— API 34
-
-停在 33 就得为全屏 intent 写版本分支，正好违背了当初定 33 的目的。目标机是 Android 15，改成 34 零损失。
+原定 33（`USE_EXACT_ALARM`、`POST_NOTIFICATIONS` 落地的版本，定在这里就不用写版本分支）。写代码时发现全屏 intent 要的 `NotificationManager.canUseFullScreenIntent()` 和 `Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT` 都是 34 才有，停在 33 反而要写分支。目标机是 Android 15，34 零损失。**别改回去。**
 
 ---
 
-## 04 数据模型
+## 04 提醒的数据
 
 ### 4.1 提醒
 
-```kotlin
-@Entity(tableName = "reminders", indices = [Index("nextTriggerAt"), Index("status")])
-data class Reminder(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val title: String,              // 「交房租」—— 去掉「提醒我」这类壳
-    val note: String? = null,
-    val rawInput: String,           // 你的原话，永久保留
-    val nextTriggerAt: Long,        // epoch millis，唯一的排期依据
-    val rrule: String? = null,      // RFC 5545 子集；null = 一次性
-    val zoneId: String,             // 创建时所在时区
-    val localTime: String? = null,  // "08:00"，墙钟锚定时用来重算
-    val wallClockAnchored: Boolean, // 见 §7.1
-    val status: ReminderStatus,     // SCHEDULED / FIRED / DONE / CANCELLED
-    val parsedBy: String? = null,   // "deepseek-chat"，回溯是哪家解析错的
-    val createdAt: Long,
-    val updatedAt: Long
-)
-```
+`reminder/data/Entities.kt` 的 `Reminder`。几个不显然的字段：
 
-`rawInput` 和 `parsedBy` 是刻意留的：解析出错时能对照原话看模型怎么想歪的，换供应商后也能拿老句子重跑做对比。
+- `nextTriggerAt`（epoch ms）是**排期的唯一依据**，闹钟全从它来。
+- `rawInput`（你的原话）和 `parsedBy`（哪个模型解析的）刻意留着：解析出错时能对照原话看模型怎么想歪的，换供应商后也能拿老句子重跑对比。
+- `wallClockAnchored` + `localTime` + `zoneId`：墙钟锚定的提醒换时区后要重算，见 §7.1。
+- `rrule`：RFC 5545 子集（§7.2），null = 一次性。
+- `dueDay`：当天事项（§4.3），null = 普通定时提醒。
 
 ### 4.2 投递日志
 
-```kotlin
-@Entity(tableName = "fire_log", indices = [Index("firedAt")])
-data class FireLog(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val reminderId: Long,
-    val title: String,
-    val scheduledAt: Long,   // 本该响的时刻
-    val firedAt: Long,       // 实际响的时刻
-    val source: FireSource   // ALARM / SWEEP / BOOT_CATCHUP / MANUAL_TEST
-)
-```
+`FireLog`：每次响都记一行 —— 应响时刻、实响时刻、来源（`ALARM` / `SWEEP` / `BOOT_CATCHUP` / `MANUAL_TEST`）。
 
-`firedAt - scheduledAt` 就是漂移量。这张表看起来可有可无，实际上它是整个项目里**唯一能把「感觉挺准的」变成数据的东西** —— §09 的验收、§11 的最大风险，全靠它。
-
-`source` 同样关键：日志里大量出现 `SWEEP`，说明主闹钟路径正在被 ROM 掐掉、兜底网在替它干活，这是个必须立刻处理的信号。
+`实响 − 应响` 就是漂移。这张表是整个项目里**唯一能把「感觉挺准的」变成数据的东西**，§9.3 的验收全靠它。
+`source` 同样关键：大量出现 `SWEEP`，说明主闹钟路径正在被 ROM 掐掉、兜底网在替它干活 —— 必须立刻处理。
 
 ### 4.3 当天事项
 
 「今天把报销交了」「明天记得买菜」—— 只说了哪天、没说几点，要的是**今天结束前别忘了**，不是某个钟点响。
 
-**决策：它也有触发时刻，只是由设置里的「收尾时刻」（默认 20:00）决定。** `Reminder.dueDay`（`"2026-09-18"`，null = 普通定时提醒）是唯一新增的列（当时 Room v1→v2，AutoMigration；2026-09-23 包结构重排、连数据卸载重装后库回到 v1，这一列在建表时就有）。`nextTriggerAt` 仍是排期的唯一依据，填那天的收尾时刻 —— 所以 §05 的排期、四个重排触发源、巡检补发、投递日志**一行都没为它改**，调度层不知道当天事项的存在。不同之处全在 `reminder/scheduling/DayTasks.kt`：
+**决策：它也有触发时刻，由设置里的「收尾时刻」（默认 20:00）决定。** `nextTriggerAt` 填那天的收尾时刻，所以 §05 的排期、四个重排触发源、巡检补发、投递日志**一行都没为它改**，调度层不知道当天事项的存在。不同之处全在 `reminder/scheduling/DayTasks.kt`：
 
 | | 定时提醒 | 当天事项 |
 |---|---|---|
 | 触发时刻 | 用户说的钟点 | `dueDay` 的收尾时刻；已经过了（晚上十点才记）就是下一天的，`dueDay` 不变 |
 | 响的样子 | 全屏 + 闹钟铃声循环 | `day_tasks_v1` 渠道的普通通知，不弹全屏、不循环。同一晚的几条挂在一个组下，只有组头出声；组头条目数从通知栏现有子通知数，不查库 |
-| 响完没做 | 一次性 → `FIRED` | 一次性 → **顺延**到下一天的收尾时刻，保持 `SCHEDULED`，`dueDay` 不动（拖了几天 = 今天 − dueDay）。重复的 → 翻到下一次，`dueDay` 跟着翻，这次没做就算了 |
+| 响完没做 | 一次性 → `FIRED` | 一次性 → **顺延**到下一天的收尾时刻，保持 `SCHEDULED`，`dueDay` 不动（拖了几天 = 今天 − dueDay）。重复的 → 翻到下一次，`dueDay` 跟着翻 |
 | 点「完成」 | `DONE`（重复的整条停掉） | 一次性 → `DONE`；重复的 → 只算这一次，翻到下一次（列表、小组件、通知三处都走 `DayTasks.complete`） |
 
-- **没有早上的提醒**：用户明确说不要，桌面小组件上看得见 —— 小组件把当天事项排在它那一天的最前面（今天的、拖过来的都算今天），大字写「今天」。
-- **一律墙钟锚定**，`localTime` = 收尾时刻：「晚上八点提醒」到哪个时区都是当地八点，时区重算走 §7.1 原路。
+- **没有早上的提醒**：用户明确说不要，看桌面小组件 —— 小组件把当天事项排在那一天最前面（今天的、拖过来的都算今天），大字写「今天」。
+- **一律墙钟锚定**，`localTime` = 收尾时刻，时区重算走 §7.1 原路。
 - **改收尾时刻**：所有挂着的当天事项按新钟点重排。一次性的从 `dueDay`（拖过来的就是今天）起取第一个还没过的新钟点，所以今晚提醒过、又把钟点往后改，今晚会按新钟点再提醒一次。
-- **AI**：`create_reminder` 多一个 `allDay` 参数，`firstTriggerAt` 填那天 00:00，闸门只查日期不早于今天。提示词把「只说了哪天」从「反问」那一类挪出来，单列第 4 类，**不许追问几点**；连哪天都没说的当今天的。
+- **模型**：`create_reminder` 带 `allDay`，`firstTriggerAt` 填那天 00:00，闸门只查日期不早于今天。提示词把「只说了哪天」单列一类，**不许追问几点**；连哪天都没说的当今天。
 - 列表里当天事项的时刻栏写「当天」/「拖N天」，今天的放在「今天」抬头底下、已过去的那几条之前。
 
 ---
 
 ## 05 调度层
 
-项目的核心，也是唯一不允许出错的部分。
+项目的核心，也是唯一不允许出错的部分（`reminder/scheduling/`、`reminder/data/`）。
 
 ### 5.1 决策：`setAlarmClock()`，不是 `setExactAndAllowWhileIdle()`
 
-`setAlarmClock` 是系统里优先级最高的一档 —— 面向「用户明确设定的闹钟」，明确豁免于 Doze 和应用待机分桶。`setExactAndAllowWhileIdle` 虽然也能在 Doze 下触发，但受频率限制、在低电量和深度 Doze 下仍可能被延后。
+`setAlarmClock` 是系统里优先级最高的一档 —— 面向「用户明确设定的闹钟」，豁免 Doze 和应用待机分桶。`setExactAndAllowWhileIdle` 也能在 Doze 下触发，但有频率限制，低电量和深度 Doze 下仍可能被延后。在荣耀这种激进 ROM 上，这个差别很可能就是「准时响」和「第二天早上才收到一堆积压通知」的区别。
 
-**代价**：系统状态栏会常驻闹钟图标，并在下拉栏显示最近一次时间。对提醒 app 来说算功能不算副作用。（已确认接受。）
-
-在荣耀这种激进 ROM 上，这个优先级差别很可能就是「准时响」和「第二天早上才收到一堆积压通知」的区别。
+**代价**：状态栏常驻闹钟图标、下拉栏显示最近一次时间。对提醒 app 来说算功能，接受了。
 
 ### 5.2 权限
 
-```xml
-<uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-<uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-<uses-permission android:name="android.permission.VIBRATE" />
-<uses-permission android:name="android.permission.WAKE_LOCK" />
-<uses-permission android:name="android.permission.INTERNET" />
-```
+`USE_EXACT_ALARM` 是**普通权限，安装即授予**，不需要任何运行时引导（`SCHEDULE_EXACT_ALARM` 在 Android 14 起对新装应用默认拒绝）。Google Play 只把它批给闹钟 / 日历类应用 —— 我们不上架，直接用。
 
-`USE_EXACT_ALARM` 是**普通权限，安装即授予**，不需要写任何运行时引导。相比之下 `SCHEDULE_EXACT_ALARM` 在 Android 14 起对新装应用默认拒绝，得跳设置页求用户手动开。Google Play 只把 `USE_EXACT_ALARM` 批给闹钟/日历类应用 —— 我们不上架，直接用。这是 §01「不上架」换来的第一笔实惠。
-
-只有 `POST_NOTIFICATIONS` 需要运行时申请。
+运行时只申请 `POST_NOTIFICATIONS`（语音另外在第一次点麦克风时要 `RECORD_AUDIO`）。其余是清单里写上就有的：`RECEIVE_BOOT_COMPLETED`、`USE_FULL_SCREEN_INTENT`、`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`、`VIBRATE`、`WAKE_LOCK`、`INTERNET`。
 
 ### 5.3 排期是易失的
 
-整个调度层唯一需要真正理解的概念：**`AlarmManager` 里的排期不是持久化状态，它是 Room 的一份缓存，而且随时会掉。**
+整个调度层唯一要真正理解的概念：**`AlarmManager` 里的排期不是持久化状态，它是 Room 的一份缓存，而且随时会掉。**
 
 | 事件 | 对已排闹钟的影响 |
 |---|---|
 | 设备重启 | 全部清空 |
-| 应用被更新 / 重装 | 全部清空 |
+| 应用更新 / 重装 | 全部清空 |
 | 被 ROM 强杀 | 通常保留，**但不保证** |
 | 时区变更 | 时间戳没变，但「早上 8 点」的含义变了 |
 
@@ -220,27 +196,27 @@ data class FireLog(
         └──────────────┘
 ```
 
-真相永远在 Room，四个触发源负责把排期重新推回一致。任何时候都要能从 Room 全量重建 —— 这条不变式一旦破了，漏提醒就成了随机事件。
+真相永远在 Room，四个触发源负责把排期推回一致。任何时候都要能从 Room 全量重建 —— 这条不变式一破，漏提醒就成了随机事件。
 
 | 触发源 | 实现 | 覆盖的失效场景 |
 |---|---|---|
-| 新增 / 编辑 / 完成 | 直接调用 Rescheduler | 正常流程 |
-| `BOOT_COMPLETED` / `MY_PACKAGE_REPLACED` | BroadcastReceiver | 重启、应用更新 |
-| `TIMEZONE_CHANGED` / `TIME_SET` | BroadcastReceiver | 出国、手动改系统时间 |
-| WorkManager 周期任务 | 6 小时一次 | 被强杀后的兜底 |
+| 新增 / 编辑 / 完成 | `reminder/application/Reminders` 直接调 `Rescheduler` | 正常流程 |
+| `BOOT_COMPLETED` / `MY_PACKAGE_REPLACED` | `RescheduleReceiver` | 重启、应用更新 |
+| `TIMEZONE_CHANGED` / `TIME_SET` | `RescheduleReceiver` | 出国、手动改系统时间 |
+| WorkManager 周期任务 `reminder_sweep` | `SweepWorker`，6 小时一次 | 被强杀后的兜底 |
 
 ### 5.4 兜底巡检
 
-- **补发**：查 `status = SCHEDULED` 且 `nextTriggerAt < now` 的漏网记录 → 立刻发通知（标注补发）+ 写 `FireLog(source = SWEEP)` + 算下次
-- **补排**：查未来 24 小时内的记录 → 用 `PendingIntent.FLAG_NO_CREATE` 探测闹钟是否还在，不在就补排
+- **补发**：`SCHEDULED` 且 `nextTriggerAt < now` 的漏网记录 → 立刻发通知（标注补发）+ 写 `FireLog(source = SWEEP)` + 算下次
+- **补排**：未来 24 小时内的记录，用 `PendingIntent.FLAG_NO_CREATE` 探测闹钟还在不在，不在就补排
 
 **别高估它**：WorkManager 自己也会被 MagicOS 掐掉。它是**第二道网，不是保险**。主路径必须自己站得住，巡检只负责把偶发的漏网变成「迟到几小时」而不是「彻底没有」。
 
 ### 5.5 触发链路
 
-`AlarmReceiver.onReceive()` 里按顺序做四件事，全部在 `goAsync()` 内完成：
+`AlarmReceiver.onReceive()` 按顺序做四件事，全在 `goAsync()` 里：
 
-1. 写 `FireLog`（先写，保证即使后面崩了也留下证据）
+1. 写 `FireLog`（先写，后面崩了也留下证据）
 2. 发通知
 3. `rrule != null` → 算下次 → 更新 Room → 重排
 4. 否则 `status = FIRED`
@@ -249,344 +225,181 @@ data class FireLog(
 
 ### 5.6 通知
 
-- 渠道 `reminders_v1`，`IMPORTANCE_HIGH`。**渠道创建后铃声改不了**，要换声音必须换 channel id，所以 id 里带版本号
-- `setCategory(CATEGORY_ALARM)` + `setFullScreenIntent(...)` → 锁屏直接弹出
-- Android 14+ 收紧了全屏 intent：先用 `canUseFullScreenIntent()` 检查，拿不到就降级成普通 heads-up，不要崩
-- 两个 action：「完成」「稍后 10 分钟」
+- 渠道 `reminders_v1`，`IMPORTANCE_HIGH`。**渠道建好后铃声改不了**，要换声音只能换 channel id，所以 id 里带版本号。
+- `setCategory(CATEGORY_ALARM)` + `setFullScreenIntent(...)` → 锁屏直接弹出到点全屏页。全屏页是独立的 `AlarmActivity`，不是 `MainActivity` 借 `showWhenLocked` —— 「到点响铃」和「正常打开 app」互不污染。
+- Android 14+ 收紧了全屏 intent：先 `canUseFullScreenIntent()`，拿不到就降级成普通 heads-up，不要崩。
+- 两个 action：「完成」「稍后 10 分钟」。
 - **`FLAG_INSISTENT`**：不加的话铃声和震动各播一遍就停（真机上就是「只嗡一下」）。加了之后系统循环到通知被取消 ——
-  「完成」「稍后」（通知按钮和全屏页都走 `NotificationActionReceiver` → `cancel()`）、点开通知、划掉通知都会让它停。
-  不在 `AlarmActivity` 里自己放铃：亮屏时系统只给 heads-up、不起全屏页，那条路就又只响一下了
-- **震动节奏用渠道默认的，没有自定义波形**。自定义要 `vibrationPattern`，而那也是建渠道时定死的，得换 id ——
-  可 MagicOS 会把新渠道从 HIGH 静默降到 DEFAULT（见 `HealthCheck`），v1 是手动调回 HIGH 的，换 id 等于把锁屏全屏弹出赌掉。
-  默认波形在 `INSISTENT` 下会从头循环，本身就是一下一下的节奏，够用
+  「完成」「稍后」（通知按钮和全屏页都走 `NotificationActionReceiver` → `cancel()`）、点开、划掉都会让它停。
+  不在 `AlarmActivity` 里自己放铃：亮屏时系统只给 heads-up、不起全屏页，那条路就又只响一下了。
+- **震动用渠道默认的，没有自定义波形**。自定义要 `vibrationPattern`，也是建渠道时定死的、得换 id —— 而 MagicOS 会把新渠道从 HIGH 静默降到 DEFAULT，v1 是手动调回 HIGH 的，换 id 等于把锁屏全屏弹出赌掉。默认波形在 `INSISTENT` 下从头循环，够用。
 
 ---
 
-## 06 AI 解析层
+## 06 agent 与对话
 
-整层可以被一个手动编辑页完全替代 —— 这是设计它的前提，不是妥协。
+整层都可以被手动编辑页替代 —— 这是设计它的前提。
 
-> **已被 §6.8 取代（2026-09-18）**：「一句话 → 一个 `ReminderPlan`」的解析器已经整个换成 agent 循环
->（当时叫 `harness/`，现在是 `agent/engine/`），`ai/` 目录已删除。下面 §6.1–6.7 保留作为决策记录；类名（`ToolCallParser`、`ParseResult`、
-> `ChatTurn` 等）都已不存在，机制上还成立的部分（工具调用、校验闸门、流式 / 回退 / 「停」）由 §6.8 继承。
+### 6.1 循环
 
-> **已修订（真机测试后）**：下面 §6.2-6.3 描述的是「让模型输出 JSON」这条路，实际写代码时验证下来
-> 走了**工具调用**（`create_reminder` 函数）而不是 `response_format`。原因很直接：`json_object` 档
-> 实测时模型会自己发明字段名（`{summary, details:{...}}`），根本不按我们要的 schema 走；工具调用把
-> 参数 schema 交给服务端强制，模型没有自由发挥的空间。`ai/OpenAiCompatParser.kt` 和 `ai/PlanSchema.kt`
-> （JSON 输出模式的实现）已删除，`ai/ToolCallParser.kt` + `ai/ReminderTool.kt` 是唯一在用的路径。
-> 反问之后的多轮对话是客户端拼文本重放（`ai/ChatTurn.kt`），不依赖 `previous_response_id` 这类
-> 服务端会话状态 —— 第三方 OpenAI 兼容接口大概率没实现那个。下面 §6.2/6.3 的设计意图（三档降级、
-> 校验闸门）基本保留，只是"怎么让模型给出结构化数据"这一步换了机制，具体接口形状以代码为准。
-
-### 6.1 接口
-
-```kotlin
-interface ReminderParser {
-    suspend fun parse(input: String, now: ZonedDateTime): ParseResult
-}
-
-sealed interface ParseResult {
-    data class Ok(val plan: ReminderPlan) : ParseResult
-    data class NeedsClarification(val question: String, val options: List<String>) : ParseResult
-    data class Failed(val reason: String) : ParseResult
-}
-
-data class ProviderProfile(
-    val name: String,
-    val baseUrl: String,   // "https://api.deepseek.com/v1"
-    val model: String,
-    val apiKey: String,
-    val jsonMode: JsonMode // STRICT_SCHEMA / JSON_OBJECT / PROMPT_ONLY
-)
-```
-
-实际在用的实现是 `ToolCallParser(profile)`（见 §06 顶部的修订说明），换供应商 = 改这四个字段。
-
-### 6.2 结构化输出的三档降级
-
-各家对 `response_format` 的支持完全不一致，**别赌**：
-
-| 档位 | 请求参数 | 适用 |
-|---|---|---|
-| `STRICT_SCHEMA` | `response_format: {type:"json_schema", …, strict:true}` | 明确声明支持的供应商 |
-| `JSON_OBJECT` | `response_format: {type:"json_object"}` | 多数国内供应商 |
-| `PROMPT_ONLY` | 不传，纯靠提示词约束 | 本地小模型、老接口 |
-
-**三档都必须把 JSON Schema 原文写进 system prompt。** 高档位只是多一层服务端保证，不是省掉提示词约束的理由。
-
-解析端一律容错：剥掉 ` ```json ` 围栏 → 取第一个 `{` 到最后一个 `}` → 宽松反序列化。
-
-### 6.3 输出结构
-
-```kotlin
-data class ReminderPlan(
-    val title: String,
-    val note: String? = null,
-    val firstTriggerAt: String,   // "2026-09-02T15:00:00+08:00"
-    val basis: String,            // 推算依据："now + 5d, 15:00"
-    val rrule: String? = null,
-    val wallClockAnchored: Boolean = true,
-    val confidence: Double,
-    val clarifyingQuestion: String? = null
-)
-```
-
-`basis` 是刻意加的：逼模型把推算过程显式写出来，既提高准确率，也让你在出错时一眼看出它怎么想歪的。不入库主表，但要显示在确认卡上。
-
-### 6.4 提示词的两条硬规则
-
-1. **必须给模型当前时刻、时区和星期几。** 只给日期不给星期，「下周三」必错。格式固定：`当前时刻：2026-08-28T21:30:00+08:00（周五），时区 Asia/Shanghai`
-2. **时间戳放 user message，不要放 system prompt。** 主流供应商都做前缀缓存，system prompt 必须逐字节稳定才能命中。
-
-### 6.5 校验闸门
-
-模型返回之后、写库之前，无条件过一遍：
-
-| 条件 | 处理 |
-|---|---|
-| `firstTriggerAt` 解析失败 | `Failed`，转手动 |
-| `firstTriggerAt ≤ now` | 拒绝，转确认 —— **最常见的错误形态** |
-| `firstTriggerAt > now + 5 年` | 拒绝，转确认 |
-| `rrule` 超出支持子集 | 降级成一次性并明确提示 |
-| `confidence < 0.6` 或有 `clarifyingQuestion` | 走确认 UI |
-
-这道闸门比换一个更强的模型值钱得多：它把「静默出错」变成「当场问你一句」。
-
-### 6.6 成本
-
-每次解析约 700–900 tokens，system prompt 占大头且大部分能命中前缀缓存。按每天 10 条估，国内供应商是每月几毛到几块的量级。
-
-**这个用量下成本不该成为选型依据**，该看的是接口稳定性、延迟、以及对 `response_format` 的支持程度。
-
-### 6.7 流式：把过程摊开给人看
-
-非流式那版实测 6–7 秒空白，只能拿骨架条撑着。现在走 `client.responses().createStreaming()`，
-四类事件各自对应界面上的一块：
-
-| SDK 事件 | 我们的事件 | 界面 |
-|---|---|---|
-| `reasoningTextDelta` / `reasoningSummaryTextDelta` | `Reasoning` | 左侧一条细线圈起来的浅色小字 |
-| `outputTextDelta` | `Text` | 正文，末尾跟一个闪的墨块光标 |
-| `outputItemAdded`（functionCall） | `ToolStarted` | 「在建提醒 · create_reminder」 |
-| `functionCallArgumentsDelta` / `...Done` | `ToolArgs` | 原始 JSON 不上屏，只抠 `title` 在痕上逐字显示（§6.9）；问卡按收全的题一题题长出来 |
-| `completed` / `incomplete` / `failed` / `error` | `Done` | 痕打勾或变红，正文落定 |
-
-**终局仍然是 `ParseResult`。** 这是整个改动的支点：`MainViewModel` 里「落库 → 排闹钟 → 出卡片」
-那一段一个字都没动，没有第二条落库路径，风险全关在网络层和界面层，够不着 `schedule/` 和 `data/`。
-判定逻辑也只有一份 —— 流式收到 `completed` 时，走的是和非流式完全相同的 `resultOfResponse()`。
-
-**决策 6.1 · 保留非流式 `parse()` 作为回退**
-
-不是死代码。第三方 OpenAI 兼容网关不一定实现 SSE，两种情形自动回落：
-
-1. `createStreaming()` 直接抛（对 `stream:true` 返回 4xx 是最常见的一种）
-2. 流开了但一个事件都没吐就结束
-
-回落前先发一个 `FellBack` 事件，界面把已经吐出来的半截字**擦掉**、退回骨架条 ——
-不擦的话，半截字后面再蹦出一份完整答案，看着像模型把同一句话说了两遍。
-
-**流开到一半断掉不算「没跑起来」**，不回退：那时候工具参数可能已经收全了，
-硬回退等于把同一条提醒建两遍。这种情况按手上的残料判结果。
-
-**三个坑，改这块之前先读**
-
-1. **HTTP 调用全程阻塞，协程取消打断不了它**。`createStreaming()` 要等到响应头回来才返回
-   （首个 token 之前都在等），`stream()` 的迭代也是阻塞的。以前包在 `withContext(IO)` 里、
-   把 `close` 挂在 `invokeOnCompletion` 上 —— 那个回调要 Job **完成**才触发，Job 卡在阻塞调用里
-   完成不了，于是点「停」得等下一个事件（骨架阶段就是等首个 token，回退路径要等整段回完）。
-   现在阻塞活放在不随调用方取消的 IO 协程里（今天在 `ResponsesClient.detached`），调用方只挂起等结果：
-   取消时立刻返回，顺手 `close()` 已连上的流；还没连上的由它连上后自己查到取消再关。
-   SDK 异步版不能替代：`AsyncStreamResponse.close()` 不取消底下的请求。
-2. **思考过程可能压根没有**。`reasoning*` 事件只有推理模型才发。界面在「没有思考块」时
-   必须长得正常，不能留一个空槽 —— 所以一个字都还没来的时候，退回的是原来那个骨架条。
-3. **参数以 `...Done` 给的完整串为准**，不用 delta 拼出来的那份 —— 拼串可能缺尾巴。
-
-思考过程流完之后不直接丢掉：折成一行「想了 3 秒 · 看看」留在正文上面，点开可看。
-模型把时间算歪的时候，那段和卡片上的 `basis` 是仅有的两条线索。但它**不进对话历史**
-（见 `ChatTurn`）—— 把模型自己的思考喂回给它没有意义，只会挤掉真正的上下文。
-
-**决策 6.2 · 一个回合原地长大，正文不清掉**
-
-> 2026-09-23 起对话里的提醒卡片换成了「痕」，唯一的卡片是问卡，见 §6.9。
-> 下面第 1、3 条作废；第 2 条（从流着的参数里抠标题）留给痕用。「原地长大」这条总规矩不变。
-
-`ChatMessage` 里助手侧只有一个 `AssistantTurn`：思考 → 卡片 → 正文，
-摞在一条消息上，从流式态一路长成终态，中途不换消息类型。上一版是流式占位消失、
-卡片另起一条，模型说的那段话被丢掉了 —— 而那段话往往是唯一解释「它为什么这么排」的东西。
-
-三条摆放规矩（2026-09-11 按动效稿改过，见决策 6.3）：
-
-1. **卡片在正文上面**。模型的动作先于它的解说；而且两者同时流时，卡片的高度起稿就定了，
-   正文在它下面长，谁也不推谁。
-2. **原始参数不上屏，但草稿卡露出标题和时间**。`ToolArgs` 增量里宽松地抠出 `title`（逐字显示）
-   和 `firstTriggerAt`（整串收全才换成人话，之前留占位条）。（问卡与痕之后只剩逐字标题，在 `agent/feature/PartialArgs.kt`。）
-   建成前一两秒就能看出它听没听懂。只拿来画草稿 —— 落库用的仍是 `...Done` 给的完整参数（§6.7 坑 3）。
-3. **工具行和卡片是同一个元素**：在建提醒 → 起稿（虚线框）→ 落印（已记下）→ 收起。
-   不再是「落定即藏、卡片另起」的硬切。闸门没放行（§6.5）时退回成「× 没记下」的工具行，
-   下面一句说清原因 —— 这是工具行唯一留下来的情形。形态判定见 `cardPhaseOf()`。
-
-**决策 6.3 · 动效：整个回合只有一个重拍**
-
-动效稿（九种情形的可播放原型 + 逐拍规格）：<https://claude.ai/code/artifact/c0493995-43b7-4220-8a00-35adb5990804>。
-时长曲线只从 `shared/theme/Motion.kt` 取：墨落 / 行文 / 退场三条曲线，180 / 160 / 280 / 420ms 四档时长，
-外加一个只给「已记下」那枚印用的弹簧。
-
-- **等待**：两根墨条，一道墨色从左往右洇过去；「· 到点」的圆点呼吸。墨条收起和第一块内容进场同一帧，没有空白帧。
-- **正文**：每段增量 180ms 淡入；光标在字流动时常亮，停顿超过 400ms 才闪。
-- **落印**：朱砂印从 1.45 倍、−10° 盖下来带回弹，印边洇开一圈，下面几行错峰展开。**不震动** ——
-  聊天里震一下太突兀（用户反馈），震动只留给到点响铃。2026-09-23 起这枚印挪到问卡的「答」上（§6.9），建提醒不再盖印。
-- **滚动**：流式期间逐帧贴底（一个回合原地长大时条数不变，只盯条数的话新内容会掉到屏幕外）；
-  你一拖列表就不跟，冒出「↓ 新内容」。
-- **喊停**：这一回合撤掉，原话也撤下来、退回输入框。气泡改不了，留着没用；退回去改两个字就能重发。
-- 无限循环的动画（墨条、细线、呼吸点）只在真正需要时才进组合 —— 挂着不用也会一直要帧、耗电。
-
-顶栏那枚 wordmark 换成了朱砂小印：左上角的「到点」和每条回复前面的「· 到点」重复，
-说话人标记留在对话里（它就在说话人的位置上），品牌位缩成一枚不占字的印。
-
-### 6.8 harness：从解析器到 agent
-
-§6.1 的解析器是「一句话 → 一个 `ReminderPlan`」，工具结果从不回给模型，做不了多步。
-agent 循环是它的继任者（当时叫 `harness/`，2026-09-23 起在 `agent/` 下）：一个 ReAct 循环 + 可插拔的工具 + 上下文策略。
-写操作直接执行；拿不准时模型用 `ask_user` 问人（§6.9）。对话页和桌面速记都跑在它上面（`agent/conversation/ChatAgent.kt`），旧的 `ai/` 目录已删除。
+一个 ReAct 循环（`agent/engine/AgentLoop`）：调模型 → 执行工具 → `function_call_output` 回传 → 再调，直到模型只说话不调工具，或撞步数上限（6）。对话页、桌面速记、后台整理账目都跑在它上面。
 
 | 包 | 职责 |
 |---|---|
-| `agent/engine/`（`AgentLoop` `Session` `Transcript` `AgentEvent`） | 循环：调模型 → 执行工具 → `function_call_output` 回传 → 再调，直到只说话不调工具或撞步数上限（默认 6） |
-| `agent/model/` | 只管调一次模型。`ResponsesClient` 继承 §6.7 的流式 / 回退 / 「停」的规矩，不认识任何具体工具 |
-| `agent/engine/tool/` | `Tool` 接口（schema + 执行 + `READ`/`WRITE`）和注册表 |
-| `agent/engine/ask/` | `ask_user` 工具 + `Asker`（界面实现：亮出问卡、挂起到用户答完）。见 §6.9。原来的授权模式（`harness/permission/`）2026-09-23 删掉了 |
-| `agent/engine/context/` | 每步喂哪些轮次。现在是 `LastTurns(10)`，以后的摘要压缩、token 预算都是换实现 |
-| `agent/prompt/` | 基础提示词（时间、何时用工具、怎么问、怎么报结果）。各模块的那一段接在后面，按 `Features.kt` 的顺序拼，逐字节稳定 |
-| `agent/model/provider/` | 供应商配置（DataStore）、`ApiHealth`、「测一下」。决策 8.4 |
-| `agent/feature/` | 模块接到 agent 上的唯一接头 `Feature`：工具、提示词段、痕、例句、体检项、app 发起的一轮。agent 不认识任何具体模块 |
-| `reminder/tools/`、`reminder/domain/` | `create_reminder` + `ReminderPlan` + §6.5 闸门。拦下的原因回给模型去问用户；落库交给 `reminder/application/Reminders.commitPlan` |
+| `agent/engine/` | 循环、`Session`（这段对话的完整记录）、事件 |
+| `agent/engine/tool/` | `Tool` 接口：schema + 执行 + `READ` / `WRITE`；注册表 |
+| `agent/engine/ask/` | `ask_user` + `Asker`（界面亮出问卡、挂起到用户答完），§6.6 |
+| `agent/engine/context/` | 每步喂哪些轮次：`LastTurns(10)`，外面套一层 `FoldDrawings`（§6.8） |
+| `agent/engine/background/` | 后台谁在跑（顶栏印外转一圈细线）；按名字的锁（账本一把锁） |
+| `agent/model/` | 只管调一次模型（§6.2），不认识任何工具；`provider/` 是供应商配置（决策 8.4） |
+| `agent/prompt/` | 基础提示词，各模块那一段按 `Features.kt` 的顺序接在后面 |
+| `agent/conversation/ChatAgent` | 接线：拼 system、收工具、按配置缓存 agent |
 
-几条定下来的规矩：
+**规矩**
 
-- **历史保留完整结构**：之前轮次的 function_call / output 原样重放，不压成人话回执（§6.1 的做法作废）。
-  思考条目不重放。每句用户话自带说话时刻 `[2026-09-18 21:03 周五 +08:00]`，历史里的「明天」不会按今天重算。
+- **写操作直接执行，不先问**。要问是模型自己的决定：调 `ask_user`（§6.6）。
+- **历史保留完整结构**：之前轮次的工具调用和结果原样重放，客户端每次带全，不用 `previous_response_id`（第三方网关大概率没实现服务端会话状态）。思考条目不重放。每句用户话自带说话时刻 `[2026-09-18 21:03 周五 +08:00]`，历史里的「明天」不会按今天重算。
 - **裁剪只按整轮**：切在一轮中间会切出没有调用的调用结果，网关直接拒。裁剪只影响喂给模型的，不删 `Session` 里的记录。
-- **边跑边记**：每一项一发生就写进 `Session`。中途喊停，已执行的工具调用留在记录里；没轮到的调用补一条「用户叫停了」的结果，保证下一次请求合法。
-- **工具不抛业务错**：参数不对、闸门拦下都返回 `ok=false` 的结果；只有真意外才抛，循环兜成一条错误结果回给模型。
+- **边跑边记**：每一项一发生就写进 `Session`。中途喊停，已执行的工具调用留着；没轮到的调用补一条「用户叫停了」的结果，保证下一次请求合法。
+- **工具不抛业务错**：参数不对、闸门拦下都返回 `ok=false`；只有真意外才抛，循环兜成一条错误结果回给模型。
 
-**对话落盘**（`agent/conversation/data/`，单独的 `chat.db`，和提醒的 `reminder.db` 互不牵连 —— 对话表出岔子最坏丢聊天记录，连累不到闹钟）：
+**对话落盘**（`agent/conversation/data/`，`chat.db`）
 
-- `Session` 不管存储，每次变动把**整轮快照**交给 `Session.Listener`；`ChatStore` 按轮整轮覆盖写库，写盘排在一条单线程上，
-  保证「覆盖 → 拿掉」按发生顺序落地。页面关了照样写完。
-- 一张表 `chat_items`，一行一项（用户话 / 回复 / 工具调用 / 工具结果），用户话连说话时刻和时区一起存。
-- 工具结果多存两样模型看不到的：`ok`（办成没有）和 `ref`（办成后指向的记录，比如提醒 id）—— 重启后重建卡片靠它们。
-- 启动读回最近 100 轮；喂给模型的仍按 `ContextPolicy` 裁。画面从这些轮重建：卡片一律收起、不盖印、气泡不升起，
-  画的是当时建的样子（提醒后来改了删了，对话里不跟着变 —— 它是记录，不是列表）。
-- 读回来之前画面是空的，但那不是「没聊过」：对话页中间先空着、不画招呼语和例句，系统开屏按住不撤，读完才一起放出来
-  （`ChatViewModel.restored`，开屏最多多留 1 秒）；列表一出来就停在最后一条，不从顶上滚下来。否则打开 app 会先闪一下空状态。
-- 只有对话页落盘。桌面速记仍是一次性的，不进这段对话。
+- `Session` 每次变动把整轮快照交给 `Session.Listener`；`ChatStore` 按轮覆盖写，写盘排在一条单线程上，页面关了照样写完。
+- 一张表 `chat_items`，一行一项（用户话 / 回复 / 工具调用 / 工具结果），用户话连说话时刻和时区一起存。工具结果多存模型看不到的 `ok` 和 `ref`（办成后指向的记录）—— 重启后画痕靠它们。
+- 启动读回最近 100 轮，画面从这些轮重建，画的是当时的样子（提醒后来改了删了，对话里不跟着变 —— 它是记录，不是列表）。
+- **读回来之前画面是空的，但那不是「没聊过」**：对话页中间先空着、不画招呼语，系统开屏按住不撤，读完一起放出来（`ChatViewModel.restored`，最多多留 1 秒）；列表一出来就停在最后一条。否则打开 app 会先闪一下空状态。
+- 悬着的调用（app 在等你答问卡时被杀）读回来时补一条「没答」，不然下一次请求会被网关拒。
+- 只有对话页落盘；桌面速记、后台整理都是一次性的。
+- **`chat.db` 里有账**：工具参数（金额、商户）跟着对话落盘，以后做导出、备份要记得。
 
-界面上（决策 6.2 的延伸）：
+**喊停与重试**
 
-- 2026-09-19 ~ 09-23 这里有过一套「授权」：设置页「建提醒前先问我」+ 输入框上方的授权条（好 / 不，打字即改口）。
-  用户嫌卡片来回确认别扭，09-23 整套删掉，换成 §6.9 的问卡与痕。设计稿留档：<https://claude.ai/artifact/5Lu9cTegZ6wC5LYViWhtmJ>
-- **闸门拦下不再单独出一行说明**：原因作为工具结果回给模型，由它问（现在多半是出一张问卡）。痕变红「× 没建成」。
-- **喊停**：什么都还没办成 → 回合和原话一起撤、原话退回输入框、`Session` 里这一轮也拿掉（同决策 6.3）；
-  已经办成了点什么、或者问过你 → 回合留着，只是不再往下长；没答完的问卡画成「没答」。
-- **重试**：失败那一轮连同 `Session` 里的记录一起拿掉再跑。已经办成了点什么、收尾那步才断的，不挂「重试」——
-  重跑等于再办一遍。
+- 什么都还没办成 → 回合和原话一起撤，原话退回输入框，`Session` 里这一轮也拿掉。气泡改不了，留着没用；退回去改两个字就能重发。
+- 已经办成了点什么、或者问过你 → 回合留着，只是不再往下长；没答完的问卡画成「没答」。
+- 重试：失败那一轮连同记录一起拿掉再跑。已经办成了点什么、收尾那步才断的，不挂「重试」—— 重跑等于再办一遍。
 
-**验过的**：JVM 单测（剧本模型，覆盖回传、问卡等答案 / 不合规打回 / 喊停记「没答」、闸门拦截、步数上限、失败、裁剪）；
-打真网关（`LiveGatewayTest`，`DAODIAN_LIVE=1` 才跑）：`deepseek-flash` 流式调 `create_reminder` → 结果回传 → 收尾一句话，
-下一轮带着上一轮的工具调用重放，网关认、模型答得出「交房租，明天周六 15:00」。
+### 6.2 调模型：流式、回退、停
 
-### 6.9 问卡与痕：只在要问你的时候才出卡片
+`agent/model/ResponsesClient` 走 `responses().createStreaming()`，事件对到界面上：
 
-2026-09-23 起。用户原话：「记下来、到点提醒你，不需要一个卡片出来确认，直接让模型输出就行……有交互的才适合界面有卡片」。
-设计稿：<https://claude.ai/artifact/2fA2GMup6w4XdsdK5oAGg8>（方向 B），动效稿（七种情形可播放 + 逐拍规格）：
-<https://claude.ai/artifact/BTqaHuU6hbgjmG6NqPv5HP>。
+| SDK 事件 | 界面 |
+|---|---|
+| `reasoningTextDelta` / `reasoningSummaryTextDelta` | 思考块：左边一条细线圈着的浅色小字，流完折成「想了 3 秒 · 看看」 |
+| `outputTextDelta` | 正文，逐段淡入 + 墨块光标 |
+| `outputItemAdded`（functionCall） | 痕进入「在办」 |
+| `functionCallArgumentsDelta` / `…Done` | 原始 JSON 不上屏；痕上逐字显示标题，问卡按收全的题一题题长出来 |
+| `completed` / `incomplete` / `failed` / `error` | 痕打勾或变红，正文落定 |
 
-**对话里只剩两种新东西：**
+**非流式留作回退**：第三方网关不一定实现 SSE。`createStreaming()` 直接抛（对 `stream:true` 回 4xx 最常见）、或者流开了一个事件都没吐就结束，自动回落到一次性请求。回落前先发 `FellBack`，界面把已经吐出来的半截字擦掉 —— 不擦的话后面再蹦出完整答案，像模型把一句话说了两遍。
+**流到一半断掉不回退**：工具参数可能已经收全，硬回退等于同一件事办两遍，按手上的残料判结果。
+
+**三个坑，改这块之前先读**
+
+1. **HTTP 调用全程阻塞，协程取消打断不了它**。`createStreaming()` 要等响应头回来（首个 token 之前）才返回，`stream()` 的迭代也阻塞。以前包在 `withContext(IO)` 里、把 `close` 挂在 `invokeOnCompletion` 上 —— 那个回调要 Job **完成**才触发，Job 卡在阻塞调用里完成不了，于是点「停」要等到首个 token。
+   现在阻塞活放在不随调用方取消的协程里（`ResponsesClient.detached`），调用方只挂起等结果：取消时立刻返回，顺手 `close()` 已连上的流；还没连上的由它连上后自己查到取消再关。SDK 的异步版不能替代：`AsyncStreamResponse.close()` 不取消底下的请求。
+2. **思考过程可能压根没有**。`reasoning*` 只有推理模型发；界面在没有思考块时要长得正常，一个字都还没来时显示墨条。思考**不进历史** —— 喂回给模型没意义，只会挤掉真正的上下文。
+3. **参数以 `…Done` 给的完整串为准**，不用 delta 拼出来的那份 —— 拼串可能缺尾巴。流着时从半截参数里抠标题（`agent/feature/PartialArgs`）只拿来画。
+
+没设超时，用的是 openai-java 默认的 10 分钟。真机上出过一步走了近 3 分钟：界面一直是墨条 +「停」，状态是对的，只是慢。
+
+### 6.3 提示词的规矩
+
+1. **每句用户话带当前时刻、时区和星期几**。只给日期不给星期，「下周三」必错。
+2. **时刻放 user message，不放 system**。供应商做前缀缓存，system 必须逐字节稳定：基础提示词 + 各模块那一段按 `Features.kt` 的顺序拼，里面不放任何会变的东西。
+3. **先分流**：闲聊、反问、办事分开。早先开头就把每句话当成建提醒请求，「hello」也弹卡。
+4. **拿不准就调 `ask_user`，不在正文里问**；调之前先说一句为什么问，猜好答案（§6.6）。
+5. **决策 6.4 · 不管格式**（用户定的）：不写「别用 Markdown」「能用哪几样」—— 换模型、换供应商，习惯都不一样，界面兼容比约束模型稳（§6.7）。画图例外，得写进提示词：Markdown 模型自己会写，画图它不会主动（§6.8）。
+
+### 6.4 建提醒：`create_reminder` 与校验闸门
+
+**用工具调用，不用 `response_format: json_object`**：后者实测模型会自己发明字段名（`{summary, details:{…}}`），工具调用把参数 schema 交给服务端强制。
+
+参数（`reminder/domain/ReminderPlan`）：`title`、`note`、`firstTriggerAt`（ISO-8601 带偏移）、`basis`、`rrule`、`wallClockAnchored`、`allDay`（§4.3）。
+`basis`（推算依据，如 `now + 5d, 15:00`）是刻意要的：逼模型把推算写出来，既提高准确率，出错时也一眼看出哪儿歪了。它不进提醒表，编辑页「原话」下面那行「依据」是从 `chat.db` 里建这条的那次调用取的（`ChatStore.callArguments`）；桌面速记建的、手动建的没有。
+
+**校验闸门**（`reminder/domain/PlanValidator`），落库前无条件过一遍：
+
+| 条件 | 处理 |
+|---|---|
+| 时间解析不了 | 拦下 |
+| 在过去（当天事项只看日期不早于今天） | 拦下 —— **最常见的错误形态** |
+| 5 年以后 | 拦下 |
+| 标题空 | 拦下 |
+| `rrule` 超出支持子集（§7.2） | 降级成一次性，不静默丢掉 |
+
+拦下的原因作为工具结果回给模型，由它去问你（多半是一张问卡），痕变红「× 没建成」。这道闸门比换一个更强的模型值钱：它把「静默出错」变成「当场问你一句」。
+
+落库只有一个入口 `reminder/application/Reminders.commitPlan()`，对话页和桌面速记共用。整段 `NonCancellable`：插完库、闹钟还没排上的一瞬间被取消（纸被 Home 掉），会留下一条没有闹钟的 `SCHEDULED`。
+
+### 6.5 回合的样子与动效
+
+- **一个回合原地长大**：助手侧只有一个 `AssistantTurn`，正文、痕、问卡按到货顺序摞在一条消息上，从流式态一路长成终态，中途不换消息类型。模型说的那段话往往是唯一解释「它为什么这么办」的东西，不能丢。
+- 时长曲线只从 `shared/theme/Motion.kt` 取。动效稿：<https://claude.ai/code/artifact/c0493995-43b7-4220-8a00-35adb5990804>
+- **整个对话只有一个重拍**：问卡答完时盖下来的那枚「答」印（§6.6）。**不震动** —— 聊天里震一下太突兀（用户反馈），震动只留给到点响铃。
+- **等待**：两根墨条，一道墨色从左往右洇过去，「· 到点」的圆点呼吸。墨条收起和第一块内容进场同一帧，没有空白帧。
+- **正文**：每段增量 180ms 淡入；光标在字流动时常亮，停顿超过 400ms 才闪。
+- **滚动**：流式期间逐帧贴底（回合原地长大时条数不变，只盯条数的话新内容会掉出屏幕）；你一拖列表就不跟，冒出「↓ 新内容」。键盘弹起、问卡长出来时列表是从底下被压矮的，矮了多少往下滚多少。
+- 无限循环的动画（墨条、细线、呼吸点）只在真用时才进组合 —— 挂着不用也会一直要帧、耗电。
+
+### 6.6 问卡与痕
+
+用户原话：「记下来、到点提醒你，不需要一个卡片出来确认，直接让模型输出就行……有交互的才适合界面有卡片」。
+设计稿：<https://claude.ai/artifact/2fA2GMup6w4XdsdK5oAGg8>（方向 B），动效稿：<https://claude.ai/artifact/BTqaHuU6hbgjmG6NqPv5HP>。
+（早先写操作前有过「授权条」让你点好 / 不，用户嫌来回确认别扭，删了，别加回来。）
 
 | | 是什么 | 谁画的 | 代码 |
 |---|---|---|---|
-| **痕** | 一次写操作留下的一行小字：「✓ 提醒 9月24日 周四 08:00 · 带伞 ›」。不是卡片 | 代码按工具调用 + 结果画（字由模块写：`ReminderTrace` / `LedgerTrace`） | `agent/conversation/TraceLine.kt` |
+| **痕** | 一次写操作留下的一行小字：「✓ 提醒 9月24日 周四 08:00 · 带伞 ›」。不是卡片 | 代码按工具调用 + 结果画，字由模块写（`ReminderTrace` / `LedgerTrace`） | `agent/conversation/TraceLine.kt` |
 | **问卡** | 模型拿不准时先猜好几个答案，你点一下、点「其他…」自己写，或者直接说一句 | 模型调 `ask_user` | `agent/engine/ask/`、`agent/conversation/AskCard.kt` |
 
-**痕为什么不能省**：模型嘴上说「记下了」不代表它调了工具（真机上出过只回一句「明白」、什么都没建）。
-痕是按工具结果画的，没落库就没有它。点一下去编辑页（提醒）或那一笔的详情（记账）；一次改了几笔的可以原地展开。
-只有写操作留痕（`Tool.effect == WRITE`），查账这类只读的不留。在办时是呼吸的朱砂圆点 +「在记提醒」+ 逐字标题；
-办成了圆点收成一笔描出来的对勾；没办成是红 × + 原因。**模型把参数写坏、紧接着自己改好重来的那一次不画**
-（`visibleBlocks`）—— 后面那道痕已经说明了结果；中间隔着问卡的红 × 留着，它在解释为什么要问。
+**痕为什么不能省**：模型嘴上说「记下了」不代表它调了工具（真机上出过只回一句「明白」、什么都没建）。痕按工具结果画，没落库就没有它。
 
-**问卡的规矩：**
+- 只有写操作留痕（`Tool.effect == WRITE`），查账这类只读的不留。
+- 在办：呼吸的朱砂圆点 +「在记提醒」+ 逐字标题；办成：圆点收成一笔描出来的对勾；没办成：红 × + 原因。
+- 点一下去编辑页（提醒）或那一笔的详情（记账）；一次改了几笔的原地展开。
+- **模型把参数写坏、紧接着自己改好重来的那一次不画**（`visibleBlocks`）—— 后面那道痕已经说明了结果；中间隔着问卡的红 × 留着，它在解释为什么要问。
 
-- 一张卡 = 一次 `ask_user` 调用，最多 4 题，每题 0–3 个猜测，最可能的在前；第一个猜测可以带一行依据（`hint`）。
-  不合规（题太多、猜测太多）直接打回给模型改，不打扰用户。
-- 只有一题：猜测是整行的选项，点了就算答（停 560ms 让你看清点的是哪个）；没有「其他…」，直接在输入框说就行。
+**问卡的规矩**
+
+- 一张卡 = 一次 `ask_user`，最多 4 题，每题 0–3 个猜测，最可能的在前；第一个猜测可以带一行依据（`hint`）。不合规（题太多、猜测太多）直接打回给模型改，不打扰用户。
+- 只有一题：猜测是整行的选项，点了就算答（停 560ms 让你看清点的是哪个）；没有「其他…」，直接在输入框说。
 - 多题：猜测是一排小胶囊 + 虚线「其他…」；卡脚是「都先放着 / 就这样」+ 计数。
-- **输入框**：问卡等着时，发出去的话都交给问卡。点了某题的「其他…」→ 句首垫「¥219.00 是」、描朱砂边，只答那一题；
-  否则算「直接说」—— 卡片收成「没点 · 你直接说了」，那句话画成你的气泡，模型拿原话去对。
-  等你的时候发送键是箭头，不是「停」：是它在等你，不是你在等它。
-- **答**：「问」换成「答」，那枚原来盖在「已记下」上的印挪到这里盖下来 —— 整个对话唯一的重拍。不震动。
-  卡框褪掉，每题收成一行「金额 答案」，没点的写「先放着」。
+- **输入框**：问卡等着时，发出去的话都交给问卡。点了某题的「其他…」→ 句首垫题目、描朱砂边，只答那一题；否则算「直接说」—— 卡片收成「没点 · 你直接说了」，那句话画成你的气泡，模型拿原话去对。等你的时候发送键是箭头，不是「停」：是它在等你，不是你在等它。
+- **答**：「问」换成「答」，印盖下来 —— 整个对话唯一的重拍，不震动。卡框褪掉，每题收成一行「题目 答案」，没点的写「先放着」。
 - **结果怎么回给模型**：人话逐题列出，末行 `answer={…}` 机读 —— 重启后把问卡原样画回来靠它（`AskUserTool.answerOf`）。
-- **没答**（喊停、app 在等人时被杀）：记成「用户没回答」。重启读回来发现悬着的调用，由 `ChatViewModel` 补上这条结果，
-  否则下一次请求会被网关拒掉。
-- **桌面速记**：纸太小放不下问卡。模型一调 `ask_user`，速记这一轮作废，打开 app 到对话页、把那句话照常发出去
-  （`Launch` 带 `say`）；这一轮已经办成了点什么就不带那句话，只打开对话页，免得办两遍。
+- **没答**（喊停、app 在等人时被杀）：记成「用户没回答」（§6.1）。
+- **桌面速记**：纸太小放不下问卡。模型一调 `ask_user`，速记这一轮作废，打开 app 到对话页、把那句话照常发出去（`Launch` 带 `say`）；这一轮已经办成了点什么就不带那句话，只打开对话页，免得办两遍。
 
-**删掉的**：授权模式和授权条（`harness/permission/`、`ApprovalDock`、设置页「建提醒前先问我」）、提醒卡片（`ReminderCard`）、
-记账回执框（`LedgerReceipt`）。「依据」（`basis`）从卡片挪到编辑页的「原话」下面 —— 从 `chat.db` 里建这条提醒的那次调用取
-（`ChatStore.callArguments`，由提醒自己解析出 basis），提醒表不动；桌面速记建的、手动建的没有。
+### 6.7 正文的 Markdown
 
-**提示词**：拿不准就调 `ask_user`，不要在正文里问；调之前先说一句为什么问；猜好答案。对账开场改成「用 ask_user 问，一张最多 4 笔」。
-
-### 6.10 正文的 Markdown
-
-2026-09-24 起。模型的正文（`TurnBlock.Prose`）按 Markdown 画，对话页、桌面速记、重启读回的历史同一套（`MarkdownText`）。
-
-**决策 6.4 · 不用提示词管格式，模型写什么认什么**（用户定的）。提示词里不写「别用 Markdown」「能用哪几样」——
-换模型、换供应商，习惯都不一样，界面兼容比约束模型稳。先认最常出现的：
+模型的正文按 Markdown 画，对话页、桌面速记、重启读回的历史同一套（解析 `Markdown.kt`，纯 Kotlin；画 `MarkdownText.kt`）。先认最常出现的：
 
 | 行内 | 块 |
 |---|---|
 | `**粗**` `*斜*` `~~删~~` `` `代码` `` `[字](网址)`、裸网址、`<br>` | `#` 标题（要有空格：`#12 那笔` 不是标题）、`-` / `1.` 列表（按缩进嵌套，最多 4 层）、`>` 引用、`---` 分隔线、表格、```` ``` ```` 代码块 |
 
-认不出的原样当字画，不吞字（`廖**的` 没闭合，就是四个字）。单个 `~` 是「5~10 元」，词中间的 `_` 是 `snake_case`，都不当标记。
-段内单个换行照样换行（中文回答里多半就是想换行），不按 CommonMark 并成空格。链接只让点 `http(s)`。
+- 认不出的原样当字画，不吞字（`廖**的` 没闭合，就是四个字）。单个 `~` 是「5~10 元」，词中间的 `_` 是 `snake_case`，都不当标记。段内单个换行照样换行。链接只让点 `http(s)`。
+- **长相**（守 §8.1）：标题靠宋体和字号，不加粗；链接是朱砂字；表格没有框，表头下一道 `rule2`、行间 `ruleSoft`，全是数字的列自动靠右、等宽数字；一列最宽 220dp，整张表比屏幕宽就横着滑、右边渐隐；代码块是 5dp 圆角的淡纸，不折行、横着滑。
+- **流到一半**（`Markdown.parse(open = true)`）：没闭合的粗体、删除线、行内代码先当闭合了画，`**` 不露出来；末行只有一两个标记符（`-` `##` `|` 半截围栏）先不画；表头刚到、分隔行还没到，先按表格画。流完了按原文重新认。
+- **逐字洇开没丢**：去掉标记符后每段字记着自己的原文下标（`MdRun.src`），到货时刻也按原文下标记（`rememberInk`），两边对得上。`MarkdownTest` 把每个样例的**每一个前缀**都按流式解析一遍，查每段字能不能对回原文。
 
-**长相**（守 §8.1）：标题靠宋体和字号，不加粗；链接是朱砂字；表格没有框，表头下一道 `rule2`、行间 `ruleSoft`，
-全是金额 / 数字的列自动靠右、等宽数字；一列最宽 220dp，整张表比屏幕宽就横着滑、右边渐隐；代码块是一张 5dp 圆角的淡纸，不折行、横着滑。
+### 6.8 模型画的图（SVG）
 
-**流到一半**（`Markdown.parse(open = true)`）：没闭合的粗体、删除线、行内代码先当闭合了画，`**` 不露出来；
-末行只有一两个标记符（`-` `##` `|` 半截围栏）先不画；表头刚到、分隔行还没到，先按表格画。流完了一律按原文重新认。
+用户要看占比、走势、对比时，模型在正文里写一个 ```` ```svg ```` 代码块，界面把它画成图（`SvgBlock.kt`）。没写语言 / 写 `xml`、里面是 `<svg` 的也算；没包代码块、直接写的 `<svg>…</svg>` 也算。
 
-**逐字洇开没丢**：去掉标记符后每段字记着自己的原文下标（`MdRun.src`），到货时刻按原文下标记（`rememberInk`），两边对得上。
-解析是纯 Kotlin（`Markdown.kt`），`MarkdownTest` 把每个样例的**每一个前缀**都按流式解析一遍，查每段字能不能对回原文。
-
-### 6.11 模型画的图（SVG）
-
-2026-09-24 起。用户要看占比、走势、对比时，模型在正文里写一个 ```` ```svg ```` 代码块，界面把它画成图（`SvgBlock.kt`）。
-没写语言 / 写 `xml`、里面是 `<svg` 的也算；没包代码块、直接写的 `<svg>…</svg>` 也算（`MdBlock.Svg`）。
-
-**只做静态图**（第一档，用户定的）：AndroidSVG 1.4（Maven Central，约 200KB）解析、录成 `Picture`，矢量、放大不糊。
-不跑脚本、不联网（它不带外部文件解析器，`<image>` 引外面的一律不取），不展开 XML 实体。
-要点一下看数、切周 / 月这类互动，得换 WebView（第二档），没做。
+**只做静态图**（用户定的）：AndroidSVG 解析、录成 `Picture`，矢量、放大不糊。不跑脚本、不联网（`<image>` 引外面的一律不取），不展开 XML 实体。要点一下看数、切周 / 月这类互动，得换 WebView，没做。
 
 | 情形 | 画成 |
 |---|---|
 | 还在流、没写到 `</svg>` | 虚线框 + 墨条「在画图」，框的比例照 `viewBox` 猜，画好了不跳 |
-| 写完了 | 宽度铺满，高度按比例（最高 1.4 倍宽），点一下全屏：两指缩放、拖动，双击放大 / 还原，点一下收起 |
-| 解析失败、流完了还没写完 | 一行「这张图画不出来，原文在这里」+ 代码块，原文不丢 |
+| 写完了 | 宽度铺满，高度按比例（最高 1.4 倍宽）；点一下全屏：两指缩放、拖动，双击放大 / 还原，点一下收起 |
+| 解析失败、流完了还没写完 | 「这张图画不出来，原文在这里」+ 代码块，原文不丢 |
 
-**颜色**：提示词让模型不画背景、字和线用 `currentColor`、数据只用色板里的五种（朱砂 `#9E3B2E`、`#3A372F`、`#8A8578`、`#C9C3B3`、`#8A6A24`）。
-画之前 `currentColor` 换成墨色，根 `<svg>` 没写 `fill` 的补一个墨色（SVG 默认填黑，深色下看不见）；
-深色主题再把浅色色板的颜色换成深色色板对应的那个，模型不听话写的纯黑 / 深灰换成墨色、纯白换成纸色。
-
-**提示词**（`BasePrompt`「画图」）：什么时候画、每个数都照刚查到的抄、`viewBox` 宽 340 高不超过 440、字号 12–14、图前先一句结论。
-和 §6.10 不一样，这条**得**写进提示词 —— Markdown 模型自己就会写，画图它不会主动。
-
-**历史里的图折起来**（`FoldDrawings`）：一张图一两千个 token，之后每句话都要重发。喂给模型时，更早几轮里的图换成一句
-「（这里原来有一张图，历史里省略了）」，当前这一轮原样给；`Session` 里存的、界面画的都不变。
-
-**图上的数是模型抄的**：它照查账结果画，偶尔会抄错。这是选静态 SVG（而不是代码按查询结果画）接受了的代价。
+- **颜色**：提示词让模型不画背景、字和线用 `currentColor`、数据只用色板里的五种（朱砂 `#9E3B2E`、`#3A372F`、`#8A8578`、`#C9C3B3`、`#8A6A24`）。画之前 `currentColor` 换成墨色，根 `<svg>` 没写 `fill` 的补一个墨色（SVG 默认填黑，深色下看不见）；深色主题再把浅色色板的颜色换成深色色板对应的，纯黑 / 深灰换成墨色、纯白换成纸色（`SvgColors`）。
+- **提示词**（`BasePrompt`「画图」）：什么时候画、每个数都照刚查到的抄、`viewBox` 宽 340 高不超过 440、字号 12–14、图前先一句结论。
+- **历史里的图折起来**（`FoldDrawings`）：一张图一两千 token，之后每句话都要重发。喂给模型时，更早几轮里的图换成一句「（这里原来有一张图，历史里省略了）」，当前这一轮原样给；`Session` 里存的、界面画的都不变。
+- **图上的数是模型抄的**，偶尔会抄错。这是选静态 SVG（而不是代码按查询结果画）接受了的代价。
 
 ---
 
@@ -599,9 +412,9 @@ agent 循环是它的继任者（当时叫 `harness/`，2026-09-23 起在 `agent
 | 「每天早上 8 点吃药」 | **墙钟锚定** | 到哪儿都是当地早上 8 点 |
 | 「9 月 2 号 15:00 的会」 | **绝对时刻** | 还是那一瞬间，显示成当地时间 |
 
-`wallClockAnchored = true` 时，`nextTriggerAt` 只是「`localTime` + 当前时区」的一个投影。所以 `TIMEZONE_CHANGED` 触发的**不是简单重排，而是重算** —— 拿 `localTime` 和 `rrule` 在新时区下重新求值再写回。这是两种重排路径里唯一有区别的地方，务必分开写。
+`wallClockAnchored = true` 时，`nextTriggerAt` 只是「`localTime` + 当前时区」的投影。所以 `TIMEZONE_CHANGED` 触发的**不是简单重排，而是重算** —— 拿 `localTime` 和 `rrule` 在新时区下重新求值再写回。这是两种重排路径唯一的区别，务必分开写。
 
-默认规则：**有 `rrule` 的默认墙钟锚定，一次性的默认绝对时刻。**
+默认：**有 `rrule` 的墙钟锚定，一次性的绝对时刻。**
 
 ### 7.2 RRULE 支持子集
 
@@ -609,59 +422,58 @@ agent 循环是它的继任者（当时叫 `harness/`，2026-09-23 起在 `agent
 FREQ = DAILY | WEEKLY | MONTHLY | YEARLY
 INTERVAL = n
 BYDAY = MO,TU,WE,TH,FR,SA,SU      (仅 WEEKLY)
-BYMONTHDAY = n                     (仅 MONTHLY)
-COUNT = n | UNTIL = <ISO-8601>
+BYMONTHDAY = n | -n                (仅 MONTHLY；-1 = 月底)
+UNTIL = <ISO-8601>
+COUNT = n                          (认，但还没有持久化计数)
 ```
 
-超出子集的一律降级成一次性并提示。用 `java.time` 手写求值器，不引第三方库。
+超出子集的一律降级成一次性并提示。`java.time` 手写求值器（`reminder/domain/Rrule`），不引第三方库。
 
-**边界情况必须写死并同步进提示词**：`BYMONTHDAY=31` 落在只有 30 天的月份 → **顺延到该月最后一天**（不跳过该月）。不写清楚的话模型和求值器各按各的理解走，会得到「有些月份不提醒」这种极难复现的 bug。
+**边界情况必须写死并同步进提示词**：`BYMONTHDAY=31` 落在只有 30 天的月份 → **顺延到该月最后一天**（不跳过）。模型把「月底」写成 `BYMONTHDAY=-1`，从月底倒数。不写清楚的话模型和求值器各按各的理解，就会出「有些月份不提醒」这种极难复现的 bug。
 
 ---
 
 ## 08 界面
 
-| 页面 | 内容 |
+| 页面 | 要点 |
 |---|---|
-| **主页** | 顶部一个大输入框（右侧麦克风按钮直接调系统输入法语音，不自己接语音识别）。下面按「今天 / 明天 / 本周 / 以后」分组的列表 |
-| **提醒列表** | 时间轴：一根竖线 + 朱砂「现在」横线，线上是今天已过去的（淡掉），线下第一条放大成「下一条」，之后按天分段。圈 = 完成、点行 = 编辑、左滑 = 删除，都不弹确认、给 5 秒「撤销」。红字只给过点没响和没排上闹钟。设计稿方向 B：<https://claude.ai/code/artifact/4de04ade-2aa5-4486-b1b7-293ff283f00d> |
-| **确认卡** | 标题、人话时间（「9月2日 周三 15:00 · 5 天后」）、重复规则、`basis`、原话。两个按钮：「就这样」「改一下」 |
-| **编辑页** | 手动改标题、时间、重复规则、墙钟/绝对开关。**逃生舱，必须能完全脱离 AI 建成一条完整提醒**。宋体标题写在横线上 + 一行人话复述「什么时候」，时间 / 重复 / 备注三组纸，「记下」钉底；几点是自绘滚轮底纸，重复写成具体的「每周五」「每月 18 号」。模型建的、这页画不出的规则（「每周一、三」）原样保留，不压扁。设计稿方向 A：<https://claude.ai/artifact/UdcBGTTx5quxPfsnR5Akq7> |
-| **设置页** | 「一本账」：顶上一句体检结论（都就绪了 / 还差 N 项 + 最近投递漂移），下面先是壳自己的「模型服务」「系统权限」（汇总各模块的体检项），再往下是各模块的组（提醒、记录、记账，按 `Features.kt` 的顺序）。好着的权限只占一行对勾，缺的才展开说后果 + 「去开」；回到这页就重查。组件在 `shared/ui/PaperGroup.kt`、`SettingRow.kt`，编辑页和各模块的设置组共用。设计稿同上 |
-| **桌面小组件** | 下一条（大字时钟）+ 其后几条 + 右下角一枚墨印。点墨印在桌面上说一句就建好，不进 app。见 §8.2 / §8.3 |
-
-**投递日志页**：每条显示「应响 → 实响 → 漂移 `+3s`」和来源标签。它是判断 §09 保活配置有没有生效的唯一客观依据，别做成调试开关藏起来。
-
----
+| **对话页**（主屏） | 顶栏左边抽屉键、右边朱砂小印（决策 8.4）；回合、问卡、痕（§06）；输入框带麦克风（决策 8.3）。空状态是招呼语 + 各模块的例句，点一条直接发 |
+| **抽屉** | 顶上「到点 · 回到对话」，中间每个模块一张纸（提醒、记账），底下「设置」和体检结论 |
+| **提醒列表** | 时间轴，整根轴是滚轮：从上往下 以后 → 今天 → 以前，一根朱砂「现在」横线停在屏幕 33% 高。屏幕 18%–78% 完全清楚，带外淡到 0.3（`Modifier.wheel`）。**不要加虚化 / 缩放**：试过每行一个 BlurEffect，掉帧、行边透方框，用户否了。圈 = 完成，点行 = 编辑，左滑 = 删除（只认拖过行宽 40%，不认甩的速度 —— 上下滑时容易误删），都不弹确认、给 5 秒墨色「撤销」。红字只给过点没响、闹钟没排上。设计稿：<https://claude.ai/code/artifact/4de04ade-2aa5-4486-b1b7-293ff283f00d>、滚轮 <https://claude.ai/artifact/3EYZp9KRSBgaXc9Ec92tmG> |
+| **编辑页** | **逃生舱，必须能完全脱离 AI 建成一条完整提醒**。宋体标题 + 一行人话复述「什么时候」，时间 / 重复 / 备注三组纸，「记下」钉底；几点是自绘滚轮，重复写成具体的「每周五」「每月 18 号」。模型建的、这页画不出的规则（「每周一、三」）原样保留，不压扁。设计稿：<https://claude.ai/artifact/UdcBGTTx5quxPfsnR5Akq7> |
+| **设置页** | 顶上一句体检结论（都就绪了 / 还差 N 项 + 最近投递漂移）→ 模型服务 → 系统权限（汇总各模块的体检项）→ 各模块的组。好着的权限只占一行对勾，缺的才展开说后果 +「去开」；回到这页就重查。组件在 `shared/ui/PaperGroup.kt`、`SettingRow.kt` |
+| **到点全屏页** | 钉死深色（半夜三点是它最常见的场景）。`AlarmScreen` 直接读主题色板，要跟随系统把 `AlarmActivity` 里的 `darkTheme = true` 换成 `isSystemInDarkTheme()` |
+| **投递日志** | 每条「应响 → 实响 → 漂移 `+3s`」和来源。它是判断 §09 保活配置有没有生效的唯一客观依据，别做成调试开关藏起来 |
+| **记账** | 总览 → 类别 → 一笔，只看不改，要改去对话里说；抓取页（§10.2）。设计稿：<https://claude.ai/artifact/PRk3CWeu24V4tKZgxkGLwn> |
+| **桌面小组件 / 速记** | §8.2 / §8.3 |
 
 ### 8.1 视觉语言 · 墨宋
 
-视觉稿（Claude Design 画布，九块画板）：<https://claude.ai/code/artifact/c7073888-2022-4a7f-bb22-4ae61961d0a1>
+视觉稿（九块画板）：<https://claude.ai/code/artifact/c7073888-2022-4a7f-bb22-4ae61961d0a1>
 
 宣纸底、墨色为主、朱砂只做印章式点缀、宋体挑大梁。四条规矩，改界面之前先读：
 
-1. **实心块一律是墨色，不是彩色**。用户气泡、主按钮、发送键用 `solid`（浅色主题下即墨黑 `#1C1A17`，深色主题下翻成米白 `#E6E2D6`）。
-2. **朱砂 `accent`（`#9E3B2E`）只做小点缀** —— 助手圆点、「已记下」的对勾、可点的链接字。铺成色块就俗了。
+1. **实心块一律是墨色，不是彩色**。用户气泡、主按钮、发送键用 `solid`（浅色下墨黑 `#1C1A17`，深色下翻成米白 `#E6E2D6`）。
+2. **朱砂 `accent`（`#9E3B2E`）只做小点缀** —— 助手圆点、对勾、「答」印、可点的链接字。铺成色块就俗了。
 3. **徽标描边不填色**，圆角 3dp；卡片圆角 5dp；按钮圆角 22dp（大按钮 34dp）。
-4. **层次靠字号和字距，不靠字重**。系统衬体通常只有 400/700 两档，稿子里的 300/500/600 会被合成到最近一档 —— 小标签一律加大字距（0.2em 起）。
+4. **层次靠字号和字距，不靠字重**。系统衬体通常只有 400 / 700 两档，稿子里的 300 / 500 / 600 会被合成到最近一档 —— 小标签一律加大字距（0.2em 起）。
 
-字体角色：宋体（`FontFamily.Serif`）担标题、大时钟、序号；黑体（`Default`）担正文；等宽（`Monospace`）只用在「依据」那一行。没有打包 Noto Serif SC，理由见 [CLAUDE.md](CLAUDE.md) 的包体权衡。
+- 字体：宋体（`FontFamily.Serif`）担标题、大时钟、序号；黑体（`Default`）担正文；等宽只用在「依据」那一行。**没有打包 Noto Serif SC**：全字重要大几 MB 到十几 MB，自用 app 不值，宋体的观感全看系统衬体的中文 fallback。
+- 图标一律细线、不填充（`shared/ui/Icons.kt`，手绘复刻视觉稿）。
+- 「依据」行是模型的推算过程，**不要删** —— 模型算错时，那是唯一能看出哪儿歪了的线索。补发的提醒必须标出迟到多久，不能假装准时。
+- 状态栏留给系统自己画（含 `setAlarmClock()` 的常驻闹钟图标），我们不自绘，画了会重影。
 
-「依据」行是模型的推算过程，**不要删** —— 模型算错时，那是唯一能看出哪儿歪了的线索。补发的提醒必须标出迟到多久，不能假装准时。
+**图标与开屏**：墨绿气泡里一张米白钟面，右上角三道响声 ——「说一句，到点响」。照用户给的参考图描的，颜色也照参考图取（`icon_*`，只在图标上用，不属于墨宋色板）。
 
-顶部状态栏那一条留空给系统自己画（含 `setAlarmClock()` 带来的常驻闹钟图标），我们不自绘，画了会重影。
-
-到点全屏页目前钉死深色（半夜三点是它最常见的使用场景）；视觉稿的浅色版也在，`AlarmScreen` 直接读主题色板，把 `AlarmActivity` 里的 `darkTheme = true` 换成 `isSystemInDarkTheme()` 就能跟随系统。
-
-**图标与开屏**（2026-09-11）：墨绿气泡里一张米白钟面，右上角三道响声 ——「说一句，到点响」。照用户给的参考图描成 vector，颜色也照参考图取（`icon_*`，只在图标上用，不属于墨宋色板；上一版是朱砂印 + 阴刻宋体「到」，用户换掉了）。整幅装进半径 31 的圆，自适应图标的安全圆是 33，圆形遮罩下三道响声也不出圈；path 是脚本从参考图画布整体换算的，改形状要整体重算，别手抠单个数字。主题图标（`monochrome`）系统只认 alpha：钟面用 evenOdd 从气泡里抠成洞，指针画回去。开屏用系统自带的 SplashScreen（minSdk 34，不用 compat 库）：同一个图形，气泡连钟面从 0.82 弹到 1.04 落回 1，接着三道响声从气泡边上弹出来，580ms，不震动。开屏只挂在 `Theme.Daodian.Main`（MainActivity）上 —— `AlarmActivity` 用的是 `Theme.Daodian`，到点全屏页前面不能垫一张开屏。
-
----
+- 整幅装进半径 31 的圆（自适应图标的安全圆是 33），圆形遮罩下三道响声也不出圈。path 是脚本从参考图画布整体换算的，改形状要整体重算，别手抠单个数字。**`ic_launcher_foreground` / `ic_launcher_monochrome` / `splash_logo` 是同一套 path，改一个要三个一起改。**
+- 主题图标（`monochrome`）系统只认 alpha：钟面用 evenOdd 从气泡里抠成洞，指针画回去。
+- 开屏用系统自带的 SplashScreen（不用 compat 库）：气泡连钟面从 0.82 弹到 1.04 落回 1，接着三道响声弹出来，580ms，不震动。只挂在 `Theme.Daodian.Main`（MainActivity）上 —— 到点全屏页前面不能垫一张开屏。开屏会留到对话记录读完（§6.1）。
 
 ### 8.2 桌面小组件
 
 一句话：**桌面上那块是快照，不是第二个真相**。它只读 Room，不排闹钟、不撤闹钟、不参与触发链路 —— 整个小组件全挂掉，提醒照响。
 
-版面自上而下：抬头（「到点」+ 条数）→ **提醒** → **脚**：左边一行小字，右下角一枚墨印（麦克风）。提醒怎么摆看条数和高度：
+版面自上而下：抬头（「到点」+ 条数）→ 提醒 → 脚：左边一行小字，右下角一枚墨印（麦克风）。提醒怎么摆看条数和高度：
 
 | 情况 | 摆法 | 脚上的小字 |
 |---|---|---|
@@ -670,132 +482,95 @@ COUNT = n | UNTIL = <ISO-8601>
 | 两条以上，3×3 / 4×3 / 4×4 | 大字时钟 + 底下最多三行 | 「还有 N 条」 |
 | 矮到一行都放不下 | 不摆 | 「下一条 · 明天 15:00 交房租」 |
 
-3×2 的内容区只有 83dp（183 减去抬头、脚、内边距）。大字时钟加一行要 94dp，所以两三条时让位给时间表 —— 早先这时一行都不摆，明明两条只看得见一条、中间空一大块，用户在真机上问起才发现。行高 26dp 就是为了三行塞得进 83dp。墨印永远在；小组件最要紧的是「在桌面上说一句」，其次才是「看一眼」。
+3×2 的内容区只有 83dp；大字时钟加一行要 94dp，所以两三条时让位给时间表（早先这时一行都不摆，两条只看得见一条）。行高 26dp 就是为了三行塞得进 83dp。墨印永远在：小组件最要紧的是「在桌面上说一句」，其次才是「看一眼」。墨印旁边不写提示字，一枚麦克风自己就说明了。
 
-**尺寸自适应靠 Android 12 的 `RemoteViews(Map<SizeF, RemoteViews>)`**：每个高度台阶画一版，整张表交给桌面，桌面按小组件**实际量出来的**大小挑一版。用户拖成 4×2、4×3、4×4 时桌面自己换，不用等我们重画，也不依赖桌面报的尺寸（荣耀报的宽度就是错的，见 §8.3）。宽度不分台阶：每一版都放得进最窄的 3 格。
-
-墨印旁边不写「说一句话」之类的提示：一枚麦克风自己就说明了，字只会挤掉「下一条」的位置。上一版底部那根整宽的说话条（加条尾键盘）占掉 54dp，已经拿掉。
+**尺寸自适应靠 `RemoteViews(Map<SizeF, RemoteViews>)`**：每个高度台阶画一版，整张表交给桌面，桌面按小组件**实际量出来的**大小挑。不依赖桌面报的尺寸（荣耀报的宽度是错的，§8.3）。宽度不分台阶，每一版都放得进最窄的 3 格。
 
 | 位置 | 点下去 |
 |---|---|
 | 抬头 | 提醒列表 |
 | 右下角墨印 | 桌面速记，一进来就开始听（§8.3） |
-| 其余空白 | 进 app（对话页）。顺手记下整块小组件的框，见 §8.3 |
+| 其余空白 | 进 app（对话页），顺手记下整块小组件的框（§8.3） |
 | 下一条 / 某一行 | 编辑那一条 |
 | 完成圈 / 行尾 `✓` | 直接完成 |
 
-原来抬头上的 `＋`（手动新建）拿掉了：逃生舱仍然在 app 里（列表页、解析失败时的「手动填一条」），桌面速记解析失败时也有这个出口。
+- `✓` 和列表页的「完成」**完全一致**：先撤闹钟再改状态，重复提醒也整条停掉。顺序反了会留下一个指向 DONE 记录的闹钟，到点照响。它不复用通知的 `ACTION_DONE` —— 那条处理的是已经响过的，不撤闹钟；小组件按的是还没到点的，必须撤。
+- 过点却还挂着的那条，时间写成红字：主闹钟路径被 ROM 掐掉时，它是桌面上第一眼能看见的告警。行首的点一律灰，朱砂只点在**刚从桌面速记记下**的那条上（亮 6 秒后褪）。
 
-`✓` 的语义和列表页的「完成」**完全一致**：先撤闹钟再改状态，重复提醒也整条停掉。顺序反了就会留下一个指向 DONE 记录的闹钟，到点照响。它没有复用 `NotificationActionReceiver.ACTION_DONE` —— 那条路径处理的是「已经响过的提醒」，不撤闹钟；小组件按的是**还没到点**的，必须撤。
+**决策 8.1 · 用 RemoteViews，不用 Glance**：Glance 是另一套运行时，包体已经 35MB 了（决策 3.1），小组件就一个抬头加几行字，不值。代价是颜色字体没法复用 `shared/theme/`，见下面第 3 条。
 
-已经过点却还挂在列表里的那条，时间写成红字。这不是装饰：主闹钟路径被 ROM 掐掉的时候，它是桌面上第一眼能看见的告警（配合 §9.3 的投递日志）。行首的点一律是灰的，朱砂只点在**刚从桌面速记记下**的那一条上（「刚记下」，亮 6 秒后褪掉）—— 满屏印章就不是印章了。
-
-**决策 8.1 · 用 RemoteViews，不用 Glance**
-
-Glance 能把这块界面写成 Compose，但它是另一套运行时，而包体已经因为 openai-java 涨到 35MB（决策 3.1）。小组件一共就一个抬头加几行字，为它再背一套依赖不划算。代价是这里的颜色和字体没法复用 `shared/theme/` 的色板，见下面第三条。
-
-**决策 8.2 · 行是 `addView` 塞进去的，不是 `ListView` + `RemoteViewsService`**
-
-集合视图要跨进程适配器（桌面进程反过来 bind 我们的 Service），是一条实打实会掉链子的链路，换来的只是「能滚动」。桌面不是列表页，看完前几条就该点进 app。行数不再按桌面报上来的高度算（早先竖屏取 `OPTION_APPWIDGET_MAX_HEIGHT`），而是各个高度台阶各画一版、由桌面按实际大小挑，见上面「尺寸自适应」。最多三行，剩下的在脚上写「还有 N 条」。各块高度常量（`CHROME_DP` / `HERO_DP` / `HERO_FULL_DP` / `ROW_DP`）在 `WidgetRenderer`，和布局 XML 一一对应，改一边就得改另一边。
+**决策 8.2 · 行用 `addView` 塞，不用 `ListView` + `RemoteViewsService`**：集合视图要桌面进程反过来 bind 我们的 Service，是一条会掉链子的跨进程链路，换来的只是「能滚动」。最多三行，剩下的写「还有 N 条」。各块高度常量（`CHROME_DP` / `HERO_DP` / `HERO_FULL_DP` / `ROW_DP`）在 `WidgetRenderer`，和布局 XML 一一对应，改一边就得改另一边。
 
 **三条规矩，改小组件之前先读**
 
-1. **刷新是推过去的，不是拉回来的**。桌面收不到 Room 的 Flow —— 它在别的进程里。每个改动点都要喊一声 `WidgetUpdater.refresh()`：app 内的增删改（`reminder/application/Reminders` 每个写操作之后喊一声）、响铃（`FireHandler`）、通知按钮（`NotificationActionReceiver`）、巡检和重排（`SweepWorker`、`RescheduleReceiver`）。**漏喊的后果是桌面显示旧数据，不是漏提醒。**
-2. **`updatePeriodMillis`（30 分钟，系统最小值）只用来兜「3 小时后」这种相对时间的自然变旧**，不是数据变化的通知渠道。它不唤醒设备；跨零点、改时间、换时区另外由 `DATE_CHANGED` / `TIME_SET` / `TIMEZONE_CHANGED` 三条受保护广播补一刀。
-3. **`res/values/colors.xml` 是墨宋色板的第二份拷贝**（`values-night/` 是深色那份），改色时和 `shared/theme/Palette.kt` 一起改。颜色必须写成 `@color` 引用交给桌面去解析 —— 在 Kotlin 里 `getColor` 算好再 `setTextColor` 塞进去的色值，会在用户切换深浅色时僵在原地；代码里要换色，用 `RemoteViews.setColor(id, "setTextColor", R.color.xxx)`（API 31），同样由桌面按资源解析。矢量图标的线色也写 `@color`。同理，字体只能写 `android:fontFamily="serif"`，宋体挑大梁那条规矩在这里只能靠系统衬体。
+1. **刷新是推过去的，不是拉回来的**。桌面收不到 Room 的 Flow —— 它在别的进程里。每个改动点都要喊 `WidgetUpdater.refresh()`：app 内的增删改（`Reminders` 每个写操作之后）、响铃（`FireHandler`）、通知按钮、巡检和重排。**漏喊的后果是桌面显示旧数据，不是漏提醒。**
+2. **`updatePeriodMillis`（30 分钟）只兜「3 小时后」这种相对时间的自然变旧**，不是数据变化的通知渠道。跨零点、改时间、换时区另由 `DATE_CHANGED` / `TIME_SET` / `TIMEZONE_CHANGED` 补一刀。
+3. **`res/values/colors.xml` 是墨宋色板的第二份拷贝**（`values-night/` 是深色那份），改色时和 `shared/theme/Palette.kt` 一起改。颜色必须写成 `@color` 引用交给桌面解析 —— 在 Kotlin 里算好色值再塞进去，用户切深浅色时会僵在原地；代码里换色用 `RemoteViews.setColor(id, "setTextColor", R.color.xxx)`。字体只能写 `android:fontFamily="serif"`。
 
-**RemoteViews 做不了动画。** 桌面进程里没有我们的帧回调，小组件自己这一侧能给的回应只有「刚记下」那一亮一褪（`WidgetUpdater.announce`）。动效全部放在桌面速记那张纸上（§8.3）。
-
----
+**RemoteViews 做不了动画**。小组件自己能给的回应只有「刚记下」那一亮一褪（`WidgetUpdater.announce`），动效全在桌面速记那张纸上。
 
 ### 8.3 桌面速记
 
-一句话：**在桌面上说一句就建好，不进 app，而且只有语音**。要聊天、要改字，回 app 的对话页 —— 那边体验完整，桌面这块不做第二个输入框。交互稿：<https://claude.ai/code/artifact/14ee235b-dafd-45ff-9a43-9e11cd16d8ce>
+一句话：**在桌面上说一句就建好，不进 app，而且只有语音**。要聊天、要改字，回 app 的对话页。交互稿：<https://claude.ai/code/artifact/14ee235b-dafd-45ff-9a43-9e11cd16d8ce>
 
-小组件右下角的墨印拉起 `QuickAddActivity`：透明窗口，桌面原样不变色，一张纸**从整块小组件里长出来**（容器变换）：纸框一开始就是小组件那一块（同样的系统圆角），底边钉住，往上、往两边长成整张纸；记完再缩回小组件。三件事叠在一起，才读得出「是小组件在变大」而不是「一张白卡盖上来」：
+墨印拉起 `QuickAddActivity`：透明窗口，一张纸**从整块小组件里长出来**（容器变换）—— 纸框一开始就是小组件那一块，底边钉住，往上、往两边长成整张纸；记完再缩回去。几件事叠在一起，才读得出「是小组件在变大」而不是「一张白卡盖上来」：
 
-1. 纸框用 `Motion.Expand`（0.4, 0, 0.2, 1）伸展，放 460ms、收 340ms。别用 `Settle` —— 它三成时间走完七成路，整块纸是蹦出来的。
-2. 进度按**时间**线性走，各层自己换算：纸色在头两成时间盖住小组件上的字，纸上的字在三成到八成时间淡进来。拿缓动后的值去切这些区间，前两成二十毫秒就走完了。
-3. 小组件右下角那枚墨印**跟着飞**到纸中间、从 44dp 放大成纸上 64dp 的印；收起时飞回去。它是前后唯一没断过的东西，眼睛跟着它走，就认得出这张纸是从哪儿来的。
-4. 投影等纸色盖实了（两成时间之后）再出 —— 纸还半透明时，投影会从纸底下透上来，框里一圈灰，真机慢放截图看到的。
+1. 纸框用 `Motion.Expand`（0.4, 0, 0.2, 1），放 460ms、收 340ms。别用 `Settle` —— 三成时间走完七成路，整块纸是蹦出来的。
+2. 进度按**时间**线性走，各层自己换算：纸色在头两成时间盖住小组件上的字，纸上的字在三成到八成时间淡进来。拿缓动后的值去切区间，前两成二十毫秒就走完了。
+3. 墨印**跟着飞**到纸中间、从 44dp 放大成 64dp；收起时飞回去。它是前后唯一没断过的东西，眼睛跟着它走，就认得出纸是从哪儿来的。
+4. 投影等纸色盖实了（两成时间之后）再出 —— 纸还半透明时，投影会从纸底下透上来。
+5. **纸外面不蒙**：蒙一层宣纸色等于把整个桌面洗白。点纸外面 = 取消。
+6. **纸至少和小组件一样大**：拖成大尺寸的小组件本来就比纸大，纸从它里面长出来不能反倒缩一圈；内容比小组件矮时居中放。
 
-debug 包里可以慢放看接缝：`adb shell run-as com.abc.daodian.debug sh -c 'echo 8 > files/slowmo'`，删掉那个文件恢复正常速度。
+debug 包可以慢放看接缝：`adb shell run-as com.abc.daodian.debug sh -c 'echo 8 > files/slowmo'`，删掉那个文件恢复。
 
-**只有墨印拉起速记，空白处进 app**（2026-09-11 改，用户要的：误触空白就开始录音太吓人）。代价是整块的框不再是现成的：点墨印时桌面给的 `Intent.sourceBounds` 只是墨印那一小圆。右边、下边从它倒推是准的（内边距 10dp），宽高推不出来，而 `OPTION_APPWIDGET_*` 报的尺寸在荣耀上是错的 —— 报的宽是 224 / 302dp，实际 242dp，哪个都对不上，第一帧就错位。所以借「点空白处进 app」那一下：那个点击挂在整块上，`sourceBounds` 就是整块的框，`WidgetFrame` 把宽高记进 SharedPreferences，连同桌面当时报的尺寸 —— 报的变了（拖大拖小了）就作废。记的时候顺手记下「实测比报的差多少」（荣耀宽度差 18dp）：拖成 4×2、4×3、4×4 之后记下的宽高作废，就用「新报的 + 这个差」顶上，下一次点空白处再校准回实测值；从没点过空白处，就只能拿报的尺寸凑合，第一帧会错位十几 dp。
+**整块的框从哪来**：只有墨印拉起速记，空白处进 app（误触空白就开始录音太吓人，用户要的）。点墨印时桌面给的 `Intent.sourceBounds` 只是墨印那一小圆，右边、下边能倒推（内边距 10dp），宽高推不出来；`OPTION_APPWIDGET_*` 报的尺寸在荣耀上是错的（报 224 / 302dp，实际 242dp）。所以借「点空白处进 app」那一下：那个点击挂在整块上，`sourceBounds` 就是整块的框，`WidgetFrame` 把宽高连同桌面当时报的尺寸记下来 —— 报的变了（拖大拖小了）就作废，改用「新报的 + 上次实测的差」顶上，下次点空白处再校准。拿 `sourceBounds` 要求 PendingIntent 是 `FLAG_MUTABLE`，IMMUTABLE 会把桌面的 fill-in 整个丢掉。
 
-**纸至少和小组件一样大。** 拖成 4 格宽、3×3 / 4×4 的小组件本来就比纸的默认尺寸大，纸从它里面「长」出来时不能反倒缩一圈：纸的宽盖住整块小组件（左右取屏幕边距和小组件边缘里更靠外的那个），高不低于整块；内容比小组件矮时居中放。（上一版为了拿到准的框，点击挂在整块上、空白处也是「说一句」；更早还试过从墨印的小圆长出来，看着像一颗按钮炸开，怪。）拿 `sourceBounds` 要求 PendingIntent 是 `FLAG_MUTABLE` —— IMMUTABLE 会把桌面的 fill-in 整个丢掉，这也是真机上踩出来的；墨印和空白处两个都得是 MUTABLE。
-
-**纸外面不蒙。** 上一版铺过一层 72% 的宣纸色，真机上等于把整个桌面洗白了。现在只靠纸自己的投影和桌面分开；点纸外面＝取消。
-
-流程：点墨印 → 纸长出来、印外墨圈一圈圈洇开、字边说边洇出来 → 停顿自动收音（或点印）→ 送去解析，回合和对话页**长得一模一样**（直接复用 `AssistantTurnRow`：墨条 → 痕 → 一句话，§6.9）→ 记好了，纸底边一根细线走 2.6 秒，走完缩回小组件；这期间碰一下纸就不走。模型说了别的（闲聊、闸门拦下后的解释）时**自动接着听**，一路说下去不用碰屏幕，历史照样拼（同 `ChatTurn`）。模型要出问卡时交给对话页（§6.9）。
-
-做不了「按住说话」：桌面只把「点了一下」转给我们，拿不到按下和抬起，所以是点一下开始、停顿自动结束。
+**流程**：点墨印 → 纸长出来、字边说边洇出来 → 停顿自动收音（或点印）→ 送给 agent，回合和对话页**长得一模一样**（复用 `AssistantTurnRow`）→ 记好了，纸底边一根细线走 2.6 秒，走完缩回小组件；这期间碰一下纸就不走。模型说了别的（闲聊、闸门拦下后的解释）时自动接着听。模型要出问卡时交给对话页（§6.6）。做不了「按住说话」：桌面只把「点了一下」转给我们。
 
 | 情况 | 去向 |
 |---|---|
 | 第一次用 | 弹 `RECORD_AUDIO` 授权；拒了，纸上只剩一句原因和「去 app 里说」 |
-| 包里没带识别模型 | 同上 |
-| 没听清 | 印熄成待命，那句「没听清，再说一次？」顶替提示语；不是出错，不写红字 |
-| 说到一半识别出错 | 已经听到的字就当说完了，照样送去解析 |
-| 点「停」 | 掐断这条流，纸回到待命，点一下重说 |
-| 「改一下」/ 解析失败「手动填一条」 | 打开 app 的编辑页，桌面速记关掉 |
+| 没听清 | 印熄成待命，「没听清，再说一次？」顶替提示语；不是出错，不写红字 |
+| 说到一半识别出错 | 已经听到的字就当说完了，照样送去 |
+| 点「停」 | 掐断这条流，纸回到待命 |
+| 解析失败「手动填一条」 | 打开 app 的编辑页，速记关掉 |
 | 按 Home、锁屏 | 纸直接关掉（`onStop` 里 finish，等授权弹窗时除外） |
 
 **决策 8.3 · 语音在手机上本地识别（sherpa-onnx），不用系统的识别服务**
 
-系统给的两条路在荣耀 MagicOS 上都走不通，供应商那边也没有第三条：
+系统给的两条路在荣耀上都走不通，供应商那边也没有第三条：
 
-- `RecognizerIntent`：没有 Activity 接 `ACTION_RECOGNIZE_SPEECH`（`cmd package query-activities` 查过，空的），按下去只会 `ActivityNotFoundException` —— 对话页的麦克风以前在这台手机上按了没反应，就是这个。
-- `SpeechRecognizer`：默认识别服务是 MagicVoice（`settings get secure voice_recognition_service`），绑得上，它也真把麦克风打开了 —— 状态栏同时挂着「到点」和 YOYO 两个在用麦克风 —— 但**一个回调都不回**，Ready、Error 都没有，等 18 秒也没有，纸永远停在「在听」。它只伺候自家语音助手。（上一版就是这么绑的，还为它在 manifest 里加过 `<queries>`，已删。）
-- 供应商网关：`/audio/transcriptions` 返回 Route not found，`/responses` 和 `/chat/completions` 带音频输入也都失败。
+- `RecognizerIntent`：没有 Activity 接 `ACTION_RECOGNIZE_SPEECH`，只会 `ActivityNotFoundException`。
+- `SpeechRecognizer`：默认服务是 MagicVoice（YOYO），绑得上、也真开了麦克风，但**一个回调都不回**。它只伺候自家语音助手。
+- 供应商网关：`/audio/transcriptions` 不存在，`/responses`、`/chat/completions` 带音频输入也都失败。
 
-所以自己录音（`AudioRecord`，`VOICE_RECOGNITION` 源，16kHz 单声道），sherpa-onnx 在本地流式识别，模型 `sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01`（26MB，在 `assets/asr/`）。实现只有 `VoiceInput` 一处，桌面速记和对话页的麦克风共用：
+所以自己录音（`AudioRecord`，`VOICE_RECOGNITION` 源，16kHz 单声道），sherpa-onnx 本地流式识别，模型 `sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01`（`assets/asr/`）。只有 `agent/voice/VoiceInput` 一处，速记和对话页的麦克风共用：
 
-- 模型第一次 `start()` 时才加载（真机约 1.9 秒），加载期间录音照常进来、先攒着，好了一口气喂进去 —— 开头的字不丢。实例活多久模型就在内存里待多久，`release()` 放掉。
-- 端点用 sherpa 自带的三条规则：还没开口给 5 秒，开了口停 1.2 秒就收，一句最长 20 秒。
-- 声音不出手机，断网也能听写（解析那一步照样要网）。
-- 对话页：字边说边写进输入框、接在已经打的字后面，**不自动发** —— 那边是能改字的地方。桌面速记只有语音，听完直接送去解析。
+- 第一次 `start()` 才加载模型（真机约 1.9 秒），加载期间录音先攒着，好了一口气喂进去 —— 开头的字不丢。
+- 端点：还没开口给 5 秒，开了口停 1.2 秒就收，一句最长 20 秒。
+- 声音不出手机，断网也能听写。
+- 对话页：字边说边写进输入框，**不自动发**；速记只有语音，听完直接送。
 
-代价：
-
-- 包体：arm64 的 `libsherpa-onnx-jni.so` 24MB（onnxruntime 静态链接在里面）+ 模型 26MB（`noCompress`，原样进包）。`abiFilters` 只留 `arm64-v8a`，不然四个 ABI 加起来 70MB+。
-- 官方只发 GitHub Releases 的 AAR，没有 Maven 坐标，放在 `app/libs/`；升级就是换那个文件。
-- release 包必须 `-keep class com.k2fsa.sherpa.onnx.**` —— JNI 按名字读配置类的字段，AAR 自带的 proguard.txt 是空的。
-- 模型不出标点；开口前的环境音偶尔会被认成几个乱字（真机测过一次）。送去解析的就是这串字，模型一般看得懂。
-
-**没有第二条落库路径。** 桌面速记和对话页共用同一个 agent（`agent/conversation/ChatAgent.kt`）、`ChatMessage.kt` 里的回合规则（`patched`）和 `Reminders.commitPlan()`。`commitPlan` 整段 `NonCancellable`：插完库、闹钟还没排上的一瞬间被取消（纸被 Home 掉），会留下一条没有闹钟的 SCHEDULED 记录。
-
----
+代价：包体 +50MB（arm64 的 `.so` 24MB + 模型 26MB，`noCompress` 原样进包；`abiFilters` 只留 `arm64-v8a`）；官方只发 GitHub Releases 的 AAR，放在 `app/libs/`，升级就是换文件；release 包必须 `-keep class com.k2fsa.sherpa.onnx.**`（JNI 按名字读字段）；模型不出标点，开口前的环境音偶尔被认成几个乱字。
 
 ### 8.4 模型服务：顶栏印章 → 纸签 → 配置页
 
-供应商配置从「打包时钉死」改成「app 里随时改」。入口是顶栏那枚朱砂小印：**印带状态，点开是纸签，纸签末行去配置页。**
+**决策 8.4 · 供应商配置在 app 里随时改，不钉死在包里。** 入口是顶栏那枚朱砂小印：印带状态，点开是纸签，纸签末行去配置页。设计稿：<https://claude.ai/code/artifact/03cc5792-4cef-4e61-8eec-55409437cd3a>
 
-**印章三态**（`agent/conversation/ProviderSeal.kt`）：
-
-| 样子 | 什么时候 |
+| 印章 | 什么时候 |
 |---|---|
 | 朱砂 | 上一次调用成功，或这次打开还没调用过 |
 | 墨灰 | 上一次没连上：没网、key 不对、超时、5xx |
-| 虚线空印 | `isConfigured == false`，三格有一项空着 |
+| 虚线空印 | 三格有一项空着 |
 
-**未知当好的。** 冷启动是朱砂而不是灰的 —— 昨晚没网今早开 app，不该先摆一张臭脸。墨灰盖回朱砂时重新盖一次印（`Motion.stamp()`，同卡片落印那条曲线）；变灰时不动，坏消息不配一个重拍。回复进行中印章也不动 —— 那时「· 到点」的圆点已经在呼吸了，再加一个动的元素就是三个东西一起抢。
-
-**纸签上不写「状态」那一行。** 好着的时候只有模型名（宋体大字，它才是你点开要确认的东西）+ 网关主机名 + 末行「改配置 ›」。出问题才在顶上压一条告警带：一句人话（`ApiHealth.humanize()` 把 401/超时/UnknownHost 翻成「key 不对」「服务器没回」），底下小字留原始异常。没配置时同一条带子换成灰底。末行永远是「改配置」，不跟着状态换说法 —— 那一行是去处，不是状态的第二遍复述。
-
-（早先画过「朱砂圆点 + 『连得上』三个字」的写法，2026-09-13 被否：那行字右边永远空着，怎么排都难看，而且印章已经说过一遍了。）
-
-**状态只在内存里**（`ApiHealth`，`ApiState.Unknown/Ok/Down`）。杀掉重开回到 Unknown。存下来会误报 —— 昨晚的失败不代表现在连不上。只有**网络/服务端**的失败才算数：一轮以 `AgentEvent.Failed` 收尾、原因是 `LlmException`。校验闸门拦下的、模型跑偏的都不改状态，那是这句话的问题，不是这条链路的问题；点「停」走的是 `CancellationException`，压根到不了这儿。
-
-**配置存 DataStore**（`agent/model/provider/ProviderStore.kt`），三项：网关地址、key、模型（外加思考开关）。`apiStyle` / `jsonMode` 两档已经连同 BuildConfig 字段一起删掉。`secrets.properties` 降级成**种子**：一个字段都没存过时用它，存过之后以 DataStore 为准。key 不加密：`allowBackup="false"` + app 私有目录，个人自用的取舍。
-
-**agent 按配置缓存**（`agent/conversation/ChatAgent.kt`）。配置可变之后不能再在 ViewModel 里建一次就不管，但也不能每句话新建一个 —— 每个 `ResponsesClient` 自带一个 OkHttp 客户端，一句话一个连接池等于白扔 keep-alive。对话页和桌面速记共用这一份缓存，改完配置两边同时换过去；桌面速记每次说话前现读一次配置（那张纸是从桌面直接拉起来的，构造函数里抢读会跟第一句话赛跑）。
-
-**「测一下」走真路**（`agent/model/provider/ProviderTest.kt`）：同一个 `ResponsesClient`、同一份 system、同样挂着整套工具（`ChatAgent` 组好的，和真请求一模一样），只换成一句最短的话、只调一步。不拿 `/models` 之类的接口试探 —— 第三方网关不一定实现它，测通了也不代表正式调用能通，那种绿灯比没有还坏。测的是框里**正在填**的值，不是已保存的；**测没过也能保存**，有些网关对这句测试话挑刺、正式调用反而是通的，拦死了就没法绕过去。
-
-配置页（`agent/shell/ProviderScreen.kt`）三格 + 「测一下」+ 右上角「保存」。key 默认遮住、可点「显示」，输入法关掉联想和自动大写（免得 key 进词库）。有未保存改动时返回会拦一下（保存 / 丢掉）—— 手打一遍 key 很烦。设置页原来那四行只读信息合成一行去处，点进来是同一页。
-
-设计稿：<https://claude.ai/code/artifact/03cc5792-4cef-4e61-8eec-55409437cd3a>
+- **未知当好的**：冷启动是朱砂 —— 昨晚没网今早开 app，不该先摆一张臭脸。墨灰盖回朱砂时重新盖一次印；变灰时不动，坏消息不配重拍。回复进行中印章不动。
+- **纸签**：好着时只有模型名（宋体大字）+ 网关主机名 + 末行「改配置 ›」。出问题才在顶上压一条告警带：一句人话（`ApiHealth.humanize()` 把 401 / 超时 / UnknownHost 翻成「key 不对」「服务器没回」），底下小字留原始异常。
+- **状态只在内存里**（`ApiHealth`）：存下来会误报 —— 昨晚的失败不代表现在连不上。只有网络 / 服务端失败才算数；闸门拦下、模型跑偏不改状态，点「停」压根到不了这儿。
+- **配置存 DataStore**（`agent/model/provider/ProviderStore`）：网关地址、key、模型，外加「先想一想再答」（开 = `reasoning.effort=medium` + `summary=auto`，关 = `effort=none`）。`secrets.properties` 只是**种子**：一个字段都没存过时才用它。key 不加密：`allowBackup="false"` + 私有目录，自用的取舍。
+- **agent 按配置缓存**（`ChatAgent`）：不能每句话新建一个 —— 每个 `ResponsesClient` 自带一个 OkHttp 连接池。对话页和速记共用这份缓存；速记每次说话前现读一次配置。
+- **「测一下」走真路**（`ProviderTest`）：同一个 `ResponsesClient`、同一份 system、挂着整套工具，只换成一句最短的话、只调一步。不拿 `/models` 试探 —— 第三方网关不一定实现，测通了也不代表正式调用能通。测的是框里**正在填**的值；**测没过也能保存**（有的网关对测试话挑刺、正式调用反而通）。
+- 配置页：key 默认遮住，输入法关掉联想和自动大写（免得 key 进词库）；有未保存改动时返回会拦一下。
 
 ---
 
@@ -809,73 +584,182 @@ debug 包里可以慢放看接缝：`adb shell run-as com.abc.daodian.debug sh -
 |---|---|
 | 精确闹钟 | `AlarmManager.canScheduleExactAlarms()` |
 | 通知权限 | `NotificationManagerCompat.areNotificationsEnabled()` |
-| 渠道未被静音 | `channel.importance >= IMPORTANCE_DEFAULT` |
+| 渠道没被静音 | `channel.importance >= IMPORTANCE_DEFAULT`（MagicOS 会把 HIGH 静默降到 DEFAULT：有声音但不弹横幅，靠全屏 intent 兜着） |
 | 电池优化白名单 | `PowerManager.isIgnoringBatteryOptimizations()` |
 | 全屏 intent | `NotificationManager.canUseFullScreenIntent()` |
+
+体检项由各模块的 `Feature.health` 给，眼下只有提醒在给。记账的通知使用权在设置页记账那一组，不算进体检 —— 它挂了不影响提醒响。
 
 ### 9.2 系统层面要手动设的
 
 MagicOS 各版本菜单名有出入，按关键词找：
 
-- **应用启动管理** → 找到本 app → 关掉「自动管理」→ 三个开关全开（允许自启动 / 允许关联启动 / 允许后台活动）。**这一项最关键，且没有公开 API 可以检测。**
-- **电池** → 取消对本 app 的省电策略 / 后台耗电限制
-- **最近任务**界面 → 下拉本 app 的卡片 → 加锁
-- **通知** → 允许「横幅」「锁屏显示」「铃声」
+- **应用启动管理** → 本 app → 关掉「自动管理」→ 三个开关全开（自启动 / 关联启动 / 后台活动）。**这一项最关键，且没有公开 API 可以检测。**
+- **电池** → 取消对本 app 的省电策略
+- **最近任务** → 下拉本 app 的卡片 → 加锁
+- **通知** → 允许横幅、锁屏显示、铃声
 
 ### 9.3 验收标准
 
-验收**不是**「点一下能响」，是**放置测试**：
+验收**不是**「点一下能响」，是**放置测试**：排 20 条覆盖未来 48 小时的提醒（**必须包含凌晨**，那是 Doze 最深的时候），手机正常揣兜里、正常用、别刻意打开这个 app。48 小时后看投递日志。
 
-排 20 条覆盖未来 48 小时的提醒（**必须包含凌晨时段**，那是 Doze 最深的时候），手机正常揣兜里、正常用、别刻意去打开这个 app。48 小时后看投递日志的漂移分布。
+**20 条漂移全部 < 30 秒，且 `source` 全是 `ALARM`（没有 `SWEEP`），才算通过。** 出现任何一条 `SWEEP`，说明主路径正在被掐，回 §9.2 重新检查。
 
-**全部 20 条漂移 < 30 秒，且 `source` 全是 `ALARM`（没有 `SWEEP` 补发），才算通过。**
-
-出现任何一条 `SWEEP`，说明主路径正在被掐，回到 9.2 重新检查配置。
+排 20 条的代码是 `Reminders.startSoakTest`，眼下没有入口，要跑时临时接一个按钮。
 
 ---
 
-## 10 里程碑
+## 10 记账
 
-| | 内容 | 出口条件 |
-|---|---|---|
-| **M1** | 把最难的跑通 —— 完全不接 AI。手动添加/编辑页 + 列表、Room + AlarmManager + BootReceiver + 通知、FireLog + 投递日志页、权限体检页 | **48 小时放置测试通过（§9.3）** |
-| **M2** | 接 AI。先验 SDK 可用性 → ProviderProfile + 设置页 → 三档 `response_format` + 容错解析 → 校验闸门 + 确认卡 | 30 条真实句子，解析正确率 > 90% |
-| **M3** | 重复规则与时区。RRULE 子集求值器、墙钟锚定 + `TIMEZONE_CHANGED` 重算 | 手动改系统时区，重复提醒时间正确 |
-| **M4** | 打磨。稍后提醒、通知 action、语音输入、铃声选择、分组列表、搜索 | 自己愿意每天用 |
+付款通知自动变成流水，**由模型读懂、整理、归类**；有把握的一声不吭记好，没把握的每晚在对话里问一次。
 
-**为什么 M1 不接 AI**：AI 解析出错当场看得见、能立刻改；闹钟没响可能三天后才发现。M1 不通过，后面全是白做 —— 一个解析得再漂亮但会漏提醒的 app，价值是负的，因为你会开始依赖它。
+### 10.1 分工与流程
 
----
+**代码只收集、存档、排期、校验、画界面；读懂全交给模型。** 前者要 100% 可靠、不能有创造性；后者都是「看得懂就行」的活 —— 是不是一笔账、多少钱、什么方向、哪个商户、几条通知是不是同一笔、退款挂哪笔、归哪类、哪些要问你。正则追不上银行改文案。
 
-## 11 风险登记
+**原始通知是唯一真相、永不删除**。模型的产出是派生数据，可以整批重跑。
 
-| 风险 | 影响 | 应对 |
-|---|---|---|
-| MagicOS 杀后台导致漏提醒 | **致命** | M1 放置测试 + 巡检兜底 + 投递日志可观测 |
-| `openai-java` 在 Android 上跑不起来，或对非 OpenAI 供应商发多余字段 | 中 | M2 第一步实测；撞上就换回手写客户端，只动 `ReminderParser` 的一个实现类 |
-| 供应商不支持 `json_schema` | 中 | 三档降级，最低档纯提示词也能工作 |
-| 模型日期算错 | 中 | `basis` 字段 + 校验闸门 + 确认卡 |
-| 出国换时区导致重复提醒错位 | 中 | 墙钟锚定 + `TIMEZONE_CHANGED` 重算 |
-| API key 硬编码在 APK 里 | 低（自用） | APK 不外发；`allowBackup="false"`；用一把可随时吊销的独立 key |
-| 供应商跑路 / 欠费 | 低 | 已排期提醒不受影响；改 `baseUrl` 即可换家 |
+```
+① 采集（一直在跑）
+   通知到达 → PaySampler → raw_notification（待整理）
+   实时回调会丢：连上时、解锁时、整理前都扫一遍通知栏，抓取页能手动抓（§10.2）
+② 整理（默认每 3 小时，设置里可改）
+   代码先数待整理的（不算最近 10 分钟到的）：0 条 → 睡，不花一分钱
+   有 → 整理 agent 后台跑一轮：这批原始通知 + 类别表 + 商户记忆 + 最近 30 天流水摘要
+        它调 record_expenses → 过护栏（§10.6）→ 落库
+          有把握 → 自动归类；没把握 → 待确认，附上它想问你的话；不是账 → 原始通知标忽略
+③ 对账（每晚 21:30，可改）
+   先强制整理一次；没有待确认的 → 不打扰
+   有 → 弹通知 [现在][晚点][今天算了] → 对话页开一轮 → 问卡（一张最多 4 笔）→ 你点 → 落库 + 记商户记忆
+④ 随口（任何时候在对话页说）
+   「刚才停车 5 块」→ 记；「山姆那笔是吃饭」→ 改；「这个月吃饭花了多少」→ 查
+```
 
-注意第一行和最后一行的对比：**整个 AI 层的所有风险加起来，严重程度都不如「闹钟没响」这一条。** 这也是为什么文档的一半篇幅在讲 §05 和 §09。
-
----
-
-## 修订记录
-
-| 版本 | 变更 |
+| 场景 | 怎么跑 |
 |---|---|
-| v1 | 初稿 |
-| v1.1 | 决策 3.1 翻转：改用 `openai-java` 官方 SDK，补充两条待验前提和对应风险 |
-| v1.2 | 决策 3.2 修订：minSdk 33 → 34（全屏 intent 相关 API 是 34 才有的，停在 33 反而要写版本分支）；确认 `setAlarmClock()` 的状态栏图标代价可接受 |
-| v1.3 | §06 修订：AI 解析改用工具调用，不用 JSON 输出模式（实测 `json_object` 档模型会自造字段名）；多轮对话靠客户端拼历史文本，不依赖服务端会话状态。M1/M2 真机测试通过；M3 正式界面（Compose，八块屏幕）已实现，端到端真机验证未完成。现状与操作细节见 [CLAUDE.md](CLAUDE.md) 和 [README.md](README.md) |
-| v1.4 | §8.1 新增：视觉语言换成「墨宋」（宣纸底 / 墨色实心块 / 朱砂点缀 / 宋体标题），八块界面照新视觉稿重画；到点全屏页改成直接读主题色板（仍钉死深色），通知副行补上「什么时候的事」和补发标记 |
-| v1.5 | §4.3 新增：当天事项（只说了哪天、没说几点）。`dueDay` 一列 + 收尾时刻，调度层不改；晚上合成一组安静通知，没做完顺延 |
-| v1.5 | §8.4 新增：供应商配置搬进 app（DataStore，`secrets.properties` 降级成种子）；顶栏印章带状态（朱砂/墨灰/虚线），点开是状态纸签，末行进配置页；`ApiHealth` 只在内存里记上一次调用；「测一下」走真实解析路径 |
-| v1.6 | §6.8 新增：`harness/` —— ReAct 循环、工具接口、授权模式（ASK / AUTO）、按整轮裁剪的上下文策略；历史改为保留完整工具结构 |
-| v1.8 | 对话落盘：`data/chat/` 单独一个 `chat.db`，`Session.Listener` 整轮快照写库，重启后重建画面接着聊；工具结果多存 ok / ref |
-| v1.7 | 迁移完成：对话页和桌面速记改跑 harness，`ai/` 删除（供应商配置等搬到 `harness/provider/`，提醒工具和闸门搬到 `harness/builtin/reminder/`）；`apiStyle` / `jsonMode` 连同 BuildConfig 字段删除；设置页加授权模式开关，卡片加「要记下吗」态 |
-| v1.9 | §6.9 新增：问卡与痕。授权模式 / 授权条 / 提醒卡片 / 记账回执框删除；写操作直接办、留一道痕，拿不准时模型调 `ask_user` 出问卡；「答」接过原来「已记下」那枚印；依据挪进编辑页；桌面速记遇到问卡交给对话页。`Rrule` 支持负数 BYMONTHDAY（-1 = 月底） |
-| v2.0 | 包结构重排成三个模块：`agent`（引擎、对话、壳）、`reminder`、`ledger`，外加 `shared` 地基（[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)）。模块经 `Feature` / `FeatureUi` 一个接头接到 agent 上；留痕改看 `Tool.effect`；导航改成路由字符串（`shared/navigation/Launch`）。挪包改了全类名，装新包要连数据卸载，提醒库回到 v1、文件改名 `reminder.db` |
+| 整理 | 后台，写操作直接落库、不问。**用一次性 `Session`，不进 `chat.db`**（整理一轮轮写进对话会把对话淹掉，还和前台抢同一个 Session）；每次跑记一行 `agent_run` |
+| 对账 | app 发起的一轮（`Item.UserMessage(trigger = true)`，模型看到的开头多一句「app 自动发起，不是用户说的」），对话里画成分隔线「每晚对账」。「晚点」固定 1 小时后再问，这期间对完了就取消；一天最多主动问一次 |
+| 随口 | 直接办，留痕 |
+
+**同一时刻只有一个 agent 写账**：账本一把锁（`LedgerTools.LOCK`）。整理整轮拿着，拿不到就这次不跑；对话里的写工具每次写前排队拿。拿着锁时顶栏印外面转一圈细线。
+
+**工具**（模型只能通过它们改数据）：`record_expenses`（整理用，一次交一批，每条通知都要有去处）、`list_expenses`（查，第一行是合计）、`add_expense`（随口记，落库即「你确认过」）、`update_expenses`（归类、拆分、改摘要 / 备注 / 商户、打标签、挂退款、作废、记住商户）、`add_category`（要新的一级类别时）。
+
+**隐私**：流水（金额、商户、卡尾号）**原样发给模型网关**，不脱敏（用户选的）。
+
+**状态机**（只往一个方向走）：原始通知 待整理 → 已整理 / 忽略 / 看不清 / 被全文替代；流水 自动归类、待确认 → 已确认，任何状态 → 作废（不删，不进统计）。
+
+### 10.2 采集：通知给得出什么、会被遮蔽、会漏
+
+来源（`ledger/capture/PaySources`，加一家 = 加一行）：
+
+| 来源 | 给得出 | 给不出 | 原文举例 |
+|---|---|---|---|
+| 建设银行「动账提醒」 | 卡尾号、到分钟的时间、支出 / 收入、金额 | **商户** | 您尾号4918的储蓄账户9月22日19时18分支出人民币197.00元 |
+| 招商银行 | 卡尾号、金额、消费 / 退款 | 商户、时间 | 信用卡通知：您尾号8837的招行信用卡消费319.40人民币 |
+| 掌上生活「交易提醒」 | **商户**、渠道（支付宝- / 财付通-）、金额 | 卡尾号 | 您在支付宝-山姆会员商店有一笔319.40人民币的消费已成功 |
+| 支付宝「交易提醒」 | 金额、是否花呗 | 商户 | 你有一笔152.00元的支出……使用花呗支付 |
+
+- **商户名只有掌上生活给**。招行信用卡每一笔都会**同时**来招行 + 掌生两条（间隔 0.2~0.6 秒、金额一字不差）→ 必须合并成一笔。建行储蓄卡永远拿不到商户，只能靠模型猜或者问。
+- 营销噪音不少（立减金、优惠券、「咖啡爱好者看这里」），还有标题正文全空的分组汇总通知 —— 空的代码直接标忽略，其余交给模型。
+
+**正文会被系统遮蔽**：招行通知有时收到的是「敏感数据已隐藏」，过几秒再读同一条就是全的。源头是 Android 15 对第三方监听的敏感内容遮蔽，豁免权限 `RECEIVE_SENSITIVE_NOTIFICATIONS` 是 `signature|role`，**我们永远拿不到**。荣耀的 `HnNotificationAssistant` 先用正则判（把「尾号8837的」当成验证码）立刻打上遮蔽，再异步用 TextClassifier 撤掉 —— 线程池满了第二步会被跳过，那条就永远是遮蔽版。
+对策：遮蔽的隔 5s / 30s / 2min 各重读一次（实测 5 秒那次就拿到了）；同一个 `key + postTime` 真正文到了，**代码**把遮蔽版标「被替代」，不劳模型；只剩遮蔽版的，模型标「看不清」，对账时直接问你金额，不猜。
+
+**实时回调会丢**：真机上监听一直连着，一笔 199.90 的两条通知一条都没收到，约 10%（推测是荣耀冻结了进程）。所以**不能只靠实时回调**：连上时、解锁时、整理前都把通知栏扫一遍，去重按 `key | postTime | 正文` 指纹。只扫得到还挂在通知栏里的，划掉了的系统不留。
+
+**监听会断，而且断了没人知道**（反编译 Android 15 框架查的，不是猜的）：
+
+- 没绑上时 `getActiveNotifications()` 不报错，返回**空数组** —— 分不出「没连着」和「通知栏里没有」。所以扫之前先问 `isBound()`，连没连着由 `PaySampler` 连上 / 断开时报给 `PaySources.listener`。
+- 系统只肯重绑「自己请求断开过」的监听（`ManagedServices.setComponentState` 状态没变就直接返回）。连着的要重连：先 `requestUnbind()` 再 `requestRebind()`；进程被杀后系统没自动绑回来的，app 里请了没用，只能去系统设置把通知使用权关掉再打开。冷启动时 `requestRebind` 催一下。
+- **不用「禁用再启用组件」那一招**：Android 15 收到组件变化会清掉「查不到服务」的授权（`trimApprovedListsForInvalidServices`，查的时候不带 `MATCH_DISABLED_COMPONENTS`），一禁用使用权就没了。
+- 「通知使用权开没开」按组件查（`isNotificationListenerAccessGranted`），不按包名：挪包后旧组件名的授权还挂在包名下，按包名查会误报开着。
+
+**抓取页**（`ledger/capture` + `presentation/CaptureScreen`，设置 → 记账 →「抓到的通知」，或记账总览底下「少了一笔？」）：使用权、监听连没连着（「重连」）、最近一次实时收到、待整理几条；「现在抓一下」扫通知栏、等存完、报「挂着几条、新存几条」，没连着先请系统重绑；下面是最近 100 条原文，写着怎么抓到的、后来进了哪一笔。
+
+### 10.3 口径
+
+你在界面上只看三样：**这个月支出多少、收入多少、钱花在哪些一级类别上**。更细的问题在对话里问模型。
+
+- **金额**：整数，单位**分**，永远是正数；正负由方向决定。只记人民币。
+- **方向**：
+
+  | 方向 | 例子 | 统计里 |
+  |---|---|---|
+  | `OUT` 支出 | 消费、**转给别人**（还钱、AA、给家人、发红包） | 加进当月支出 |
+  | `REFUND` 退款 | 退货已成功 | 算**退款那个月的一笔负数**，类别跟原笔走 |
+  | `IN` 收入 | 工资、结息、别人转来 | 加进当月收入 |
+  | `TRANSFER` 转移 | 信用卡还款、自己账户互转、余额宝进出 | **哪里都不算** |
+
+- **月支出 = 当月 OUT − 当月 REFUND**（某类某月可能是负数，照实显示）；**月收入 = 当月 IN**。算哪个月按发生时刻落在本地哪一天（`day` 列，写入时按当时时区算好）。
+- **待确认的也进统计**：金额是真的，只是类别没定，归进「未归类」这一桶（不是一个真的类别）。**作废的**不进任何统计。
+- 「是转账」不是作废的理由：转移只指钱在自己账户之间挪。作废只用于重复记了、根本没这笔钱、记错了（真机上踩过：对账时答「转给某人」，模型当成转移作废了）。
+
+### 10.4 类别与分细
+
+你看粗的，模型看细的：
+
+| 办法 | 谁看 | 谁填 | 要不要问你 |
+|---|---|---|---|
+| 一级类别 | 你（总览、月度汇总） | 预设，固定 | 新增要问 |
+| 二级类别 | 模型 | 模型自己建 | **不问**；每个一级下最多 12 个 |
+| 标签 | 模型 | 模型 / 你在对话里说 | 不问。「请客」「报销」「国庆回老家」都用它，**事件也用标签**，不另设事件表 |
+| 商户记忆（默认类别） | 模型 | **只有你确认过的才记**；模型自己归的只算那一笔，不固化 | 要问 |
+| 一笔拆几类 | 你看到加总后的 | 你说 / 模型提议 | 要问 |
+| 摘要 | **你**：列表每笔显示这一句 | 模型写 | 不问 |
+
+预设（建库时写入）：支出 餐饮、交通、购物、日用、娱乐、住房、医疗、其他，各带几个二级（外卖、堂食、打车、超市日用、理发、房租、话费网费……）；收入 工资、利息理财、转账红包、其他收入。只有两层。
+
+### 10.5 表与统计
+
+表在 `ledger/data/db/LedgerEntities.kt`，改表前先读这一节。原则：**存事实、存判断（带上是谁判的），不存能算出来的**（星期几、早饭还是夜宵都从时刻算）。
+
+- `raw_notification`：原样的标题、正文、整个 extras 的 JSON；`fingerprint` 唯一；`capturedHow` 记怎么抓到的。
+- `txn` 流水：`time_basis` 区分时刻的来历（`EXACT` 正文写了 / `NOTIFIED` 拿通知时刻当 / `DAY` 只知道哪天）；`source`（`NOTIFICATION` / `CHAT`）；`state`（`AUTO` / `PENDING` / `CONFIRMED` / `VOID`）；`ask` 是待确认时模型想问的话；`parsed_by` = 模型名 @ 提示词版本；`confidence` 只拿来排序，不当真。
+- **`allocation` 分摊：统计从这张表加，不直接加流水**。不拆的流水就一行。一笔拆几类、退款抵回原类别，统计都不用写特殊逻辑。
+- `txn_raw` 流水 ↔ 原始通知，`raw_id` 唯一 —— 一条通知最多属于一笔，天然防重复记账。`txn_link` 流水 ↔ 流水（先只有退款）。
+- `merchant` + `merchant_alias`（原样商户串 → 商户，整理时代码先精确查一遍把记忆喂给模型）、`account`（`bank + tail + type` 唯一，代码按模型给的三项 upsert）、`tag`、`change_log`（新建不记，**之后的每次改都记**，谁改的、理由 —— 你问「这笔怎么变成日用了」，模型答得出）、`agent_run`（每次整理的记录）。
+- 统计 SQL 在 `LedgerDao`：`WHERE state != 'VOID'`、按 `day` 分段、支出按 `COALESCE(c.parent_id, c.id)` 归到一级。对话里的细查全走 `list_expenses`。
+
+### 10.6 护栏与写入规矩（落库前硬校验）
+
+`ledger/domain/LedgerGuard` + 存储层。一条不过，那一笔打回、退回待整理；只打回那一笔，不连累整批。
+
+1. **金额必须在原文里出现**：换算成字符串，要能在某条引用的原始通知正文里找到 —— 挡住绝大多数幻觉。整数金额（「5」）只在挨着「元 / ¥ / 人民币」时才算（单测抓到过「4918」撞上「尾号4918」）。
+2. **必须引用原始通知**：非空、都存在、都属于本批（或最近已整理的）。
+3. **同一组 raw id 只能对应一笔**：重跑时按 raw id 覆盖，不新增 —— 天然幂等。
+4. **合并后的金额 ≤ 被合并各条之和**。
+5. **类别必须已存在**；新的一级只能走 `add_category`。
+6. **发生时刻落在通知时刻前后 24 小时内**。
+7. **分摊加起来必须等于流水金额**。
+8. **分摊挂一级或二级都行**，方向要对得上类别的 `kind`（`REFUND` 挂支出类别，`TRANSFER` 不挂）。新建二级前查别的一级下有没有同名的，有就打回（模型建过「其他/理发」，而「日用/理发」本来就有）。
+9. **一条原始通知只属于一笔流水**。作废一笔时先解开它的 `txn_raw`，挂着的通知标**忽略**（写「作废：原因」）—— 退回待整理的话，下一轮会原样记回来。
+10. **`source = CHAT` 的流水不走第 1、2 条**（没有原文可对），落库即 `CONFIRMED`，对话里留一道痕。
+11. **退款挂上原笔时**，退款的分摊照抄原笔的类别，模型给的不看；找不到原笔就让模型挑类别，`txn_link` 空着。
+12. **重跑只动 `AUTO` / `PENDING`**，不盖掉你确认过的；按 raw id 找到旧流水就地更新，写 `change_log`。
+13. **二级类别**每个一级下最多 12 个，模型建之前先查有没有同义的。
+
+**永不删原始通知。**
+
+### 10.7 要注意的地方
+
+1. **自动归错不能固化**：商户记忆只从你确认来。
+2. **重跑不能盖掉你确认过的**。
+3. **冷却 10 分钟再整理**：一次挡三件事 —— 招行 / 掌生两条别被拆进两批；遮蔽版有时间补回真正文；丢了的回调有时间被扫回来。
+4. **只剩遮蔽版的**：标「看不清」，对账时直接问金额，不猜。
+5. **同一时刻只有一个 agent 写账**（§10.1 的锁）。
+6. **分批**：攒多了每批最多 30 条，上一批的结果带进下一批的「最近流水」，跨批的合并和退款接得上。
+7. **失败要退避**：网关挂了等下个周期，别连环重试。
+8. **荣耀会拖延后台任务**：「每 3 小时」实际可能 5、6 小时，不影响正确性，21:30 对账前那次强制整理兜底。整理用 WorkManager 周期任务 + 联网约束；对账要准时，用 `ledger/reconciliation` 自己的闹钟（不碰 `reminder/scheduling/`）。
+9. **清账本重来要连对话一起清**：删 `databases/ledger.db*` 的同时，把 `chat.db` 里聊过账的那几轮删掉。新账本的 # 编号从 1 重排，对话里旧的「改好了」会让模型以为清单上的几笔已经处理过、一笔不问（真踩过）。对账开场和提示词也写明了「清单以最新为准」。
+
+### 10.8 故意不做的
+
+| 不做 | 理由 / 替代 |
+|---|---|
+| 必要性、为谁、报销状态等固定维度列 | 需要时模型打标签，对话里查 |
+| 事件表 | 用标签，起止时间从挂着的流水算 |
+| 周期 / 订阅表 | 问「每月固定花多少」时模型看历史现算 |
+| 币种列 | 只记人民币；真遇到外币再加一列 |
+| 预算 | 没提需求 |
+| 界面上改账 | 改账一律走对话，账本页只读 |

@@ -5,7 +5,7 @@ import android.content.Intent
 import com.abc.daodian.agent.engine.tool.Tool
 
 /**
- * 一个模块接到 agent 上的唯一接头。agent 只认识它，不知道提醒、账是什么。见 PROJECT_STRUCTURE.md「接头」
+ * 一个模块接到 agent 上的唯一接头。agent 只认识它，不知道提醒、账是什么。见 DESIGN.md §2.2「接头」
  *
  * 模块自己能独立运转（提醒断网也要响、记账在后台采集整理），接头只管「给 agent 什么」：
  * 工具、提示词、痕、例句、体检项、app 自己发起的一轮、冷启动要做的事。

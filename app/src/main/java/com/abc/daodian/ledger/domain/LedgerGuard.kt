@@ -3,7 +3,7 @@ package com.abc.daodian.ledger.domain
 import java.time.Duration
 
 /**
- * 落库前的硬校验（LEDGER_PLAN.md §7 + §10.6）。纯函数，不碰存储 —— 要的数据由工具先查好递进来。
+ * 落库前的硬校验（DESIGN.md §10.6）。纯函数，不碰存储 —— 要的数据由工具先查好递进来。
  *
  * 每条规则挡一类模型会犯的错；挡下来的原因写成模型能照着改的话，回给它。
  */
@@ -12,7 +12,7 @@ object LedgerGuard {
     /** 每个一级类别下最多几个二级（§10.6 第 13 条） */
     const val MAX_SUB_PER_TOP = 12
 
-    /** 发生时刻离通知时刻最多差多远（§7 第 6 条） */
+    /** 发生时刻离通知时刻最多差多远（§10.6 第 6 条） */
     val TIME_WINDOW: Duration = Duration.ofHours(24)
 
     /** 类别解析的结果：已有的 id，或者要顺手建的二级；两者都空 = 未归类 */
@@ -76,7 +76,7 @@ object LedgerGuard {
         return Check.Ok(CategoryPick(null, NewSubcategory(top.id, parts[1])))
     }
 
-    /** 金额必须能在某条原文里找到（§7 第 1 条）。挡住绝大多数幻觉 */
+    /** 金额必须能在某条原文里找到（§10.6 第 1 条）。挡住绝大多数幻觉 */
     fun amountInRaw(cents: Long, raws: List<RawNote>): Boolean {
         val bodies = raws.filterNot { it.redacted }.map { it.body }
         return Money.spellings(cents).any { spelling ->
@@ -88,7 +88,7 @@ object LedgerGuard {
         }
     }
 
-    /** 发生时刻落在通知时刻前后 24 小时内（§7 第 6 条） */
+    /** 发生时刻落在通知时刻前后 24 小时内（§10.6 第 6 条） */
     fun timeNearRaw(occurredAt: Long, raws: List<RawNote>): Boolean {
         val window = TIME_WINDOW.toMillis()
         return raws.any { kotlin.math.abs(it.postTime - occurredAt) <= window }

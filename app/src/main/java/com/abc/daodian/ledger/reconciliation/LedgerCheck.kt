@@ -33,7 +33,7 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 
 /**
- * 每晚对账（LEDGER_PLAN.md §4 ③）：到点先强制整理一次，还有没认出来的才弹通知
+ * 每晚对账（DESIGN.md §10.1 ③）：到点先强制整理一次，还有没认出来的才弹通知
  * [现在] [晚点] [今天算了]；一笔都没有就不打扰。一天最多主动问一次（「晚点」那次不算）。
  *
  * 闹钟是记账自己的，不碰 schedule/：每次响完排下一天；开机、覆盖安装、app 冷启动都重排一遍。

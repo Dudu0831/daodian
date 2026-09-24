@@ -30,7 +30,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 /**
- * 整理：把待整理的原始通知交给整理 agent（LEDGER_PLAN.md §4 ②）。
+ * 整理：把待整理的原始通知交给整理 agent（DESIGN.md §10.1 ②）。
  *
  * 代码先数，0 条就睡、不花一分钱；有才叫模型。整轮拿着账本锁（[LedgerTools.LOCK]）——
  * 同一时刻只有一个 agent 写账；别人正拿着就这次不跑，等下一轮。跑的时候挂在 [AgentActivity] 上，
@@ -41,10 +41,10 @@ import kotlinx.coroutines.withContext
  */
 object Organizer {
 
-    /** 最近这么久内到的先不整理：招行 / 掌生两条别被拆进两批，遮蔽版有时间补回真正文（§8.3） */
+    /** 最近这么久内到的先不整理：招行 / 掌生两条别被拆进两批，遮蔽版有时间补回真正文（DESIGN.md §10.7 第 3 条） */
     const val COOLDOWN_MILLIS = 10 * 60 * 1000L
 
-    /** 一批最多几条；攒多了分几批，上一批的结果会出现在下一批的「最近流水」里（§8.6） */
+    /** 一批最多几条；攒多了分几批，上一批的结果会出现在下一批的「最近流水」里（DESIGN.md §10.7 第 6 条） */
     const val BATCH = 30
     private const val MAX_BATCHES = 6
 

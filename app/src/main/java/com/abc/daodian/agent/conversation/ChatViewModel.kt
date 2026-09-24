@@ -38,7 +38,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
- * 对话页（和顶栏印章、模型配置页）的状态。见 DESIGN.md §6.7–6.9
+ * 对话页（和顶栏印章、模型配置页）的状态。见 DESIGN.md §06
  *
  * 只管对话：说一句、问卡、停、重试、app 发起的一轮、模型配置。提醒、账的页面各有自己的 ViewModel。
  */
@@ -133,9 +133,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     /**
-     * 一句话 → agent 循环。见 DESIGN.md §6.8
+     * 一句话 → agent 循环。见 DESIGN.md §6.1
      *
-     * 写操作（建提醒、改账）在循环里直接办，对话里留一道痕；拿不准时模型自己出问卡（§6.9）。
+     * 写操作（建提醒、改账）在循环里直接办，对话里留一道痕；拿不准时模型自己出问卡（§6.6）。
      * 问卡等着的时候，这里发出去的话是给问卡的：点了「其他…」就只答那一题，否则算直接说。
      */
     fun sendMessage(text: String) {
@@ -191,7 +191,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 跑一轮。一个回合**原地长大**：正文、痕、问卡按到货顺序摞，中途不换消息类型。见 DESIGN.md §6.7
+     * 跑一轮。一个回合**原地长大**：正文、痕、问卡按到货顺序摞，中途不换消息类型。见 DESIGN.md §6.5
      */
     private fun runTurn(text: String, retry: Boolean = false, trigger: Boolean = false) {
         streamJob = viewModelScope.launch {
@@ -239,7 +239,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 } else {
                     // 什么都还没办成：这一回合连同半截字撤掉，那句话也撤下来、退回输入框 ——
-                    // 气泡改不了，留在对话里没用；退回去改两个字就能重发。见 DESIGN.md 决策 6.3
+                    // 气泡改不了，留在对话里没用；退回去改两个字就能重发。见 DESIGN.md §6.1「喊停与重试」
                     val msgs = _messages.value
                     val asked = msgs.getOrNull(msgs.indexOfFirst { it.id == turnId } - 1) as? ChatMessage.UserText
                     val takeBackId = asked?.takeIf { stoppedByUser && it.text == text }?.id
@@ -263,7 +263,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ---------------- 问卡（DESIGN.md §6.9）----------------
+    // ---------------- 问卡（DESIGN.md §6.6）----------------
 
     /** 点了一颗猜测。再点同一颗是取消。只有一题的卡点了就算答：停一下让你看清点的是哪个，再收起 */
     fun pickAsk(callId: String, question: Int, option: Int) {

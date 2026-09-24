@@ -12,7 +12,7 @@ import com.abc.daodian.agent.feature.TraceState
 import com.abc.daodian.agent.model.LlmEvent
 
 /**
- * 对话流里的一条消息。见 DESIGN.md §6.9（问卡与痕），动效稿见 CLAUDE.md 里的链接。
+ * 对话流里的一条消息。见 DESIGN.md §6.6（问卡与痕），动效稿的链接也在那一节。
  *
  * 只有两类：用户说的话，和助手的一个回合。
  * 助手回合是**原地长大**的：一个回合里 agent 可能调好几次模型（调工具 → 看结果 → 再说话），
@@ -74,7 +74,7 @@ sealed interface ChatMessage {
     }
 }
 
-/** 问卡的状态，见 DESIGN.md §6.9「问卡的状态」 */
+/** 问卡的状态，见 DESIGN.md §6.6「问卡的规矩」 */
 enum class AskState {
     /** 参数还在流：收全的题先画出来，还不能点 */
     DRAFT,
@@ -291,7 +291,7 @@ private fun ChatMessage.AssistantTurn.settleThought() =
     } else this
 
 /**
- * 从存下来的轮次重建画面（重启后打开对话页）。见 DESIGN.md §6.8
+ * 从存下来的轮次重建画面（重启后打开对话页）。见 DESIGN.md §6.1
  *
  * 只还原落定的样子：对勾不再描、印不再盖，气泡不再升起，思考过程本来就不存。
  * 痕靠工具调用的参数 + 结果里的 ok / ref 还原，问卡靠结果末行的 `answer=…`；

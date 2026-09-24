@@ -22,14 +22,14 @@ import org.json.JSONObject
 
 /**
  * 支付通知采集器：[PaySources] 里那几家的通知**原样**存进 `raw_notification`，不解析 ——
- * 读懂是整理 agent 的事（LEDGER_PLAN.md §3）。
+ * 读懂是整理 agent 的事（DESIGN.md §10.1）。
  *
  * 类名还叫 PaySampler（调研阶段的名字）：「通知使用权」是按组件名授的，改名就得重新去系统设置里开一次。
  *
  * 两个坑，对策都在这里：
- *  - **正文有时被系统遮蔽**（§2.2）：遮蔽版照存，隔 5s / 30s / 2min 从通知栏再读同一条，
+ *  - **正文有时被系统遮蔽**（DESIGN.md §10.2）：遮蔽版照存，隔 5s / 30s / 2min 从通知栏再读同一条，
  *    真正文到了由 [LedgerStore.ingest] 把遮蔽版标成 SUPERSEDED
- *  - **实时回调会丢**（§2.3）：连上时、解锁时、整理之前（[PaySources.sweep]）都把通知栏扫一遍兜底，
+ *  - **实时回调会丢**（§10.2）：连上时、解锁时、整理之前（[PaySources.sweep]）都把通知栏扫一遍兜底，
  *    抓取页上还能手动扫（[PaySources.sweepNow]）；同一条通知同一段正文靠指纹只存一次
  *
  * 连上 / 断开报给 [PaySources]（抓取页看连没连着、手动扫要找到这个实例）。

@@ -51,7 +51,7 @@ import kotlin.math.ceil
 import kotlin.math.min
 
 /*
- * 模型画的图（```svg 代码块，见 Markdown.kt 的 [MdBlock.Svg]）。见 DESIGN.md §6.11
+ * 模型画的图（```svg 代码块，见 Markdown.kt 的 [MdBlock.Svg]）。见 DESIGN.md §6.8
  *
  * 用 AndroidSVG 解析、录成 Picture（矢量，放大不糊），只画静态的 —— 没有脚本、不联网（它不带外部文件解析器，
  * <image> 引外面的东西一律不取）。还在流、没写到 </svg> 的画一个虚线占位「在画图」；画不出来的退回成代码块，原文不丢。

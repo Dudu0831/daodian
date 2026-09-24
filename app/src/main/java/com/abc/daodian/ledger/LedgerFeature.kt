@@ -58,7 +58,7 @@ object LedgerFeature : Feature, FeatureUi {
 
     /**
      * 每晚对账（通知上点「现在」、记账页点「现在就说」）：把没认出来的几笔列给模型，由它在对话里一笔笔问你。
-     * 见 LEDGER_PLAN.md §4 ③
+     * 见 DESIGN.md §10.1 ③
      */
     override suspend fun trigger(context: Context, key: String): Trigger? {
         if (key != LedgerRoutes.CHECK.substringAfter(':')) return null

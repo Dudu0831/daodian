@@ -19,13 +19,13 @@ import java.util.concurrent.TimeUnit
  * 定期整理：每 N 小时（设置里改，默认 3）醒一次，有待整理的才叫模型。
  *
  * 荣耀会拖延后台任务，「每 3 小时」实际可能 5、6 小时 —— 不影响正确性，
- * 每晚对账前那次强制整理兜底（§8.8）。要联网：没网叫了模型也是白叫。
+ * 每晚对账前那次强制整理兜底（DESIGN.md §10.7 第 8 条）。要联网：没网叫了模型也是白叫。
  */
 class OrganizeWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
         val reason = inputData.getString(KEY_REASON) ?: "periodic"
-        // 失败也不让 WorkManager 重试：网关挂了就等下个周期，别连环重试（§8.7）
+        // 失败也不让 WorkManager 重试：网关挂了就等下个周期，别连环重试（DESIGN.md §10.7 第 7 条）
         runCatching { Organizer.run(applicationContext, reason, respectCooldown = reason == "periodic") }
         return Result.success()
     }

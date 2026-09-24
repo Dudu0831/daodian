@@ -23,7 +23,7 @@ class AlarmActivity : ComponentActivity() {
         val now = System.currentTimeMillis()
 
         setContent {
-            // 钉死深色：半夜三点是这一屏最常见的使用场景，见 DESIGN.md §8.1。
+            // 钉死深色：半夜三点是这一屏最常见的使用场景，见 DESIGN.md §08「到点全屏页」。
             // 视觉稿的浅色版也画得出来（AlarmScreen 直接读主题色板），改成
             // isSystemInDarkTheme() 就能跟随系统。
             com.abc.daodian.shared.theme.DaodianTheme(darkTheme = true) {

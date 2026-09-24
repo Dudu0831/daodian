@@ -77,7 +77,7 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
     private var job: Job? = null
     private var stoppedByUser = false
     /**
-     * 模型要问你（调了 `ask_user`）：纸太小放不下问卡，打开对话页接着问。见 DESIGN.md §6.9
+     * 模型要问你（调了 `ask_user`）：纸太小放不下问卡，打开对话页接着问。见 DESIGN.md §6.6
      * 非空 = 该走了；是那句话本身时对话页会把它照常发出去，空串 = 只打开对话页
      */
     var handoff by mutableStateOf<String?>(null)

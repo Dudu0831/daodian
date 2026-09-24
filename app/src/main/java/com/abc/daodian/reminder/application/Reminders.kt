@@ -85,7 +85,7 @@ object Reminders {
     }
 
     /**
-     * 手动建 / 改一条提醒 —— 逃生舱，必须能完全脱离 AI 用。见 DESIGN.md §05
+     * 手动建 / 改一条提醒 —— 逃生舱，必须能完全脱离 AI 用。见 DESIGN.md §2.1
      *
      * [dueDay] 不为 null 就是当天事项：[triggerAt] 不看，换成那天的收尾时刻，一律墙钟锚定。
      */

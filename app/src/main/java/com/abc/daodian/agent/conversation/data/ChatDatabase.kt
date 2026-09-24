@@ -13,7 +13,7 @@ import androidx.room.RoomDatabase
 import androidx.room.Transaction
 
 /**
- * 对话记录，**单独一个库**（`chat.db`），和提醒的 `reminder.db` 互不牵连。见 DESIGN.md §6.8
+ * 对话记录，**单独一个库**（`chat.db`），和提醒的 `reminder.db` 互不牵连。见 DESIGN.md §6.1
  *
  * 为什么不并进提醒的 `reminder.db`：那个库是「唯一不允许出错」的部分，
  * 对话表以后要改结构、迁移出了岔子，最坏也只是丢聊天记录，连累不到闹钟。

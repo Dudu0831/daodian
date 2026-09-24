@@ -12,7 +12,7 @@ import com.abc.daodian.ledger.domain.TxnSource
 import com.abc.daodian.ledger.domain.TxnState
 
 /*
- * ledger.db 的表。设计和理由见 LEDGER_PLAN.md §10 —— 以后所有统计都从这里取，改表前先读那一节。
+ * ledger.db 的表。设计和理由见 DESIGN.md §10.5 —— 以后所有统计都从这里取，改表前先读那一节。
  *
  * 规矩：
  *  - 原始通知是唯一真相，永不删；流水是派生的，作废不删

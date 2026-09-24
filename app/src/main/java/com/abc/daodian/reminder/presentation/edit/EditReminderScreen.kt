@@ -78,7 +78,7 @@ enum class RepeatChoice { NONE, DAILY, WEEKLY, MONTHLY, YEARLY, CUSTOM }
 private val weekdayCode = arrayOf("MO", "TU", "WE", "TH", "FR", "SA", "SU")
 
 /**
- * 手动建 / 改一条提醒 —— 逃生舱。必须能完全脱离 AI 建成一条完整提醒。见 DESIGN.md §05
+ * 手动建 / 改一条提醒 —— 逃生舱。必须能完全脱离 AI 建成一条完整提醒。见 DESIGN.md §2.1
  *
  * 版式跟设置页同一本账（设计稿方向 A：https://claude.ai/artifact/UdcBGTTx5quxPfsnR5Akq7）：
  * 宋体标题写在横线上，底下一行人话复述「什么时候」，再往下时间 / 重复 / 备注三组纸，
@@ -287,7 +287,7 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
             }
         }
 
-        // 「记下」钉在底部，键盘弹起时跟着上来。inset 只从这一处来，见 CLAUDE.md「键盘 inset 踩过一次」
+        // 「记下」钉在底部，键盘弹起时跟着上来。inset 只从这一处来，见 CLAUDE.md「踩过的坑 · 键盘 inset」
         Column(
             Modifier
                 .fillMaxWidth()

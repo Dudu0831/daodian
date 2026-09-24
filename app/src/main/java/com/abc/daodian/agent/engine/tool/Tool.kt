@@ -5,7 +5,7 @@ import com.abc.daodian.agent.engine.ask.Asker
 import java.time.ZonedDateTime
 
 /**
- * 工具会不会改动用户的东西。写操作在对话里留一道「痕」（见 DESIGN.md §6.9），只读的不留。
+ * 工具会不会改动用户的东西。写操作在对话里留一道「痕」（见 DESIGN.md §6.6），只读的不留。
  * 不再决定要不要先问用户 —— 写操作一律直接办，拿不准由模型自己用 `ask_user` 问。
  */
 enum class ToolEffect { READ, WRITE }

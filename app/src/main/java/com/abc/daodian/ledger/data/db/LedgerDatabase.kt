@@ -35,7 +35,7 @@ abstract class LedgerDatabase : RoomDatabase() {
             }
     }
 
-    /** 建库时写进预设类别（LEDGER_PLAN.md §10.2）。只在第一次建库时跑 */
+    /** 建库时写进预设类别（DESIGN.md §10.4）。只在第一次建库时跑 */
     private object Presets : Callback() {
         override fun onCreate(db: SupportSQLiteDatabase) {
             var sort = 0

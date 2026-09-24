@@ -100,14 +100,14 @@ dependencies {
     implementation(libs.androidx.work.runtime)
     implementation(libs.androidx.datastore.prefs)
 
-    // M2 待验：Android 可用性 + 包体增量，见 DESIGN.md 决策 3.1
+    // 调模型的官方 SDK（OkHttp backend）。包体 +33MB 是接受了的代价，见 DESIGN.md 决策 3.1
     implementation(libs.openai.java)
 
     // 桌面速记的本地语音识别，见 DESIGN.md 决策 8.3。官方只发 GitHub Releases 的 AAR，没有 Maven 坐标。
     // 用的是 onnxruntime 静态链接那版：arm64 只有一个 24MB 的 .so，不和别的 onnxruntime 撞
     implementation(files("libs/sherpa-onnx-static-link-onnxruntime-1.13.8.aar"))
 
-    // 对话里模型画的图（```svg），见 DESIGN.md §6.11。只画静态的、不联网，约 200KB
+    // 对话里模型画的图（```svg），见 DESIGN.md §6.8。只画静态的、不联网，约 200KB
     implementation(libs.androidsvg)
 
     // harness 的 JVM 单测。harness 核心不碰 Android API，所以不需要 Robolectric

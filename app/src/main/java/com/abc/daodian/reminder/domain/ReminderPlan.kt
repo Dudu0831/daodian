@@ -1,6 +1,6 @@
 package com.abc.daodian.reminder.domain
 
-/** 模型给出的一条提醒，`create_reminder` 的参数。见 DESIGN.md §6.3 */
+/** 模型给出的一条提醒，`create_reminder` 的参数。见 DESIGN.md §6.4 */
 data class ReminderPlan(
     val title: String,
     val note: String? = null,

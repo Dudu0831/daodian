@@ -4,7 +4,7 @@ import com.abc.daodian.agent.engine.Item
 import com.abc.daodian.agent.engine.Turn
 
 /**
- * 更早几轮里模型画过的图（```svg 代码块，或直接写的 <svg>…</svg>，见 DESIGN.md §6.11）折成一句话再喂回去：
+ * 更早几轮里模型画过的图（```svg 代码块，或直接写的 <svg>…</svg>，见 DESIGN.md §6.8）折成一句话再喂回去：
  * 一张图一两千个 token，之后每句话都重发一遍不值。当前这一轮原样给 —— 它可能正接着自己刚画的图往下说。
  *
  * 只改喂给模型的；[com.abc.daodian.agent.engine.Session] 里存的、界面上画的都还是原样。

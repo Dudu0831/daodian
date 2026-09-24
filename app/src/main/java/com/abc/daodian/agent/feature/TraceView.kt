@@ -1,7 +1,7 @@
 package com.abc.daodian.agent.feature
 
 /*
- * 痕：一次写操作在对话里留下的一行小字。见 DESIGN.md §6.9
+ * 痕：一次写操作在对话里留下的一行小字。见 DESIGN.md §6.6
  * 字怎么写归模块（[Feature.trace]），怎么画、点了怎么跳归 agent（agent/conversation/TraceLine.kt）。
  */
 
