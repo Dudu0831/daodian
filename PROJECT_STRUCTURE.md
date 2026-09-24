@@ -105,7 +105,7 @@ interface FeatureUi {
 - `ToolTrace`：工具名、参数（流着时是半截）、在办 / 办成 / 没办成、结果、ref。`TraceView`：在办时的标签、办成 / 没办成的标签、一行字、可展开的逐条、点了去的路由。
 - `Trigger`：要么是一轮的开场白（交给 agent 开一轮），要么是一句话（直接显示，比如「账都对上了」）。
 - 注册表 `agent/feature/FeatureRegistry`：`DaodianApp.onCreate` 把 `Features.kt` 的清单装进去，agent 只读它。Worker、Receiver 都在 Application 之后跑，拿得到。
-- **路由约定**：agent 用 `chat`、`settings`、`provider`；提醒用 `reminder/list`、`reminder/edit?id=`、`reminder/log`；记账用 `ledger`、`ledger/category/…`、`ledger/txn/{id}`。`Launch` 的 intent 带 `route`，可选 `trigger`（如 `ledger:check`）、`say`（速记交给对话页的那句话）。
+- **路由约定**：agent 用 `chat`、`settings`、`provider`；提醒用 `reminder/list`、`reminder/edit?id=`、`reminder/log`；记账用 `ledger`、`ledger/category/…`、`ledger/txn/{id}`、`ledger/capture`（抓取页）。`Launch` 的 intent 带 `route`，可选 `trigger`（如 `ledger:check`）、`say`（速记交给对话页的那句话）。
 
 ## 界面归属
 

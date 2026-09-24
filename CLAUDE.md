@@ -60,7 +60,7 @@
 - **记账（2026-09-23 实现中）**：**模型读懂通知**，代码只收集、存档、排期、校验。设计、数据格式、代码地图、和计划的出入全在 [LEDGER_PLAN.md](LEDGER_PLAN.md)（§11 是实现）。
   通知直接进单独的 `ledger.db`（`PaySampler` 类名没改 —— 通知使用权按组件名授）；每 3 小时后台整理 agent 读一批（有才叫模型）；每晚 21:30 还有没认出来的才弹通知；对话里能查、记、改。
   **顶栏改了**：左边抽屉键，右边印章（设计稿 <https://claude.ai/artifact/PRk3CWeu24V4tKZgxkGLwn>，抽屉方向 B「两张纸」）；提醒列表、记账、设置都在抽屉里。后台 agent 在跑时印外面转一圈细线（`agent/engine/background/AgentActivity`）。
-  调研时的临时采样页已删。调研样本 `files/pay_samples.jsonl` 当时第一次启动导进库、改名 `pay_samples.imported.jsonl` 留底；2026-09-23 包结构重排要连数据卸载，导入代码（`LegacySamples`）已删，样本想留要在卸载前拷出来（命令见 PROJECT_STRUCTURE.md）。
+  调研时的临时采样页已删（09-24 以「抓取页」的样子放回来了，见下面那条）。调研样本 `files/pay_samples.jsonl` 当时第一次启动导进库、改名 `pay_samples.imported.jsonl` 留底；2026-09-23 包结构重排要连数据卸载，导入代码（`LegacySamples`）已删，样本想留要在卸载前拷出来（命令见 PROJECT_STRUCTURE.md）。
   **真机验过**（9-23）：导入 → 整理（真网关，15 秒 20 条）→ 抽屉 → 记账三层 → 对话改账 → 对账一轮，细节和没验的见 LEDGER_PLAN.md §11「状态」。
   清账本重来：删 `databases/ledger.db*`。**同时把 `chat.db` 里聊过账的那几轮删掉**：新账本的 # 编号从 1 重排、换了别的笔，对话里旧的「改好了」会让模型以为清单上的几笔已经处理过、一笔不问（9-23 真踩过：我测试时编的回答留在对话里，用户对账时 4 笔被跳过）。
 - **问卡与痕**（2026-09-23，设计稿方向 B <https://claude.ai/artifact/2fA2GMup6w4XdsdK5oAGg8>，动效稿 <https://claude.ai/artifact/BTqaHuU6hbgjmG6NqPv5HP>）：对话里不再有提醒卡片和授权条。写操作直接办，留一道**痕**（一行小字「✓ 提醒 9月24日 周四 08:00 · 带伞 ›」，代码按工具结果画，点了去编辑页 / 那一笔）；拿不准时模型调 `ask_user` 出**问卡**（先猜好答案，点一下 / 「其他…」自己写 / 直接说），答完「问」换成「答」盖印。设置页「建提醒前先问我」删了；依据挪进编辑页「原话」下面（从 `chat.db` 取）；桌面速记遇到问卡交给对话页（当时是 `WidgetTarget.Say`，现在 `Launch` 带 `say`）。规矩见 DESIGN.md §6.9。
@@ -77,6 +77,11 @@
   **同样没编译、没上真机**。新依赖 `com.caverock:androidsvg-aar:1.4`（Maven Central）。验证只到这一步：`MarkdownTest` 26 条 + `FoldDrawingsTest` 3 条 + `SvgColorsTest` 4 条（深色换色）在 JVM 跑过；
   `SvgBlock.kt` 对着桌面版 Compose + 旧 android.jar + AndroidSVG 编译，只有 `nativeCanvas.drawPicture` 那行因为桌面版是 Skia 画布而对不上（Android 上是 `android.graphics.Canvas`）。
   真机要看：问「这个月钱花在哪，画个图」模型画不画、画出来的样子和中文字、点开缩放、深色下的颜色、流着的时候占位框、重启后读回的历史里图还在。
+- **抓取页**（2026-09-24，用户发现支付通知漏抓）：设置 → 记账 →「抓到的通知」（或记账总览底下「少了一笔？」），看监听连没连着、「现在抓一下」、最近 100 条原文，细节见 LEDGER_PLAN.md §11「状态」。
+  查出来三件事，都是反编译 Android 15 框架（Robolectric 的 android-all）看的，不是猜的：
+  监听没绑上时 `getActiveNotifications()` 返回空数组、不报错，整理前那一扫断了也没人知道；系统只肯重绑「自己请求断开过」的监听；
+  **禁用再启用组件那一招别用**，组件一禁用，系统会顺手收回通知使用权。
+  **同样没编译、没上真机**。验证只到：改的 5 个文件对着 Android 15 框架类库 + 桌面版 Compose 编译通过、`LedgerFormatTest` 4 条 JVM 跑过。
 - **全屏页在锁屏上确实会弹**（2026-09-04 关屏实测，用户肉眼确认，点「完成」后闹钟正常取消、无残留排期）。
   别被 adb 骗了：`AlarmActivity` 是 `exported=false`，`am start` 起不来；关屏后隔几十秒截图也只会拍到黑屏 ——
   用户已经把它关掉了，`screencap` 拍的是关掉之后的状态。`appops` 里那条 `USE_FULL_SCREEN_INTENT rejectTime`

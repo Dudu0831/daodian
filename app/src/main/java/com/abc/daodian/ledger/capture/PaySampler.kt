@@ -29,15 +29,17 @@ import org.json.JSONObject
  * 两个坑，对策都在这里：
  *  - **正文有时被系统遮蔽**（§2.2）：遮蔽版照存，隔 5s / 30s / 2min 从通知栏再读同一条，
  *    真正文到了由 [LedgerStore.ingest] 把遮蔽版标成 SUPERSEDED
- *  - **实时回调会丢**（§2.3）：连上时、解锁时、整理之前（[PaySources.sweep]）都把通知栏扫一遍兜底；
- *    同一条通知同一段正文靠指纹只存一次
+ *  - **实时回调会丢**（§2.3）：连上时、解锁时、整理之前（[PaySources.sweep]）都把通知栏扫一遍兜底，
+ *    抓取页上还能手动扫（[PaySources.sweepNow]）；同一条通知同一段正文靠指纹只存一次
+ *
+ * 连上 / 断开报给 [PaySources]（抓取页看连没连着、手动扫要找到这个实例）。
  */
 class PaySampler : NotificationListenerService() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val handler = Handler(Looper.getMainLooper())
 
-    private val onSweep = sweeper("manual")
+    private val onSweep = sweeper("organize")
     private val onUnlock = sweeper("unlock")
 
     private fun sweeper(how: String) = object : BroadcastReceiver() {
@@ -45,6 +47,7 @@ class PaySampler : NotificationListenerService() {
     }
 
     override fun onListenerConnected() {
+        PaySources.attach(this)
         // 自家广播关着门收，系统的 USER_PRESENT 得开着门才进得来。注册失败绝不能抛出去把进程带崩
         runCatching {
             ContextCompat.registerReceiver(this, onSweep, IntentFilter(PaySources.ACTION_SWEEP), ContextCompat.RECEIVER_NOT_EXPORTED)
@@ -54,7 +57,9 @@ class PaySampler : NotificationListenerService() {
         sweep("active")
     }
 
+    /** 系统解绑、用户收回使用权时来；框架的 onDestroy 里也会调一次 */
     override fun onListenerDisconnected() {
+        PaySources.detach(this)
         handler.removeCallbacksAndMessages(null)
         runCatching { unregisterReceiver(onSweep) }
         runCatching { unregisterReceiver(onUnlock) }
@@ -75,30 +80,42 @@ class PaySampler : NotificationListenerService() {
     }
 
     private fun sweep(how: String) {
-        runCatching {
-            activeNotifications?.filter { it.packageName in PaySources.PACKAGES }?.forEach { save(it, how) }
-        }
+        scope.launch { collect(how) }
+    }
+
+    /**
+     * 把通知栏里那几家的通知收一遍，存完才返回。返回挂着几条；没连着返回 null ——
+     * 没绑上时 getActiveNotifications() 不报错，给的是空数组，分不出「没连着」和「通知栏里没有」，所以先问 isBound。
+     */
+    internal suspend fun collect(how: String): Int? {
+        if (!isBound()) return null
+        val mine = runCatching { activeNotifications }.getOrNull()
+            ?.filter { it.packageName in PaySources.PACKAGES }
+            ?: return null
+        mine.forEach { store(it, how) }
+        return mine.size
     }
 
     private fun save(sbn: StatusBarNotification, how: String) {
+        scope.launch { store(sbn, how) }
+    }
+
+    /** 存一条。新存进去了返回 true，指纹重复（早就存过）返回 false */
+    private suspend fun store(sbn: StatusBarNotification, how: String): Boolean = runCatching {
         val extras = sbn.notification.extras
         val dump = dump(extras)
         val text = extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
-        scope.launch {
-            runCatching {
-                LedgerStore.get(this@PaySampler).ingest(
-                    pkg = sbn.packageName,
-                    key = sbn.key,
-                    postTime = sbn.postTime,
-                    title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
-                    text = text,
-                    extra = extraOf(dump, text),
-                    extras = dump.toString(),
-                    how = how
-                )
-            }
-        }
-    }
+        LedgerStore.get(this).ingest(
+            pkg = sbn.packageName,
+            key = sbn.key,
+            postTime = sbn.postTime,
+            title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
+            text = text,
+            extra = extraOf(dump, text),
+            extras = dump.toString(),
+            how = how
+        )
+    }.getOrDefault(false)
 
     companion object {
         /** 遮蔽之后重扫的时刻（秒）。实测 5 秒那次就拿到真正文了 */

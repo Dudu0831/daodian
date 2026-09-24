@@ -19,6 +19,8 @@ import com.abc.daodian.ledger.capture.PaySources
 import com.abc.daodian.ledger.data.LedgerStore
 import com.abc.daodian.ledger.domain.LedgerDays
 import com.abc.daodian.ledger.organize.OrganizeWorker
+import com.abc.daodian.ledger.presentation.CaptureScreen
+import com.abc.daodian.ledger.presentation.CaptureViewModel
 import com.abc.daodian.ledger.presentation.LedgerCategoryScreen
 import com.abc.daodian.ledger.presentation.LedgerDrawerCard
 import com.abc.daodian.ledger.presentation.LedgerFormat
@@ -76,7 +78,7 @@ object LedgerFeature : Feature, FeatureUi {
         }
     }
 
-    // ---------------- 界面：总览 → 类别 → 一笔。只看不改，改账回对话 ----------------
+    // ---------------- 界面：总览 → 类别 → 一笔，只看不改，改账回对话；外加抓取页 ----------------
 
     override fun NavGraphBuilder.routes(nav: AppNav) {
         composable(LedgerRoutes.HOME) {
@@ -89,7 +91,8 @@ object LedgerFeature : Feature, FeatureUi {
                 onOpenCategory = { top, income, p ->
                     nav.open(LedgerRoutes.category(top, income, p.mode.name, LedgerDays.dayInt(p.anchor)))
                 },
-                onCheckNow = { nav.trigger(LedgerRoutes.CHECK) }
+                onCheckNow = { nav.trigger(LedgerRoutes.CHECK) },
+                onOpenCapture = { nav.open(LedgerRoutes.CAPTURE) }
             )
         }
 
@@ -129,11 +132,19 @@ object LedgerFeature : Feature, FeatureUi {
                 onTalk = { nav.chat(it) }
             )
         }
+
+        composable(LedgerRoutes.CAPTURE) {
+            CaptureScreen(
+                vm = activityViewModel<CaptureViewModel>(),
+                onBack = nav::back,
+                onOpenTxn = { nav.open(LedgerRoutes.txn(it)) }
+            )
+        }
     }
 
     @Composable
     override fun DrawerCard(open: (String) -> Unit) = LedgerDrawerCard(onOpen = { open(LedgerRoutes.HOME) })
 
     @Composable
-    override fun SettingsSection(open: (String) -> Unit) = LedgerSettingsSection()
+    override fun SettingsSection(open: (String) -> Unit) = LedgerSettingsSection(onOpenCapture = { open(LedgerRoutes.CAPTURE) })
 }

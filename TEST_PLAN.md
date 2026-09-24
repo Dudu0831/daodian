@@ -3,7 +3,7 @@
 分支 `restructure-modules` 相对 `main` 要测的东西。仓库没有 `master`，默认分支是 `main`。
 
 - **起点**：`main` 的 `ed96578`（2026-09-23「对话改版：问卡与痕」）。这之前的功能在 main 上已经有真机记录，见 CLAUDE.md「现状」。
-- **终点**：`960efe9`（2026-09-24），一共 8 个提交。
+- **终点**：`960efe9`（2026-09-24）之后又加了抓取页（§6）。
 - **这个分支还没上过真机。** 前 3 个提交在本地编译过、跑过单测、打过包。后 5 个是在云端会话里写的，那里的网络策略拦了 `dl.google.com`，app 没编译过。后 5 个里改了代码的有 3 个：记账提示词、Markdown、画图。
 
 ## 改了什么
@@ -17,11 +17,12 @@
 | `4e2246a` 记账提示词 | 转账给别人算支出，不作废；整理提示词升 organize-v4 | §3 |
 | `88e4bd6` Markdown | 模型的回答按 Markdown 画 | §4 |
 | `960efe9` 画图 | 模型写的 ```` ```svg ```` 画成图，点开能放大，深色下换色；提示词加「画图」一节；更早几轮的图折掉再喂给模型 | §5 |
+| 抓取页 | 看监听连没连着、手动抓一下、看抓到的原文；「通知使用权」改成按组件查 | §6 |
 
 ## 1. 装机前（在电脑上）
 
-- [ ] `./gradlew :app:testDebugUnitTest` 全过。离线单测一共 70 条，`LiveGatewayTest` 没设 `DAODIAN_LIVE=1` 时跳过。其中 33 条是这个分支加的：`MarkdownTest` 26 条、`FoldDrawingsTest` 3 条、`SvgColorsTest` 4 条。这 33 条以前只在单独的 JVM 工程里跑过，这次是第一次在 app 里跑。
-- [ ] `./gradlew :app:assembleDebug` 通过。Markdown 和画图的代码这是第一次按 Android 编译，新依赖 `com.caverock:androidsvg-aar:1.4` 也是第一次拉。要报错，最可能在 `MarkdownText.kt`（链接用的 `LinkAnnotation`）和 `SvgBlock.kt`。
+- [ ] `./gradlew :app:testDebugUnitTest` 全过。离线单测一共 74 条，`LiveGatewayTest` 没设 `DAODIAN_LIVE=1` 时跳过。其中 37 条是这个分支加的：`MarkdownTest` 26 条、`FoldDrawingsTest` 3 条、`SvgColorsTest` 4 条、`LedgerFormatTest` 4 条。这 37 条以前只在单独的 JVM 工程里跑过，这次是第一次在 app 里跑。
+- [ ] `./gradlew :app:assembleDebug` 通过。Markdown、画图、抓取页的代码这是第一次按 Android 编译（抓取页用到的 DAO 查询也是第一次过 Room 的 SQL 检查），新依赖 `com.caverock:androidsvg-aar:1.4` 也是第一次拉。要报错，最可能在 `MarkdownText.kt`（链接用的 `LinkAnnotation`）和 `SvgBlock.kt`。
 - [ ] （可选）卸载前把要留的东西拷出来，比如调研样本：
   `adb exec-out run-as com.abc.daodian.debug cat files/pay_samples.imported.jsonl > pay_samples.jsonl`
 - [ ] **连数据一起卸载**，再装新包：`adb uninstall com.abc.daodian.debug` → `./gradlew :app:installDebug`。全类名和提醒库都改了，不能直接覆盖安装。卸载会清空这些：提醒、账本、对话、模型配置、收尾时刻、所有权限、桌面小组件。完整的表在 PROJECT_STRUCTURE.md「卸载重装」。
@@ -144,7 +145,24 @@
 - [ ] 杀掉 app 重开，历史里的图还在。
 - [ ] 对话里有好几张图时，上下滑动不卡。
 
-## 6. main 上就没验过、这次顺手可以验的
+## 6. 抓取页
+
+入口两个：设置 → 记账 →「抓到的通知」；记账总览最底下「少了一笔？看看抓到的通知 ›」。
+
+- [ ] 页面样子：上面一张纸（通知使用权、监听、最近一次实时收到、待整理），中间一个墨色大按钮「现在抓一下」，下面按天分组的原文。
+- [ ] 监听那一行写「连着 · 今天 HH:MM 起」。设置页「抓到的通知」那行是灰字。
+- [ ] 付一笔真钱 →「最近一次实时收到」当场变成刚才的时刻，列表最上面多一条，标「实时」「待整理」。
+- [ ] 通知还挂在通知栏里时点「现在抓一下」→ 按钮下面写「通知栏里挂着 N 条，早就都存下了」。
+- [ ] 把一条支付通知划掉，再点「现在抓一下」→ 抓不回来（这是系统的限制，页上写着）。
+- [ ] 点「待整理 N 条」那行的「现在整理」→ 整理完，那几条的标签变成「进了 #N ›」，点它进那一笔的详情。
+- [ ] 点一条原文 → 展开，看到全文、「通知发出 … · 抓到 …（晚 N 秒）」。
+- [ ] 连着的时候点「重连」→ 先变红「断了」，一两秒后回到「连着」、时刻更新。**荣耀上灵不灵是这次最想知道的。**
+- [ ] 监听断了的样子：在系统设置里把「到点」的通知使用权关掉 → 回到页面，第一行变红「没开」，按钮变成「先去开通知使用权」→ 点它去开 → 回来变对勾、监听连上。
+- [ ] 杀掉进程（`adb shell am force-stop com.abc.daodian.debug`）后重开 app，直接进抓取页：监听是连着，还是红字「这次打开 app 以来还没连上过」？没连上的话点「现在抓一下」，看它能不能自己连上再扫。
+- [ ] 手动抓到的在库里是 `tap`，整理前扫到的是 `organize`：
+  `sqlite3 ledger.db "select id, capturedHow, state from raw_notification order by id desc limit 10"`（导出库的命令见 §3 最后一条）
+
+## 7. main 上就没验过、这次顺手可以验的
 
 这些不是这个分支改的，但卸载重装之后反正要从头走一遍，碰到了就一起看。来历见 CLAUDE.md「现状」。
 

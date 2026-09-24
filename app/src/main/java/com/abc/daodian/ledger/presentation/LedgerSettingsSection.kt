@@ -38,12 +38,12 @@ import com.abc.daodian.shared.ui.activityViewModel
 import java.time.LocalTime
 
 /**
- * 设置页里记账那一组：通知使用权、整理间隔、每晚对账、现在整理一次。
+ * 设置页里记账那一组：通知使用权、抓到的通知（进抓取页）、整理间隔、每晚对账、现在整理一次。
  * 不算进体检结论 —— 它挂了不影响提醒响。流程见 LEDGER_PLAN.md
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LedgerSettingsSection() {
+fun LedgerSettingsSection(onOpenCapture: () -> Unit) {
     val vm = activityViewModel<LedgerViewModel>()
     val colors = DaodianColors.current
     val context = LocalContext.current
@@ -53,6 +53,7 @@ fun LedgerSettingsSection() {
     val lastRun by vm.lastRun.collectAsState()
     val pendingRaws by vm.pendingRaws.collectAsState()
     val organizing by vm.organizing.collectAsState()
+    val listener by PaySources.listener.collectAsState()
     var pickingCheckTime by remember { mutableStateOf(false) }
     var pickingHours by remember { mutableStateOf(false) }
     // 从系统设置开完通知使用权回来，那一行要当场变
@@ -76,6 +77,17 @@ fun LedgerSettingsSection() {
             onClick = { launch(PaySources.grantIntent(context)) }
         ) {
             if (listening) Marker(ok = true) else FixLink()
+        }
+        GroupRule()
+        val dropped = listening && !listener.connected
+        SettingRow(
+            title = "抓到的通知",
+            note = if (dropped) "监听没连着，这会儿付的钱进不来 —— 点进来重连、手动抓一下"
+            else "看存下来的原文；漏了的，趁还在通知栏里手动抓一下",
+            noteColor = if (dropped) colors.red else colors.muted,
+            onClick = onOpenCapture
+        ) {
+            ChevronRightIcon(size = 13.dp, tint = colors.muted)
         }
         GroupRule()
         SettingRow(

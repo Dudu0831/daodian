@@ -62,7 +62,7 @@ import com.abc.daodian.shared.ui.IconTapTarget
  * 都只看不改 —— 要改在对话里说，每一层都有路回对话。
  */
 
-private val Gutter = 26.dp
+internal val Gutter = 26.dp
 
 // ---------------- 共用小零件 ----------------
 
@@ -91,7 +91,7 @@ private fun Kicker(text: String) {
 }
 
 @Composable
-private fun SectionLabel(text: String, modifier: Modifier = Modifier) {
+internal fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(text, style = DaodianType.sectionLabel.copy(fontSize = 11.sp), color = DaodianColors.current.hint, modifier = modifier)
 }
 
@@ -208,7 +208,7 @@ private fun ToChatBand(text: String, action: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Footnote(text: String) {
+internal fun Footnote(text: String) {
     Text(
         text, style = DaodianType.caption, color = DaodianColors.current.hint, textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth().padding(horizontal = Gutter, vertical = 28.dp)
@@ -223,7 +223,8 @@ fun LedgerOverviewScreen(
     checkTime: String,
     onBack: () -> Unit,
     onOpenCategory: (topId: Long, income: Boolean, period: Period) -> Unit,
-    onCheckNow: () -> Unit
+    onCheckNow: () -> Unit,
+    onOpenCapture: () -> Unit
 ) {
     val colors = DaodianColors.current
     val context = LocalContext.current
@@ -298,7 +299,21 @@ fun LedgerOverviewScreen(
                 Spacer(Modifier.height(20.dp))
                 ToChatBand("${data!!.pending} 笔没认出来，$checkTime 问你", "现在就说 ›", onCheckNow)
             }
-            Footnote("点类别看里面每一笔 · 点柱子进到那一段")
+            Text(
+                "点类别看里面每一笔 · 点柱子进到那一段",
+                style = DaodianType.caption, color = colors.hint, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Gutter).padding(top = 28.dp)
+            )
+            // 实时回调会漏（LEDGER_PLAN.md §2.3）：账上少了一笔，去抓取页看抓到没有、手动抓一下
+            Text(
+                "少了一笔？看看抓到的通知 ›",
+                style = DaodianType.caption, color = colors.muted, textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpenCapture)
+                    .padding(horizontal = Gutter, vertical = 10.dp)
+                    .padding(bottom = 18.dp)
+            )
         }
     }
 }

@@ -58,6 +58,9 @@
 
 - 9-22 09:06 那笔 199.90（招行 + 掌生两条）**实时回调一条都没收到**，监听一直连着，是用户点「补抓」才捞回来的。22 条里丢 2 条，约 10%。推测是荣耀冻结了 app 进程。
 - 结论：**不能只靠实时回调，必须定期扫通知栏兜底**。去重按 `key | postTime | 正文` 指纹，进程重启后从存档续上。
+- **09-24 补**：监听没绑上时 `getActiveNotifications()` 不报错、返回**空数组**（反编译 Android 15 框架看的），分不出「没连着」和「通知栏里没有」——
+  整理前那一扫在监听断了的时候什么都扫不到，也没人知道。另外系统只肯重绑「自己请求断开过」的监听，进程被杀后没自动绑回来的，app 里请了也没用。
+  所以把手动补抓的页面放回来了（抓取页，§11），先看连没连着，再扫。
 - 另：`adb install -r` 在这台机器上**不一定重启 app 进程**，装完要确认进程换了（`ps` 看启动时间），否则跑的还是旧代码。
 
 ---
@@ -436,11 +439,11 @@ WHERE state != 'VOID' AND direction = 'IN' AND day BETWEEN 20260901 AND 20260930
 | `ledger/tools/` | 纯 Kotlin，JVM 单测覆盖：五个工具、`LedgerTools`（哪组工具给哪个 agent）、`LedgerPrompt`（整理 / 对话两段提示词，`VERSION` 写进 parsed_by）、`LedgerTrace`（痕上写什么） |
 | `ledger/data/db/` | `ledger.db` 的表（§10.3 + `agent_run`）、DAO（统计 SQL 在这）、建库时写预设类别 |
 | `ledger/data/LedgerStore.kt` | `LedgerBackend` 的 Room 实现 + 采集入口 `ingest()`（遮蔽版 / 真正文在这里就理清） |
-| `ledger/capture/PaySampler.kt` | 通知监听，直接写库。**通知使用权按全类名授**：挪包、改名都要重新授权（2026-09-23 包结构重排挪了它，装新包前要连数据卸载、装完重新授权） |
-| `ledger/capture/PaySources.kt` | 听哪几家（加一家 = 加一行）、遮蔽文案、通知使用权 |
+| `ledger/capture/PaySampler.kt` | 通知监听，直接写库；连上 / 断开报给 `PaySources`。**通知使用权按全类名授**：挪包、改名都要重新授权（2026-09-23 包结构重排挪了它，装新包前要连数据卸载、装完重新授权） |
+| `ledger/capture/PaySources.kt` | 听哪几家（加一家 = 加一行）、遮蔽文案、通知使用权（按组件查）、监听连没连着（`listener`）、手动扫一遍并等存完（`sweepNow`）、重连（`reconnect`） |
 | `ledger/organize/` | `Organizer`（先扫通知栏、再数、有才叫模型，整轮拿账本锁）、`OrganizeWorker`（周期 + 现在跑一次） |
 | `ledger/reconciliation/` | 每晚对账：自己的闹钟、通知三按钮、`CheckReceiver`（含开机 / 覆盖安装重排）、`CheckWorker`、对账那一轮的开场 |
-| `ledger/presentation/` | 抽屉卡（方向 B「两张纸」）、设置组、记账三层（总览 → 类别 → 一笔）、`LedgerViewModel`（日 / 月 / 季 / 年） |
+| `ledger/presentation/` | 抽屉卡（方向 B「两张纸」）、设置组、记账三层（总览 → 类别 → 一笔）、`LedgerViewModel`（日 / 月 / 季 / 年）、抓取页（`CaptureScreen` / `CaptureViewModel`） |
 | `agent/conversation/TraceLine.kt`、`AskCard.kt` | 对话里的痕（字由 `LedgerTrace` 写）、对账的问卡（原来的 `LedgerReceipt.kt` 回执框 09-23 删了，分隔线在 `ChatComponents.kt`） |
 
 ### 和计划不一样的地方
@@ -472,3 +475,11 @@ WHERE state != 'VOID' AND direction = 'IN' AND day BETWEEN 20260901 AND 20260930
 - **9-24 踩的坑**：对账时问建行 400.00 是什么，用户说「转账给某人」，模型当成「转移、不算花钱」直接作废了（#12）。§10.1 定了「转给别人 = 支出」，
   但两段提示词都没写，`update_expenses` 的描述还写着「这笔不是我花的，删掉」。已改：两段提示词写明转移只指自己账户之间、转给别人照常归类；
   作废只用于重复 / 根本没这笔钱 / 记错了；整理提示词升 `organize-v4`。**只改了提示词，没编译、没真机验**。作废仍然撤不回，#12 只能在对话里补记一笔
+- **9-24 抓取页放回来**（用户发现通知漏抓）：设置 → 记账 →「抓到的通知」，或记账总览底下「少了一笔？看看抓到的通知」，路由 `ledger/capture`。
+  - 上面一张纸：通知使用权、监听连没连着（「连着 · 今天 09:12 起」/ 红字「断了」+「重连」）、最近一次实时收到、待整理几条 +「现在整理」
+  - 「现在抓一下」：监听连着就扫通知栏、等存完，报「通知栏里挂着 3 条，新存 1 条」；没连着先请系统重绑，绑上了再扫；绑不回来就叫你去系统设置把使用权关掉再打开
+  - 「重连」：连着的先 `requestUnbind()` 再 `requestRebind()`；没连着的只能 `requestRebind()`（系统只认前一种）。**不用禁用再启用组件那一招**：Android 15 会顺手收回使用权（`trimApprovedListsForInvalidServices`）
+  - 下面是最近 100 条原文，按天分组：哪家、几点、怎么抓到的（实时 / 连上时 / 解锁时 / 整理前 / 手动 / 遮蔽后重读）、后来怎样了（进了 #12 能点 / 待整理 / 不是账 / 看不清 / 换成全文了）；点开看全文、抓到比发出晚了多久
+  - 顺带：「通知使用权开没开」改成按组件查（以前按包名，挪包后旧组件名的授权还挂在包名下会误报开着）；整理前那一扫的 `capturedHow` 从 `manual` 改叫 `organize`，手动抓的叫 `tap`
+  - **云端会话里写的，没编译、没上真机**：改的 5 个文件对着 Android 15 框架类库（Robolectric android-all）+ 桌面版 Compose 编译通过，`LedgerFormatTest` 4 条在 JVM 跑过。
+    真机要看：页面样子、「现在抓一下」的数对不对、「重连」在荣耀上灵不灵（连着时点、杀进程后点）、划掉的通知确实抓不回来、点「进了 #N」跳到那一笔、设置页那行在监听断了时变红

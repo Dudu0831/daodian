@@ -52,11 +52,21 @@ interface LedgerDao {
     @Query("UPDATE raw_notification SET state = :state, stateNote = :note, processedAt = :at WHERE id IN (:ids)")
     suspend fun setRawState(ids: Collection<Long>, state: RawState, note: String?, at: Long)
 
+    // 抓取页（ledger/presentation/CaptureScreen）看的
+
     @Query("SELECT COUNT(*) FROM raw_notification")
-    suspend fun countRaws(): Int
+    fun observeRawCount(): Flow<Int>
 
     @Query("SELECT * FROM raw_notification ORDER BY postTime DESC LIMIT :limit")
     fun observeRecentRaws(limit: Int): Flow<List<RawNotification>>
+
+    /** 手动抓一下之后数新存了几条 */
+    @Query("SELECT COUNT(*) FROM raw_notification WHERE capturedAt >= :since")
+    suspend fun countCapturedSince(since: Long): Int
+
+    /** 最近一次实时回调收到的时刻：比这更晚的支付没进来，就是实时回调断了 */
+    @Query("SELECT MAX(capturedAt) FROM raw_notification WHERE capturedHow = 'posted'")
+    fun observeLastPosted(): Flow<Long?>
 
     // ---------------- 流水 ----------------
 

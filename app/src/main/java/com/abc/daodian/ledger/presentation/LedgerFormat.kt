@@ -4,6 +4,7 @@ import com.abc.daodian.ledger.domain.Direction
 import com.abc.daodian.shared.format.Format
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 
@@ -46,5 +47,51 @@ internal object LedgerFormat {
     fun dayWeekTime(millis: Long): String {
         val t = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault())
         return "${t.monthValue}月${t.dayOfMonth}日 ${Format.weekday(t.dayOfWeek)} %02d:%02d".format(t.hour, t.minute)
+    }
+
+    // ---------------- 抓取页 ----------------
+
+    /** 按天分组的小标题：「今天」「昨天」「9月22日 周二」 */
+    fun dayHeader(date: LocalDate, today: LocalDate = LocalDate.now()): String = when (date) {
+        today -> "今天"
+        today.minusDays(1) -> "昨天"
+        else -> Format.humanDay(date)
+    }
+
+    /** 「今天 10:12」「昨天 22:40」「9月20日 08:00」 */
+    fun recent(millis: Long, zone: ZoneId = ZoneId.systemDefault(), today: LocalDate = LocalDate.now(zone)): String {
+        val t = Instant.ofEpochMilli(millis).atZone(zone)
+        val hm = "%02d:%02d".format(t.hour, t.minute)
+        return when (t.toLocalDate()) {
+            today -> "今天 $hm"
+            today.minusDays(1) -> "昨天 $hm"
+            else -> "${t.monthValue}月${t.dayOfMonth}日 $hm"
+        }
+    }
+
+    /** 「10:12:03」：通知发出和抓到差几秒，要看到秒 */
+    fun clockSeconds(millis: Long, zone: ZoneId = ZoneId.systemDefault()): String {
+        val t = Instant.ofEpochMilli(millis).atZone(zone)
+        return "%02d:%02d:%02d".format(t.hour, t.minute, t.second)
+    }
+
+    /** 「今天 10:12:03」：抓到的时刻，可能和通知发出不是同一天 */
+    fun recentSeconds(millis: Long, zone: ZoneId = ZoneId.systemDefault(), today: LocalDate = LocalDate.now(zone)): String =
+        recent(millis, zone, today) + ":%02d".format(Instant.ofEpochMilli(millis).atZone(zone).second)
+
+    /** 抓到比发出晚了多久：「2 秒」「3 小时 5 分」 */
+    fun lag(millis: Long): String =
+        if (millis < 60_000) "${millis.coerceAtLeast(0) / 1000} 秒" else Format.span(millis)
+
+    /** raw_notification.capturedHow 的人话：怎么抓到的 */
+    fun capturedHow(how: String): String = when {
+        how == "posted" -> "实时"
+        how == "active" -> "连上时扫到"
+        how == "unlock" -> "解锁时扫到"
+        how == "organize" || how == "manual" -> "整理前扫到"
+        how == "tap" -> "手动抓"
+        how.startsWith("retry+") -> "遮蔽后重读"
+        how == "import" -> "导入"
+        else -> how
     }
 }
