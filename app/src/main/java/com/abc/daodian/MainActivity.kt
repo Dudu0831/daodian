@@ -4,6 +4,9 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.SystemClock
+import android.view.View
+import android.view.ViewTreeObserver
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
@@ -57,6 +60,28 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        holdSplashUntilRestored()
+    }
+
+    /**
+     * 开屏留到对话记录读回来再撤（最多 [SPLASH_HOLD_MAX_MS]）。不留的话，开屏撤掉那一刻历史往往还没读完，
+     * 对话页先空一下、再冒出聊天记录 —— 看着就是「闪一下」。
+     *
+     * 系统开屏盖到窗口第一次画出来为止；第一帧的绘制按住不放，它就一直盖着（官方「让开屏多留一会儿」的做法）。
+     * 转屏重建时 ViewModel 还在、早就读完了，第一帧直接放行。
+     */
+    private fun holdSplashUntilRestored() {
+        // 在这儿就把 ViewModel 建出来：读库从这一刻开始，不用等到第一次组合
+        val restored = vm.restored
+        val content = requireViewById<View>(android.R.id.content)
+        val since = SystemClock.uptimeMillis()
+        content.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                val go = restored.value || SystemClock.uptimeMillis() - since > SPLASH_HOLD_MAX_MS
+                if (go) content.viewTreeObserver.removeOnPreDrawListener(this)
+                return go
+            }
+        })
     }
 
     /** launchMode 是 singleTop：app 已经开着的时候再点小组件，走的是这里而不是 onCreate */
@@ -65,5 +90,10 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         request = Launch.requestOf(intent)
         WidgetFrame.remember(this, intent)
+    }
+
+    private companion object {
+        /** 读库再慢也不能一直盖着开屏：到点就撤，对话页自己先空着等（ChatScreen） */
+        const val SPLASH_HOLD_MAX_MS = 1000L
     }
 }

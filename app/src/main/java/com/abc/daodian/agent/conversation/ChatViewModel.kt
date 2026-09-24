@@ -68,18 +68,30 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
+    private val _restored = MutableStateFlow(false)
+
+    /**
+     * 历史读回来、画面重建好了没有（读坏了也算，不能让界面一直等）。读完之前 [messages] 是空的，
+     * 但那不是「没聊过」—— 对话页这时不画空状态，开屏也先不撤（MainActivity），不然会先闪一下招呼语再换成聊天记录。
+     */
+    val restored: StateFlow<Boolean> = _restored.asStateFlow()
+
     /**
      * 喂给模型的历史（完整结构），落盘在 `conversation/data/`，重启接着聊。
      * [_messages] 是画面、这里是模型看到的，两者各管各的；启动时画面从它重建一次。
      * 读库要一会儿，用到它的地方都先 await —— 读完之前说的第一句话也不会丢上文。
      */
     private val session: Deferred<Session> = viewModelScope.async {
-        val store = ChatStore.get(app)
-        val session = Session(store.load(), store)
-        // app 在等你答问卡的时候被杀了：那次调用没拿到结果，补上「没答」—— 缺一个下一次请求就会被网关拒掉
-        session.closeDanglingCalls { if (it.name == AskUserTool.NAME) AskUserTool.UNANSWERED else AgentLoop.ABORTED }
-        _messages.value = restoredMessages(session.turns, traced, ::newId) + _messages.value
-        session
+        try {
+            val store = ChatStore.get(app)
+            val session = Session(store.load(), store)
+            // app 在等你答问卡的时候被杀了：那次调用没拿到结果，补上「没答」—— 缺一个下一次请求就会被网关拒掉
+            session.closeDanglingCalls { if (it.name == AskUserTool.NAME) AskUserTool.UNANSWERED else AgentLoop.ABORTED }
+            _messages.value = restoredMessages(session.turns, traced, ::newId) + _messages.value
+            session
+        } finally {
+            _restored.value = true
+        }
     }
 
     var aiBusy by mutableStateOf(false)

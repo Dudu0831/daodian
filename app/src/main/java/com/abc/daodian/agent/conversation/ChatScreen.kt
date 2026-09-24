@@ -34,8 +34,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -49,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
@@ -89,12 +90,17 @@ fun ChatScreen(
 ) {
     val colors = DaodianColors.current
     val messages by vm.messages.collectAsState()
+    val restored by vm.restored.collectAsState()
     // 问卡在等你：输入框照样能打字 —— 发出去是给问卡的（点了「其他…」只答那一题，否则算直接说）
     val asking = vm.asking
     val profile by vm.profile.collectAsState()
     val apiState by vm.apiState.collectAsState()
     var input by remember { mutableStateOf("") }
-    val listState = rememberLazyListState()
+    // 历史读回来的那一刻换一个列表状态，直接停在最后一条（LazyColumn 会往回补满一屏）——
+    // 不然先在最顶上画一帧，下一帧才被贴底跟随拉到底
+    val listState = rememberSaveable(restored, saver = LazyListState.Saver) {
+        LazyListState(firstVisibleItemIndex = if (restored) vm.messages.value.lastIndex.coerceAtLeast(0) else 0)
+    }
 
     // 贴底跟随。一个回合在原地长大时条数不变，只盯条数的话新长出来的部分会掉到屏幕外
     var follow by remember { mutableStateOf(true) }
@@ -225,8 +231,10 @@ fun ChatScreen(
         )
 
         Box(Modifier.weight(1f)) {
+            // 历史还没读回来：中间先空着（开屏一般还盖着，见 MainActivity）。这时 messages 是空的，但不是没聊过 ——
+            // 画空状态的话，有记录的人会先看到招呼语闪一下
             // 第一句话发出时，招呼语和例句淡出上移；「停」撤回最后一句、对话空了，它们再回来
-            AnimatedContent(
+            if (restored) AnimatedContent(
                 targetState = messages.isEmpty(),
                 transitionSpec = {
                     fadeIn(Motion.flow()) togetherWith
