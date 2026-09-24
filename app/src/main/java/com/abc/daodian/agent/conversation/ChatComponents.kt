@@ -187,7 +187,7 @@ fun AssistantTurnRow(msg: ChatMessage.AssistantTurn, actions: TurnActions) {
                             when (b) {
                                 is TurnBlock.Prose -> {
                                     val streaming = msg.streaming && b.key == msg.blocks.lastOrNull()?.key
-                                    InkText(b.text, streaming = streaming, style = DaodianType.prose, color = colors.ink, caret = streaming)
+                                    MarkdownText(b.text, streaming = streaming, style = DaodianType.prose, color = colors.ink, caret = streaming)
                                 }
                                 is TurnBlock.Trace -> TraceLine(
                                     b,
