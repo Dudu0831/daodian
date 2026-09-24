@@ -5,6 +5,7 @@ package com.abc.daodian.agent.conversation
  *
  * 不靠提示词去管模型怎么写 —— 它写什么这里认什么。先认最常见的几样：粗体、斜体、删除线、行内代码、链接，
  * 标题、列表、引用、分隔线、表格、代码块。认不出的原样当字画，一个字都不吞。
+ * 模型画的图（```svg 代码块，或者直接写的 <svg>…</svg>）单独成块，交给 SvgBlock.kt 画成图，见 DESIGN.md §6.11。
  * 纯 Kotlin、不碰 Compose（画在 MarkdownText.kt），JVM 单测直接测。
  *
  * 去掉标记符之后，每段字仍记着自己在原文里的下标（[MdRun.src]）：逐字洇开记的是原文下标的到货时刻，靠它对上。
@@ -43,6 +44,14 @@ sealed interface MdBlock {
     data class Table(val align: List<MdAlign>, val header: List<List<MdRun>>, val rows: List<List<List<MdRun>>>) : MdBlock
 
     data object Rule : MdBlock
+
+    /**
+     * 模型画的图：```svg 代码块（```xml / ``` 里是 <svg> 的也算），或者直接写的 <svg>…</svg>。
+     * [done] = 已经写到 </svg>，能画了；还在流、没写完的先画占位。
+     */
+    data class Svg(val lines: List<MdRun>, val done: Boolean) : MdBlock {
+        val source: String get() = lines.joinToString("\n") { it.text }
+    }
 }
 
 object Markdown {
@@ -99,15 +108,20 @@ private val BULLET = Regex("^([ \\t]*)([-*+])[ \\t]+")
 private val ORDERED = Regex("^([ \\t]*)(\\d{1,9})([.)])[ \\t]+")
 private val DELIMITER = Regex("^\\|?[ \\t]*:?-+:?[ \\t]*(?:\\|[ \\t]*:?-+:?[ \\t]*)*\\|?$")
 
+private val RAW_SVG = Regex("^\\s*<svg(?:[\\s>]|$)", RegexOption.IGNORE_CASE)
+
 /** 流着的末行只有这些：还看不出是什么，先不画 */
 private val HOLD = Regex("^(?:[-*+>#|`~_=]{1,3}|\\d{1,9}[.)]?)$")
+
+/** 「<」「<s」「<sv」：可能是 <svg 的开头 */
+private fun svgPrefix(t: String) = t.startsWith('<') && t.length <= 4 && "<svg".startsWith(t, ignoreCase = true)
 
 private class BlockParser(private val tailEnd: Int) {
 
     /** 原文末尾那行，而且还在流 */
     private fun isTail(l: MdLine) = tailEnd >= 0 && l.end == tailEnd
 
-    private fun holding(l: MdLine) = isTail(l) && HOLD.matches(l.text.trim())
+    private fun holding(l: MdLine) = isTail(l) && l.text.trim().let { HOLD.matches(it) || svgPrefix(it) }
 
     fun parse(lines: List<MdLine>): List<MdBlock> {
         val out = ArrayList<MdBlock>()
@@ -132,6 +146,7 @@ private class BlockParser(private val tailEnd: Int) {
                 }
                 tableStart(lines, i) -> table(lines, i, out)
                 QUOTE.containsMatchIn(line.text) -> quote(lines, i, out)
+                RAW_SVG.containsMatchIn(line.text) -> rawSvg(lines, i, out)
                 bullet != null -> listItem(lines, i, bullet, null, listIndents, out)
                 ordered != null -> listItem(lines, i, ordered, ordered.groupValues[2] + ordered.groupValues[3], listIndents, out)
                 else -> paragraph(lines, i, out)
@@ -144,7 +159,7 @@ private class BlockParser(private val tailEnd: Int) {
     private fun startsBlock(lines: List<MdLine>, i: Int): Boolean {
         val t = lines[i].text
         return fenceOf(lines[i]) != null || HEADING.containsMatchIn(t) || RULE.matches(t) || QUOTE.containsMatchIn(t) ||
-            BULLET.containsMatchIn(t) || ORDERED.containsMatchIn(t) || tableStart(lines, i)
+            BULLET.containsMatchIn(t) || ORDERED.containsMatchIn(t) || RAW_SVG.containsMatchIn(t) || tableStart(lines, i)
     }
 
     // ---------------- 段落、标题 ----------------
@@ -252,7 +267,40 @@ private class BlockParser(private val tailEnd: Int) {
             val t = last.text.trim()
             if (tailEnd >= 0 && last.src + last.text.length == tailEnd && t.isNotEmpty() && t.all { it == f.char }) body.removeAt(body.lastIndex)
         }
-        out += MdBlock.Code(f.lang, body)
+        out += if (isSvg(f.lang, body)) MdBlock.Svg(body, body.any { it.text.contains("</svg>", ignoreCase = true) })
+        else MdBlock.Code(f.lang, body)
+        return j
+    }
+
+    /** ```svg 一定是；没写语言、写的 xml / html，看第一行正经内容是不是 <svg（前面的 <?xml、<!-- 跳过） */
+    private fun isSvg(lang: String?, body: List<MdRun>): Boolean {
+        val l = lang?.lowercase()
+        if (l == "svg") return true
+        if (l != null && l != "xml" && l != "html") return false
+        val first = body.firstOrNull { it.text.isNotBlank() && !it.text.trimStart().startsWith("<?") && !it.text.trimStart().startsWith("<!") }
+            ?: return false
+        val t = first.text.trim()
+        val tail = tailEnd >= 0 && first.src + first.text.length == tailEnd
+        return RAW_SVG.containsMatchIn(t) || tail && svgPrefix(t)
+    }
+
+    // ---------------- 直接写的 <svg> ----------------
+
+    /** 没包在代码块里的 <svg>…</svg>：一直收到有 </svg> 的那行（中间的空行也算），没有就到末尾 */
+    private fun rawSvg(lines: List<MdLine>, i: Int, out: MutableList<MdBlock>): Int {
+        val body = ArrayList<MdRun>()
+        var j = i
+        var done = false
+        while (j < lines.size) {
+            val l = lines[j]
+            body += MdRun(l.text, l.src, MdStyle.CODE)
+            j++
+            if (l.text.contains("</svg>", ignoreCase = true)) {
+                done = true
+                break
+            }
+        }
+        out += MdBlock.Svg(body, done)
         return j
     }
 

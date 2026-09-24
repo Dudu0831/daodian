@@ -72,6 +72,11 @@
   **在云端会话里写的，app 没编译过**：那个环境的网络策略拦了 `dl.google.com`，AGP / androidx 拉不到。
   只验了两样：`MarkdownTest` 23 条在单独的 JVM 工程里跑过；两个 Compose 文件对着 JetBrains 桌面版 Compose 1.7.0 编译通过（API 同源，但不等于 Android 编译）。
   **本地先 `./gradlew :app:testDebugUnitTest` 再装机**。真机要看：粗体 / 列表 / 表格的样子、宽表横滑和右边渐隐、流式时 `**` 不闪、深色、表格里的链接能点。
+- **模型画图（SVG）**（2026-09-24，DESIGN.md §6.11）：模型写 ```` ```svg ````，界面用 AndroidSVG 画成静态图（`SvgBlock.kt`），点开全屏两指放大；
+  没写完画虚线占位，画不出来退回代码块；深色主题换色。提示词 `BasePrompt` 加了「画图」一节；更早几轮里的图喂给模型时折成一句（`FoldDrawings`）。
+  **同样没编译、没上真机**。新依赖 `com.caverock:androidsvg-aar:1.4`（Maven Central）。验证只到这一步：`MarkdownTest` 26 条 + `FoldDrawingsTest` 3 条 + `SvgColorsTest` 4 条（深色换色）在 JVM 跑过；
+  `SvgBlock.kt` 对着桌面版 Compose + 旧 android.jar + AndroidSVG 编译，只有 `nativeCanvas.drawPicture` 那行因为桌面版是 Skia 画布而对不上（Android 上是 `android.graphics.Canvas`）。
+  真机要看：问「这个月钱花在哪，画个图」模型画不画、画出来的样子和中文字、点开缩放、深色下的颜色、流着的时候占位框、重启后读回的历史里图还在。
 - **全屏页在锁屏上确实会弹**（2026-09-04 关屏实测，用户肉眼确认，点「完成」后闹钟正常取消、无残留排期）。
   别被 adb 骗了：`AlarmActivity` 是 `exported=false`，`am start` 起不来；关屏后隔几十秒截图也只会拍到黑屏 ——
   用户已经把它关掉了，`screencap` 拍的是关掉之后的状态。`appops` 里那条 `USE_FULL_SCREEN_INTENT rejectTime`

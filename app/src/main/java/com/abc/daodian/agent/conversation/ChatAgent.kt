@@ -3,6 +3,7 @@ package com.abc.daodian.agent.conversation
 import android.content.Context
 import com.abc.daodian.agent.engine.AgentLoop
 import com.abc.daodian.agent.engine.ask.AskUserTool
+import com.abc.daodian.agent.engine.context.FoldDrawings
 import com.abc.daodian.agent.engine.tool.Tool
 import com.abc.daodian.agent.engine.tool.ToolEffect
 import com.abc.daodian.agent.engine.tool.ToolRegistry
@@ -38,6 +39,8 @@ object ChatAgent {
     @Synchronized
     fun of(context: Context, profile: ProviderProfile): AgentLoop {
         cached?.let { (p, loop) -> if (p == profile) return loop }
-        return AgentLoop(ResponsesClient(profile), ToolRegistry(tools(context)), system).also { cached = profile to it }
+        // 旧轮次里画过的图折成一句再喂回去（DESIGN.md §6.11）
+        return AgentLoop(ResponsesClient(profile), ToolRegistry(tools(context)), system, FoldDrawings())
+            .also { cached = profile to it }
     }
 }

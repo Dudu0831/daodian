@@ -28,6 +28,7 @@ class MarkdownTest {
                 is MdBlock.Quote -> walk(b.blocks)
                 is MdBlock.Code -> check(b.lines)
                 is MdBlock.Table -> (listOf(b.header) + b.rows).flatten().forEach(::check)
+                is MdBlock.Svg -> check(b.lines)
                 MdBlock.Rule -> Unit
             }
         }
@@ -205,6 +206,45 @@ class MarkdownTest {
         assertEquals(listOf("a", "b"), unclosed.lines.map { it.text })
     }
 
+    // ---------------- 图 ----------------
+
+    private val chart = """<svg viewBox="0 0 340 200" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="120" height="20" fill="#9E3B2E"/>
+</svg>"""
+
+    @Test
+    fun `svg fences become drawings`() {
+        val bs = Markdown.parse("按类别：\n\n```svg\n$chart\n```\n\n餐饮最多。")
+        val svg = bs[1] as MdBlock.Svg
+        assertTrue(svg.done)
+        assertEquals(chart, svg.source)
+        assertEquals("餐饮最多。", (bs[2] as MdBlock.Paragraph).runs.plain())
+
+        // 没写语言、写 xml 的，里面是 <svg 也算；xml 里不是 svg 的还是代码
+        assertTrue(Markdown.parse("```\n$chart\n```").single() is MdBlock.Svg)
+        assertTrue(Markdown.parse("```xml\n<?xml version=\"1.0\"?>\n$chart\n```").single() is MdBlock.Svg)
+        assertTrue(Markdown.parse("```xml\n<config/>\n```").single() is MdBlock.Code)
+    }
+
+    @Test
+    fun `bare svg without a fence is a drawing too`() {
+        val bs = Markdown.parse("看图：\n$chart\n就这样")
+        assertEquals(listOf(MdBlock.Paragraph::class, MdBlock.Svg::class, MdBlock.Paragraph::class), bs.map { it::class })
+        assertTrue((bs[1] as MdBlock.Svg).done)
+    }
+
+    @Test
+    fun `a drawing still streaming is not done`() {
+        val half = chart.substring(0, chart.indexOf("<rect") + 10)
+        val fenced = Markdown.parse("```svg\n$half", open = true).single() as MdBlock.Svg
+        assertTrue(!fenced.done)
+        val bare = Markdown.parse("好的\n$half", open = true)[1] as MdBlock.Svg
+        assertTrue(!bare.done)
+        // 「<sv」还看不出是图：先不画，也不当字露出来
+        assertEquals(1, Markdown.parse("好的\n<sv", open = true).size)
+        assertTrue(Markdown.parse("```\n<sv", open = true).single() is MdBlock.Svg)
+    }
+
     @Test
     fun `quotes hold blocks`() {
         val q = Markdown.parse("> 引用 **重点**\n> 第二行").single() as MdBlock.Quote
@@ -229,7 +269,9 @@ class MarkdownTest {
             "```\ncode here\n```",
             "  - 缩进的列表\n    接着说\n\n看 [这里](https://x.y) 和 https://z.w/a_b",
             "半截的 **粗体",
-            "| a | b |\n|---|---|\n| 1 | 2"
+            "| a | b |\n|---|---|\n| 1 | 2",
+            "图：\n```svg\n<svg viewBox=\"0 0 10 10\">\n<text>餐饮</text>\n</svg>\n```\n完",
+            "<svg viewBox=\"0 0 10 10\"><rect/></svg>"
         )
         samples.forEach { md ->
             assertMapsBack(md)

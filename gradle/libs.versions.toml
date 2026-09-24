@@ -12,6 +12,7 @@ datastore = "1.1.1"
 openai = "4.54.0"
 navigation = "2.8.4"
 junit = "4.13.2"
+androidsvg = "1.4"
 
 [libraries]
 androidx-core-ktx           = { group = "androidx.core",             name = "core-ktx",                 version.ref = "coreKtx" }
@@ -32,6 +33,7 @@ androidx-work-runtime       = { group = "androidx.work",             name = "wor
 androidx-datastore-prefs    = { group = "androidx.datastore",        name = "datastore-preferences",    version.ref = "datastore" }
 openai-java                 = { group = "com.openai",                name = "openai-java",              version.ref = "openai" }
 junit                       = { group = "junit",                     name = "junit",                    version.ref = "junit" }
+androidsvg                  = { group = "com.caverock",            name = "androidsvg-aar",           version.ref = "androidsvg" }
 androidx-navigation-compose = { group = "androidx.navigation",       name = "navigation-compose",       version.ref = "navigation" }
 
 [plugins]

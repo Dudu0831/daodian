@@ -59,6 +59,7 @@ private val NUMERIC = Regex("^[+\\-−]?[¥￥$]?\\s*[+\\-−]?[\\d,]+(?:\\.\\d+
  * 流着的时候和 [InkText] 一样逐字洇开、末尾跟光标：到货时刻按原文下标记（[rememberInk]），
  * 去掉标记符后的字拿自己的原文下标（[MdRun.src]）去查。流完了就是普通的几段 Text。
  * 样式守墨宋的规矩（DESIGN.md §8.1）：标题靠宋体和字号、不靠加粗；朱砂只给链接；卡片圆角 5dp。
+ * 模型画的图（```svg）交给 [SvgBlock]，见 §6.11。
  */
 @Composable
 fun MarkdownText(
@@ -171,6 +172,11 @@ private fun MdBlockView(b: MdBlock, modifier: Modifier, look: MdLook, ink: InkFr
         is MdBlock.Code -> CodeBlock(b, modifier, look, ink, caret)
 
         is MdBlock.Table -> TableBlock(b, modifier, look, ink, caret)
+
+        // 画不出来就退回代码块，原文不丢
+        is MdBlock.Svg -> SvgBlock(b, modifier, streaming = ink != null) {
+            CodeBlock(MdBlock.Code("svg", b.lines), Modifier, look, null, false)
+        }
 
         MdBlock.Rule -> Column(modifier) {
             HorizontalDivider(Modifier.padding(vertical = 6.dp), color = colors.rule)

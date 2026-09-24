@@ -107,6 +107,9 @@ dependencies {
     // 用的是 onnxruntime 静态链接那版：arm64 只有一个 24MB 的 .so，不和别的 onnxruntime 撞
     implementation(files("libs/sherpa-onnx-static-link-onnxruntime-1.13.8.aar"))
 
+    // 对话里模型画的图（```svg），见 DESIGN.md §6.11。只画静态的、不联网，约 200KB
+    implementation(libs.androidsvg)
+
     // harness 的 JVM 单测。harness 核心不碰 Android API，所以不需要 Robolectric
     testImplementation(libs.junit)
 }
