@@ -1,7 +1,9 @@
 package com.abc.daodian.agent.engine
 
+import com.abc.daodian.agent.engine.context.Background
 import com.abc.daodian.agent.engine.context.ContextPolicy
 import com.abc.daodian.agent.engine.context.LastTurns
+import com.abc.daodian.agent.engine.context.Preamble
 import com.abc.daodian.agent.model.LlmClient
 import com.abc.daodian.agent.model.LlmEvent
 import com.abc.daodian.agent.model.LlmException
@@ -21,7 +23,7 @@ import kotlin.coroutines.cancellation.CancellationException
  * ReAct 循环：调模型 → 模型要调工具就执行 → 结果回传 → 再调模型，直到它只说话不调工具。
  *
  * 循环不认识任何具体工具，也不管界面；它只负责两件事：
- *  - 每一步按 [context] 选出要喂的历史
+ *  - 每一步按 [context] 选出要喂的历史，前面垫上 [Background] 给的那段（记忆、摘要，DESIGN.md §6.9）
  *  - 边跑边把每一项写进 [Session]，中途被「停」也不丢已经发生的事
  *
  * 写操作直接执行，不先问用户（DESIGN.md §6.1）。要问人是模型自己的决定：它调 `ask_user`，
@@ -32,7 +34,9 @@ class AgentLoop(
     private val tools: ToolRegistry,
     private val system: String,
     private val context: ContextPolicy = LastTurns(),
-    private val maxSteps: Int = DEFAULT_MAX_STEPS
+    private val maxSteps: Int = DEFAULT_MAX_STEPS,
+    /** 每次真要发请求前看一眼发的是什么（垫了什么、原样带了哪几轮）。只给调试记录用，见 ContextTrace */
+    private val onRequest: (preamble: Preamble?, sent: List<Turn>, request: LlmRequest) -> Unit = { _, _, _ -> }
 ) {
 
     init {
@@ -41,21 +45,23 @@ class AgentLoop(
 
     /**
      * [asker]：模型要问人时找谁（`ask_user`）。
-     * [trigger]：这一轮是 app 自己发起的（见 [Item.UserMessage.trigger]），不是用户说的话
+     * [trigger]：这一轮是 app 自己发起的（见 [Item.UserMessage.trigger]），不是用户说的话。
+     * [background]：历史前面垫什么。对话页垫记忆 + 摘要，桌面速记只垫记忆，后台整理什么都不垫
      */
     fun run(
         session: Session,
         input: String,
         now: ZonedDateTime,
         asker: Asker = Asker.NONE,
-        trigger: Boolean = false
+        trigger: Boolean = false,
+        background: Background = Background.NONE
     ): Flow<AgentEvent> = flow {
         session.begin(Item.UserMessage(input, now, trigger))
         val toolContext = ToolContext(now, input, asker, model = llm.model)
         try {
             for (step in 0 until maxSteps) {
                 val output = try {
-                    callModel(step, session)
+                    callModel(step, session, background)
                 } catch (c: CancellationException) {
                     throw c
                 } catch (t: Throwable) {
@@ -79,12 +85,19 @@ class AgentLoop(
     }
 
     /** 调一次模型，把过程事件转发出去，返回这一步的产出 */
-    private suspend fun FlowCollector<AgentEvent>.callModel(step: Int, session: Session): StepOutput {
+    private suspend fun FlowCollector<AgentEvent>.callModel(step: Int, session: Session, background: Background): StepOutput {
+        val preamble = background.of(session)
+        val all = session.turns
+        // 摘要盖住的轮次不再原样喂；当前这一轮无论如何都在
+        val turns = if (preamble == null) all else all.filter { it.id > preamble.afterTurnId || it === all.last() }
+        val sent = context.select(turns)
         val request = LlmRequest(
             system = system,
-            input = context.select(session.turns).flatMap { it.items },
-            tools = tools.all
+            input = sent.flatMap { it.items },
+            tools = tools.all,
+            background = preamble?.text
         )
+        onRequest(preamble, sent, request)
         var output: StepOutput? = null
         llm.step(request).collect { event ->
             if (event is LlmEvent.Done) output = event.output

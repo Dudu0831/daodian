@@ -4,7 +4,15 @@ import com.abc.daodian.agent.engine.AgentEvent
 import com.abc.daodian.agent.engine.AgentLoop
 import com.abc.daodian.agent.engine.Item
 import com.abc.daodian.agent.engine.Session
+import com.abc.daodian.agent.engine.Turn
+import com.abc.daodian.agent.engine.context.LastTurns
+import com.abc.daodian.agent.engine.context.Preamble
 import com.abc.daodian.agent.engine.tool.ToolRegistry
+import com.abc.daodian.agent.memory.EditMemoryTool
+import com.abc.daodian.agent.memory.FakeMemoryBook
+import com.abc.daodian.agent.memory.tidy.SaveTidyTool
+import com.abc.daodian.agent.memory.tidy.TidyPrompt
+import com.abc.daodian.agent.memory.tidy.TidyText
 import com.abc.daodian.agent.model.LlmClient
 import com.abc.daodian.agent.model.LlmEvent
 import com.abc.daodian.agent.model.LlmRequest
@@ -22,6 +30,8 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Before
@@ -92,6 +102,74 @@ class LiveGatewayTest {
         println("第二轮回答：$reply")
         assertTrue("模型没从历史里认出房租：$reply", "房租" in reply)
         assertEquals("第二轮不该再建", 1, committed.size)
+    }
+
+    /**
+     * 垫在前面的记忆（§6.9）：网关认不认开头那条「app 附上的背景」、模型拿不拿它听懂「晚点」；
+     * 他说「记住…」时调不调 edit_memory。
+     */
+    @Test
+    fun `background memory is used and edit_memory is called when asked`() = runBlocking {
+        val committed = mutableListOf<String>()
+        val book = FakeMemoryBook("他说的「晚点」一般指晚上 9 点")
+        val tools = ToolRegistry(listOf(
+            CreateReminderTool { plan, _ -> committed += plan.firstTriggerAt; 1001L },
+            EditMemoryTool(book)
+        ))
+        val loop = AgentLoop(ResponsesClient(profile), tools, BasePrompt.SYSTEM + "\n\n" + ReminderPrompt.RULES)
+        val session = Session()
+        val now = ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).withHour(15).withMinute(0)
+        val background = { _: Session -> Preamble("你记得的关于他的事（m 编号 · 记下或改过的日子）：\n- m1 · 9月20日 · 他说的「晚点」一般指晚上 9 点") }
+
+        val first = loop.run(session, "晚点提醒我给妈妈打电话", now, background = background).onEach(::log).toList()
+        assertTrue("第一轮没正常结束：${first.last()}", first.last() is AgentEvent.Finished)
+        println("建的：$committed")
+        assertTrue("没按记忆排到 21:00：$committed", committed.singleOrNull()?.contains("T21:00") == true)
+
+        val second = loop.run(session, "记住：我每周二晚上健身", now.plusMinutes(1), background = background).onEach(::log).toList()
+        assertTrue("第二轮没正常结束：${second.last()}", second.last() is AgentEvent.Finished)
+        println("记忆：${book.list.map { it.text }}")
+        assertTrue("没记下健身：${book.list}", book.list.any { "健身" in it.text })
+    }
+
+    /** 整理员（§6.9）：看一段对话，交上记忆和摘要；账目、一次性的事不进记忆，摘要不写「已经办好」 */
+    @Test
+    fun `tidy extracts memories and writes a summary`() = runBlocking {
+        val book = FakeMemoryBook("他在备考 CPA")
+        val at = ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).minusDays(1).withHour(21).withMinute(3)
+        val turns = listOf(
+            Turn(1, listOf(
+                Item.UserMessage("我一般九点到公司，晚上七点下班。明早八点提醒我带伞", at),
+                Item.ToolCall("c1", "create_reminder", "{\"title\":\"带伞\"}"),
+                Item.ToolResult("c1", "已建好：明天 08:00 带伞", ok = true),
+                Item.AssistantMessage("好了，明天 08:00 提醒你带伞。")
+            )),
+            Turn(2, listOf(
+                Item.UserMessage("考试改到 12 月了。以后说老地方就是公司楼下那家瑞幸", at.plusMinutes(2)),
+                Item.AssistantMessage("知道了。")
+            )),
+            Turn(3, listOf(
+                Item.UserMessage("刚才午饭 36.5 是和同事吃的", at.plusMinutes(5)),
+                Item.ToolCall("c2", "update_expenses", "{}"),
+                Item.ToolResult("c2", "改好了 1 笔：午饭 36.50 → 餐饮/堂食", ok = true),
+                Item.AssistantMessage("改好了。")
+            ))
+        )
+        val loop = AgentLoop(ResponsesClient(profile), ToolRegistry(listOf(SaveTidyTool(book, compact = true))), TidyPrompt.SYSTEM,
+            context = LastTurns(1), maxSteps = 3)
+        var saved: SaveTidyTool.Saved? = null
+        val input = TidyText.input(book.list.toList(), null, turns, compact = true, stale = emptySet())
+        println(input)
+        loop.run(Session(), input, ZonedDateTime.now()).onEach(::log).collect { e ->
+            if (e is AgentEvent.ToolFinished) (e.outcome.payload as? SaveTidyTool.Saved)?.let { saved = it }
+        }
+        val s = saved
+        assertNotNull("没交作业", s)
+        println("记忆：${book.list.map { "m${it.id} ${it.text}" }}\n摘要：${s!!.summary}")
+        assertTrue("没记下作息或老地方", book.list.any { "瑞幸" in it.text || "九点" in it.text || "9" in it.text })
+        assertTrue("考试改期没更新到 m1", book.list.none { it.text == "他在备考 CPA" })
+        assertFalse("账进了记忆", book.list.any { "36" in it.text })
+        assertNotNull(s.summary)
     }
 
     private fun log(e: AgentEvent) {

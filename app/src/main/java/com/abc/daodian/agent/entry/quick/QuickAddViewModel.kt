@@ -13,6 +13,7 @@ import com.abc.daodian.agent.conversation.patched
 import com.abc.daodian.agent.engine.AgentEvent
 import com.abc.daodian.agent.engine.Session
 import com.abc.daodian.agent.engine.ask.Asker
+import com.abc.daodian.agent.memory.Recall
 import com.abc.daodian.agent.model.provider.ApiHealth
 import com.abc.daodian.agent.model.provider.ProviderProfile
 import com.abc.daodian.agent.model.provider.ProviderStore
@@ -136,7 +137,8 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
             }
             var askBack = false
             try {
-                ChatAgent.of(app, profile()).run(session, said, ZonedDateTime.now(), asker).collect { event ->
+                // 速记也垫记忆：「老地方」「晚点」照样听得懂（§6.9）
+                ChatAgent.of(app, profile()).run(session, said, ZonedDateTime.now(), asker, background = Recall.quick(app)).collect { event ->
                     t = t.patched(event, traced)
                     turn = t
                     if (event is AgentEvent.Finished || event is AgentEvent.Failed) ApiHealth.record(event)

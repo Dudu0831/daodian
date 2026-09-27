@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
@@ -32,13 +33,14 @@ fun GroupLabel(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** 一组 = 一张纸。圆角 5dp，同卡片（§8.1 第 3 条） */
+/** 一组 = 一张纸。圆角 5dp，同卡片（§8.1 第 3 条）。裁到圆角里：行里左滑露出的「删除」底色不出纸边 */
 @Composable
 fun PaperGroup(content: @Composable ColumnScope.() -> Unit) {
     val colors = DaodianColors.current
     Column(
         Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(5.dp))
             .background(colors.surface, RoundedCornerShape(5.dp))
             .border(1.dp, colors.rule, RoundedCornerShape(5.dp)),
         content = content

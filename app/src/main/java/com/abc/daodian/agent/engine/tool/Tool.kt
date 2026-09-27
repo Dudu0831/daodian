@@ -57,6 +57,12 @@ interface Tool {
      */
     val abortedOutput: String? get() = null
 
+    /**
+     * 结果是查询那一刻的快照（查账的明细表）：过几轮就折成一句再喂，要用让模型重新查。
+     * 旧快照又大又会误导 —— 账后来改了，模型还照着旧表说（DESIGN.md §6.9）
+     */
+    val outputGoesStale: Boolean get() = false
+
     suspend fun execute(arguments: String, context: ToolContext): ToolOutcome
 }
 

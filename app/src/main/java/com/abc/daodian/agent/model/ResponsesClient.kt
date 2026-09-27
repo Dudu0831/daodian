@@ -2,6 +2,7 @@ package com.abc.daodian.agent.model
 
 import com.abc.daodian.agent.model.provider.ProviderProfile
 import com.abc.daodian.agent.engine.Item
+import com.abc.daodian.agent.engine.context.Preamble
 import com.abc.daodian.agent.engine.tool.Tool
 import com.openai.client.OpenAIClient
 import com.openai.client.okhttp.OpenAIOkHttpClient
@@ -104,7 +105,7 @@ class ResponsesClient(private val profile: ProviderProfile) : LlmClient {
         val builder = ResponseCreateParams.builder()
             .model(profile.model)
             .instructions(request.system)
-            .inputOfResponse(request.input.map(::wire))
+            .inputOfResponse(listOfNotNull(request.background?.let(::background)) + request.input.map(::wire))
             .reasoning(reasoning())
         if (request.tools.isNotEmpty()) {
             request.tools.forEach { builder.addTool(wire(it)) }
@@ -225,6 +226,13 @@ class ResponsesClient(private val profile: ProviderProfile) : LlmClient {
                     .build()
             )
         }
+
+        /**
+         * 垫在历史前面的记忆和摘要：用 user 角色，开头打标记说明不是用户说的（和 app 发起的一轮同一个办法）。
+         * 不用 developer / system 角色 —— 第三方网关认不认没把握
+         */
+        private fun background(text: String): ResponseInputItem =
+            message(EasyInputMessage.Role.USER, "${Preamble.MARK}\n$text")
 
         private fun message(role: EasyInputMessage.Role, text: String) =
             ResponseInputItem.ofEasyInputMessage(EasyInputMessage.builder().role(role).content(text).build())

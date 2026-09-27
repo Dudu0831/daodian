@@ -24,6 +24,9 @@ class ListExpensesTool(
 
     override val effect = ToolEffect.READ
 
+    /** 明细表是查的那一刻的账，几轮之后折掉（§6.9）；账本提示词也说了「只信最新的」 */
+    override val outputGoesStale = true
+
     override val description =
         "查账。用户问「这个月吃饭花了多少」「山姆那笔是哪天」、或者你要找退款对应的原笔、要改某笔之前先查它的 # 编号，都用它。" +
             "返回每笔明细和合计。统计口径：净支出 = 支出 − 退款，转移不算花钱。"

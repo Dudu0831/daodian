@@ -19,6 +19,8 @@ import com.abc.daodian.agent.engine.background.AgentActivity
 import com.abc.daodian.agent.feature.FeatureRegistry
 import com.abc.daodian.agent.feature.PendingTrigger
 import com.abc.daodian.agent.feature.Trigger
+import com.abc.daodian.agent.memory.Recall
+import com.abc.daodian.agent.memory.tidy.Tidy
 import com.abc.daodian.agent.model.provider.ApiHealth
 import com.abc.daodian.agent.model.provider.PingResult
 import com.abc.daodian.agent.model.provider.ProviderStore
@@ -214,6 +216,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             val turnId = newId()
             _messages.value = _messages.value + ChatMessage.AssistantTurn(turnId, streaming = true)
             aiBusy = true
+            Tidy.chatBusy = true
 
             val asker = Asker { call, request ->
                 val pending = PendingAsk(turnId, call.callId, request, CompletableDeferred())
@@ -232,12 +235,16 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             try {
+                var finished = false
                 ChatAgent.of(getApplication(), profile.value)
-                    .run(session, text, ZonedDateTime.now(), asker, trigger)
+                    .run(session, text, ZonedDateTime.now(), asker, trigger, Recall.chat(getApplication()))
                     .collect { event ->
                         patchTurn(turnId, event)
                         if (event is AgentEvent.Finished || event is AgentEvent.Failed) ApiHealth.record(event)
+                        if (event is AgentEvent.Finished) finished = true
                     }
+                // 说完一轮：推迟闲下来的整理，攒够了当场在后台压（§6.9）。失败的那轮等着重试，不算
+                if (finished) Tidy.afterTurn(getApplication(), session.turns)
             } catch (t: CancellationException) {
                 val turn = _messages.value.firstOrNull { it.id == turnId } as? ChatMessage.AssistantTurn
                 if (turn != null && (turn.committed || turn.blocks.any { it is TurnBlock.Ask })) {
@@ -271,6 +278,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 throw t
             } finally {
                 aiBusy = false
+                Tidy.chatBusy = false
                 stoppedByUser = false
                 pendingAsk = null
             }

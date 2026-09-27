@@ -49,6 +49,7 @@ import com.abc.daodian.agent.feature.FeatureRegistry
 import com.abc.daodian.agent.feature.ToolTrace
 import com.abc.daodian.agent.feature.TraceState
 import com.abc.daodian.agent.feature.TraceView
+import com.abc.daodian.agent.memory.MemoryTrace
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.theme.Motion
@@ -62,9 +63,9 @@ import com.abc.daodian.shared.ui.ChevronRightIcon
  * 字怎么写归模块（Feature.trace），这里只管画和点了去哪（[TraceView.route]）。
  */
 
-/** 痕上写什么由它的模块决定；没有模块认领（不该发生）就只写工具名 */
+/** 痕上写什么由它的模块决定（记忆是 agent 自己的，先问它）；没人认领（不该发生）就只写工具名 */
 fun traceViewOf(block: TurnBlock.Trace): TraceView =
-    FeatureRegistry.trace(ToolTrace(block.tool, block.arguments, block.state, block.output, block.ref))
+    ToolTrace(block.tool, block.arguments, block.state, block.output, block.ref).let { MemoryTrace.of(it) ?: FeatureRegistry.trace(it) }
         ?: TraceView("在办", if (block.state == TraceState.FAILED) "没办成" else "办了", block.tool)
 
 /** 对勾只在刚办成时描一次；列表滚回来、重启读回来的都直接画好 */

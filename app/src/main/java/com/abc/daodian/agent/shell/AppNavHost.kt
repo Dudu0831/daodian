@@ -16,6 +16,7 @@ import androidx.navigation.compose.rememberNavController
 import com.abc.daodian.agent.conversation.ChatScreen
 import com.abc.daodian.agent.conversation.ChatViewModel
 import com.abc.daodian.agent.feature.FeatureRegistry
+import com.abc.daodian.agent.memory.presentation.MemoryScreen
 import com.abc.daodian.shared.navigation.Launch
 import com.abc.daodian.shared.theme.DaodianColors
 import kotlinx.coroutines.launch
@@ -25,6 +26,8 @@ object ShellRoutes {
     const val CHAT = "chat"
     const val SETTINGS = "settings"
     const val PROVIDER = "provider"
+    /** 记忆管理页（§6.9）。设置页「记忆」那一组、对话里「记住了」的痕都到这里 */
+    const val MEMORY = "memory"
 }
 
 /**
@@ -132,6 +135,10 @@ fun AppNavHost(
 
         composable(ShellRoutes.PROVIDER) {
             ProviderScreen(vm = vm, onBack = { navController.popBackStack() })
+        }
+
+        composable(ShellRoutes.MEMORY) {
+            MemoryScreen(onBack = { navController.popBackStack() })
         }
 
         uis.forEach { ui -> with(ui) { routes(nav) } }

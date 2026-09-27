@@ -34,12 +34,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxState
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -81,7 +76,8 @@ import com.abc.daodian.shared.ui.ChevronRightIcon
 import com.abc.daodian.shared.ui.PlusIcon
 import com.abc.daodian.shared.ui.RepeatIcon
 import com.abc.daodian.shared.ui.ScreenTopBar
-import com.abc.daodian.shared.ui.TrashIcon
+import com.abc.daodian.shared.ui.SwipeToDelete
+import com.abc.daodian.shared.ui.UndoBar
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -264,7 +260,7 @@ fun ReminderListScreen(
         )
 
         UndoBar(
-            undo = undo,
+            label = undo?.label,
             onUndo = {
                 undo?.let { vm.restore(it.original) }
                 undo = null
@@ -789,85 +785,6 @@ private fun BackToNow(visible: Boolean, onClick: () -> Unit, modifier: Modifier 
 }
 
 // ---------------- 删除 / 撤销 / 告警 / 空状态 ----------------
-
-/** 左滑删除要拖过行宽的这个比例 */
-private const val DeleteReach = 0.4f
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SwipeToDelete(onDelete: () -> Unit, content: @Composable () -> Unit) {
-    val colors = DaodianColors.current
-    // 只认距离、不认速度：Material 默认甩得够快也算，上下滑时手指往左偏一点就误删了。
-    // 必须往左拖过行宽的 [DeleteReach] 才删，不够就弹回去
-    lateinit var state: SwipeToDismissBoxState
-    state = rememberSwipeToDismissBoxState(
-        confirmValueChange = {
-            if (it == SwipeToDismissBoxValue.EndToStart && state.progress >= DeleteReach) {
-                onDelete()
-                true
-            } else false
-        },
-        positionalThreshold = { total -> total * DeleteReach }
-    )
-    SwipeToDismissBox(
-        state = state,
-        enableDismissFromStartToEnd = false,
-        backgroundContent = {
-            // 只在真往左滑时才画：平时画着的话，滚轮把行淡化、虚化时这层深一档的底会透出一圈方框
-            if (state.dismissDirection != SwipeToDismissBoxValue.EndToStart) return@SwipeToDismissBox
-            Row(
-                Modifier
-                    .fillMaxSize()
-                    .background(colors.surfaceAlt)
-                    .padding(end = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.End),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TrashIcon(size = 15.dp, tint = colors.red)
-                Text("删除", style = DaodianType.button, color = colors.red)
-            }
-        }
-    ) {
-        // 行平时不画底：被滚轮淡化时，半透明的纸色叠在纸色上会差一点，透出一圈方框。
-        // 只在往左拖的时候垫一层纸，盖住下面的「删除」
-        val swiping = state.dismissDirection == SwipeToDismissBoxValue.EndToStart
-        Box(if (swiping) Modifier.background(colors.paper) else Modifier) { content() }
-    }
-}
-
-/** 墨色的撤销条。实心块一律是墨色（§8.1 第 1 条） */
-@Composable
-private fun UndoBar(undo: Undo?, onUndo: () -> Unit, modifier: Modifier = Modifier) {
-    val colors = DaodianColors.current
-    // 淡出的那几百毫秒里 undo 已经是 null 了，字要留着
-    var shown by remember { mutableStateOf("") }
-    if (undo != null) shown = undo.label
-
-    AnimatedVisibility(
-        visible = undo != null,
-        enter = fadeIn(Motion.settle()) + slideInVertically(Motion.settle()) { it / 2 },
-        exit = fadeOut(Motion.exit()) + slideOutVertically(Motion.exit()) { it / 2 },
-        modifier = modifier.navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 24.dp)
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(50.dp)
-                .shadow(12.dp, RoundedCornerShape(25.dp), ambientColor = colors.ink, spotColor = colors.ink)
-                .background(colors.solid, RoundedCornerShape(25.dp))
-                .padding(start = 22.dp, end = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(shown, style = DaodianType.bodySmall, color = colors.onSolid, maxLines = 1, modifier = Modifier.weight(1f))
-            Box(
-                Modifier.heightIn(min = 44.dp).clickable(onClick = onUndo).padding(horizontal = 16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("撤销", style = DaodianType.button, color = colors.onSolid)
-            }
-        }
-    }
-}
 
 @Composable
 private fun UnarmedBanner(count: Int, onReschedule: () -> Unit) {

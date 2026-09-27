@@ -33,6 +33,9 @@ class ChatStore private constructor(private val dao: ChatDao) : Session.Listener
      */
     suspend fun callArguments(tool: String, ref: Long): String? = dao.callArgumentsFor(tool, ref)
 
+    /** 最新一轮的号，没聊过是 0 */
+    suspend fun lastTurnId(): Long = dao.lastTurnId() ?: 0
+
     override fun changed(turn: Turn) {
         val rows = turn.items.mapIndexed { i, item -> toEntity(turn.id, i, item) }
         writes.launch { dao.replaceTurn(turn.id, rows) }

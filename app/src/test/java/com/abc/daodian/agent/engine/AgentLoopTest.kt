@@ -1,6 +1,7 @@
 package com.abc.daodian.agent.engine
 
 import com.abc.daodian.agent.engine.context.LastTurns
+import com.abc.daodian.agent.engine.context.Preamble
 import com.abc.daodian.agent.model.LlmClient
 import com.abc.daodian.agent.model.LlmEvent
 import com.abc.daodian.agent.model.LlmException
@@ -167,6 +168,28 @@ class AgentLoopTest {
         assertEquals(listOf("第二句", "第三句"), said)
         assertTrue(input.first() is Item.UserMessage)          // 从整轮开头切，不会切出孤立的工具结果
         assertEquals(3, session.turns.size)                     // 裁剪只影响喂给模型的，不删记录
+    }
+
+    @Test
+    fun `background goes first and turns under the digest are not replayed`() = runBlocking {
+        val session = Session()
+        listOf("第一句", "第二句").forEach { AgentLoop(ScriptedLlm(answer("嗯")), tools, "sys").run(session, it, now).toList() }
+        val third = ScriptedLlm(answer("嗯"))
+        // 摘要盖住了第 1 轮
+        AgentLoop(third, tools, "sys").run(session, "第三句", now, background = { Preamble("m1 · 他晚上 9 点下班", afterTurnId = 1) }).toList()
+
+        val request = third.requests.single()
+        assertEquals("m1 · 他晚上 9 点下班", request.background)
+        assertEquals(listOf("第二句", "第三句"), request.input.filterIsInstance<Item.UserMessage>().map { it.text })
+        assertEquals(3, session.turns.size)
+    }
+
+    @Test
+    fun `the current turn is replayed even if a digest claims to cover it`() = runBlocking {
+        val llm = ScriptedLlm(answer("嗯"))
+        AgentLoop(llm, tools, "sys").run(Session(), "只有这一句", now, background = { Preamble("x", afterTurnId = 99) }).toList()
+
+        assertEquals(listOf("只有这一句"), llm.requests.single().input.filterIsInstance<Item.UserMessage>().map { it.text })
     }
 
     @Test

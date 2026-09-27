@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -32,6 +34,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.abc.daodian.agent.conversation.ChatViewModel
 import com.abc.daodian.agent.feature.FeatureRegistry
 import com.abc.daodian.agent.feature.HealthItem
+import com.abc.daodian.agent.memory.presentation.MemoryViewModel
 import com.abc.daodian.agent.model.provider.ApiState
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
@@ -46,6 +49,7 @@ import com.abc.daodian.shared.ui.OutlineBadge
 import com.abc.daodian.shared.ui.PaperGroup
 import com.abc.daodian.shared.ui.ScreenTopBar
 import com.abc.daodian.shared.ui.SettingRow
+import com.abc.daodian.shared.ui.activityViewModel
 
 /**
  * 设置 + 权限体检。见 DESIGN.md §08、§9.1
@@ -111,6 +115,9 @@ fun SettingsScreen(
                 ) { ChevronRightIcon(size = 13.dp, tint = colors.muted) }
             }
 
+            // ---- 记忆（§6.9）----
+            MemoryGroup(onOpen = { open(ShellRoutes.MEMORY) })
+
             // ---- 系统权限 ----
             GroupLabel("系统权限")
             PaperGroup {
@@ -123,6 +130,46 @@ fun SettingsScreen(
             uis.forEach { it.SettingsSection(open) }
 
             Spacer(Modifier.height(40.dp))
+        }
+    }
+}
+
+/** 「记忆」一组：进管理页，和聊完要不要自己整理 */
+@Composable
+private fun MemoryGroup(onOpen: () -> Unit) {
+    val colors = DaodianColors.current
+    val memory = activityViewModel<MemoryViewModel>()
+    val count = memory.memories.collectAsState().value?.size
+    val auto by memory.autoTidy.collectAsState()
+    GroupLabel("记忆")
+    PaperGroup {
+        SettingRow(
+            title = "它记得的",
+            note = when (count) {
+                null -> null
+                0 -> "还没有 · 聊天时说「记住……」就有了"
+                else -> "$count 条 · 聊天时会带上"
+            },
+            onClick = onOpen
+        ) { ChevronRightIcon(size = 13.dp, tint = colors.muted) }
+        GroupRule()
+        SettingRow(
+            title = "聊完自己整理",
+            note = if (auto) "停下来 10 分钟，从新聊的里找值得记的" else "关着 · 只记你明说让它记的",
+            onClick = { memory.setAutoTidy(!auto) }
+        ) {
+            Switch(
+                checked = auto,
+                onCheckedChange = { memory.setAutoTidy(it) },
+                colors = SwitchDefaults.colors(
+                    checkedTrackColor = colors.solid,
+                    checkedThumbColor = colors.onSolid,
+                    checkedBorderColor = colors.solid,
+                    uncheckedTrackColor = colors.surfaceAlt,
+                    uncheckedThumbColor = colors.rule2,
+                    uncheckedBorderColor = colors.rule2
+                )
+            )
         }
     }
 }

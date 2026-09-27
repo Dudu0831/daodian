@@ -4,11 +4,15 @@ import com.abc.daodian.agent.engine.Item
 import com.abc.daodian.agent.engine.tool.Tool
 import kotlinx.coroutines.flow.Flow
 
-/** 一次模型调用要带的全部东西。无状态：历史每次都由调用方完整给出，不依赖服务端会话 */
+/**
+ * 一次模型调用要带的全部东西。无状态：历史每次都由调用方完整给出，不依赖服务端会话。
+ * [background] 垫在 [input] 前面，作为第一条消息（见 [com.abc.daodian.agent.engine.context.Preamble]）
+ */
 data class LlmRequest(
     val system: String,
     val input: List<Item>,
-    val tools: Collection<Tool>
+    val tools: Collection<Tool>,
+    val background: String? = null
 )
 
 /** 一次调用的产出 */

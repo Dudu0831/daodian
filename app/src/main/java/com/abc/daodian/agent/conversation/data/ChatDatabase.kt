@@ -1,6 +1,7 @@
 package com.abc.daodian.agent.conversation.data
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -11,6 +12,9 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import com.abc.daodian.agent.memory.data.MemoryDao
+import com.abc.daodian.agent.memory.data.MemoryEntity
+import com.abc.daodian.agent.memory.data.TidyRunEntity
 
 /**
  * 对话记录，**单独一个库**（`chat.db`），和提醒的 `reminder.db` 互不牵连。见 DESIGN.md §6.1
@@ -18,10 +22,18 @@ import androidx.room.Transaction
  * 为什么不并进提醒的 `reminder.db`：那个库是「唯一不允许出错」的部分，
  * 对话表以后要改结构、迁移出了岔子，最坏也只是丢聊天记录，连累不到闹钟。
  * 同理，这个库改表时可以比那边大胆 —— 但照样要写迁移，别 destructive 掉用户的对话。
+ *
+ * v2：加了记忆（`memories`）和整理记录（`tidy_runs`），见 DESIGN.md §6.9。
  */
-@Database(entities = [ChatItemEntity::class], version = 1, exportSchema = true)
+@Database(
+    entities = [ChatItemEntity::class, MemoryEntity::class, TidyRunEntity::class],
+    version = 2,
+    exportSchema = true,
+    autoMigrations = [AutoMigration(from = 1, to = 2)]
+)
 abstract class ChatDatabase : RoomDatabase() {
     abstract fun chatDao(): ChatDao
+    abstract fun memoryDao(): MemoryDao
 
     companion object {
         @Volatile private var instance: ChatDatabase? = null
@@ -79,6 +91,10 @@ interface ChatDao {
             "WHERE c.kind = 'TOOL_CALL' AND c.toolName = :tool AND r.ok = 1 AND r.ref = :ref ORDER BY c.id DESC LIMIT 1"
     )
     suspend fun callArgumentsFor(tool: String, ref: Long): String?
+
+    /** 最新一轮的号。一轮都没有是 null */
+    @Query("SELECT MAX(turnId) FROM chat_items")
+    suspend fun lastTurnId(): Long?
 
     @Query("DELETE FROM chat_items WHERE turnId = :turnId")
     suspend fun deleteTurn(turnId: Long)
