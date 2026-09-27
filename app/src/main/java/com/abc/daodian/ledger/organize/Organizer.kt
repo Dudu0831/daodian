@@ -48,6 +48,15 @@ object Organizer {
     const val BATCH = 30
     private const val MAX_BATCHES = 6
 
+    /**
+     * 「最近已有的流水」往回看几天。取一整周：花钱大多按周重复（周二健身、周末买菜、工作日午饭），
+     * 看得到上周同一天、同一时段的那笔，没商户的也好归。也用来去重、找退款的原笔
+     */
+    private const val RECENT_DAYS = 7L
+
+    /** 最多带几笔。按时间从新到旧取，超了砍掉的是最早那几天 —— 给够一周的量 */
+    private const val RECENT_LIMIT = 200
+
     sealed interface Result {
         /** 没有待整理的，没叫模型 */
         data object Idle : Result
@@ -124,7 +133,7 @@ object Organizer {
     private suspend fun inputOf(store: LedgerStore, batch: List<RawNotification>): String {
         val zone = ZoneId.systemDefault()
         val today = LocalDate.now(zone)
-        val recent = store.query(ExpenseQuery(fromDay = LedgerDays.dayInt(today.minusDays(3)), limit = 80)).reversed()
+        val recent = store.query(ExpenseQuery(fromDay = LedgerDays.dayInt(today.minusDays(RECENT_DAYS)), limit = RECENT_LIMIT)).reversed()
         val memory = store.merchantMemory()
         return buildString {
             append("这一批原始通知（${batch.size} 条）：\n")
