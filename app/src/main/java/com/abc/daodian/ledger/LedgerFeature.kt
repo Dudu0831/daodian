@@ -10,6 +10,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.abc.daodian.agent.engine.tool.Tool
 import com.abc.daodian.agent.feature.Feature
+import com.abc.daodian.agent.feature.PendingTrigger
 import com.abc.daodian.agent.feature.ToolTrace
 import com.abc.daodian.agent.feature.TraceView
 import com.abc.daodian.agent.feature.Trigger
@@ -40,6 +41,8 @@ import java.time.LocalDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -68,6 +71,17 @@ object LedgerFeature : Feature, FeatureUi {
             ?: Trigger.Note("账都对上了，没有要问你的。")
     }
 
+    /** 通知弹了、还没对：从桌面图标进 app，对话末尾也有一段虚线等你点。见 DESIGN.md §10.1 ③ */
+    override fun pendingTrigger(context: Context): Flow<PendingTrigger?> =
+        LedgerCheck.waiting(context).map { w ->
+            // label 要和开场白「每晚对账：……」冒号前那段一致，点了之后换成的实线上写的就是它
+            w?.let { PendingTrigger(LedgerRoutes.CHECK, "每晚对账", it.at, "有 ${it.count} 笔账没认出来，现在对一下？", "现在对") }
+        }
+
+    override suspend fun dismissTrigger(context: Context, key: String) {
+        if (key == LedgerRoutes.CHECK.substringAfter(':')) LedgerCheck.done(context.applicationContext)
+    }
+
     override fun onAppStart(context: Context) {
         val app = context.applicationContext
         PaySources.rebind(app)
@@ -84,9 +98,10 @@ object LedgerFeature : Feature, FeatureUi {
         composable(LedgerRoutes.HOME) {
             val vm = activityViewModel<LedgerViewModel>()
             val checkTime by vm.checkTime.collectAsState()
+            val checkWaiting by vm.checkWaiting.collectAsState()
             LedgerOverviewScreen(
                 vm = vm,
-                checkTime = LedgerFormat.nextCheck(checkTime),
+                checkNote = LedgerFormat.checkNote(checkTime, checkWaiting),
                 onBack = nav::back,
                 onOpenCategory = { top, income, p ->
                     nav.open(LedgerRoutes.category(top, income, p.mode.name, LedgerDays.dayInt(p.anchor)))

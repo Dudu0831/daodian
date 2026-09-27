@@ -39,6 +39,9 @@ interface LedgerDao {
     @Query("SELECT * FROM raw_notification WHERE state = 'UNREADABLE' ORDER BY postTime")
     suspend fun unreadableRaws(): List<RawNotification>
 
+    @Query("SELECT COUNT(*) FROM raw_notification WHERE state = 'UNREADABLE'")
+    fun observeUnreadableRaws(): Flow<Int>
+
     @Query("SELECT COUNT(*) FROM raw_notification WHERE notifKey = :key AND postTime = :postTime AND redacted = 0")
     suspend fun countReal(key: String, postTime: Long): Int
 

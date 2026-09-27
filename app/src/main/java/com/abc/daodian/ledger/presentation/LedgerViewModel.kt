@@ -264,6 +264,10 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     val checkTime = LedgerSettings.checkTimeFlow(app)
         .stateIn(viewModelScope, SharingStarted.Eagerly, LedgerSettings.DEFAULT_CHECK)
 
+    /** 对账问过了、还等你对（对话页末尾那段虚线看的是同一个） */
+    val checkWaiting: StateFlow<Boolean> = LedgerCheck.waiting(app).map { it != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     val lastRun = dao.observeLastRun().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val pendingRaws = dao.observePendingRaws().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)

@@ -39,6 +39,10 @@ class PaySampler : NotificationListenerService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val handler = Handler(Looper.getMainLooper())
 
+    /** 系统绑着没有。SDK 35 没有公开的 isBound()，自己在连上 / 断开时记 */
+    @Volatile
+    private var connected = false
+
     private val onSweep = sweeper("organize")
     private val onUnlock = sweeper("unlock")
 
@@ -47,6 +51,7 @@ class PaySampler : NotificationListenerService() {
     }
 
     override fun onListenerConnected() {
+        connected = true
         PaySources.attach(this)
         // 自家广播关着门收，系统的 USER_PRESENT 得开着门才进得来。注册失败绝不能抛出去把进程带崩
         runCatching {
@@ -59,6 +64,7 @@ class PaySampler : NotificationListenerService() {
 
     /** 系统解绑、用户收回使用权时来；框架的 onDestroy 里也会调一次 */
     override fun onListenerDisconnected() {
+        connected = false
         PaySources.detach(this)
         handler.removeCallbacksAndMessages(null)
         runCatching { unregisterReceiver(onSweep) }
@@ -85,10 +91,10 @@ class PaySampler : NotificationListenerService() {
 
     /**
      * 把通知栏里那几家的通知收一遍，存完才返回。返回挂着几条；没连着返回 null ——
-     * 没绑上时 getActiveNotifications() 不报错，给的是空数组，分不出「没连着」和「通知栏里没有」，所以先问 isBound。
+     * 没绑上时 getActiveNotifications() 不报错，给的是空数组，分不出「没连着」和「通知栏里没有」，所以先看连没连着。
      */
     internal suspend fun collect(how: String): Int? {
-        if (!isBound()) return null
+        if (!connected) return null
         val mine = runCatching { activeNotifications }.getOrNull()
             ?.filter { it.packageName in PaySources.PACKAGES }
             ?: return null

@@ -220,7 +220,8 @@ internal fun Footnote(text: String) {
 @Composable
 fun LedgerOverviewScreen(
     vm: LedgerViewModel,
-    checkTime: String,
+    /** 「N 笔没认出来，」后面那半句（[LedgerFormat.checkNote]） */
+    checkNote: String,
     onBack: () -> Unit,
     onOpenCategory: (topId: Long, income: Boolean, period: Period) -> Unit,
     onCheckNow: () -> Unit,
@@ -297,7 +298,7 @@ fun LedgerOverviewScreen(
 
             if ((data?.pending ?: 0) > 0) {
                 Spacer(Modifier.height(20.dp))
-                ToChatBand("${data!!.pending} 笔没认出来，$checkTime 问你", "现在就说 ›", onCheckNow)
+                ToChatBand("${data!!.pending} 笔没认出来，$checkNote", "现在就说 ›", onCheckNow)
             }
             Text(
                 "点类别看里面每一笔 · 点柱子进到那一段",

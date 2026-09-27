@@ -3,6 +3,8 @@ package com.abc.daodian.agent.feature
 import android.content.Context
 import android.content.Intent
 import com.abc.daodian.agent.engine.tool.Tool
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 /**
  * 一个模块接到 agent 上的唯一接头。agent 只认识它，不知道提醒、账是什么。见 DESIGN.md §2.2「接头」
@@ -39,6 +41,15 @@ interface Feature {
     /** app 自己发起的一轮（比如每晚对账）。[key] 是 `ledger:check` 冒号后面那段；不认识就是 null */
     suspend fun trigger(context: Context, key: String): Trigger? = null
 
+    /**
+     * 问过你、还等着你点的那一轮（比如通知弹了、还没对的每晚对账）。对话末尾画成一段虚线，
+     * 不用非得从通知进。对完了、账都认出来了就变回 null，所以是一条流
+     */
+    fun pendingTrigger(context: Context): Flow<PendingTrigger?> = flowOf(null)
+
+    /** 虚线段上点了「今天算了」。[key] 同 [trigger] */
+    suspend fun dismissTrigger(context: Context, key: String) {}
+
     /** 体检项：挂了会让这个模块的核心功能失效的系统权限 */
     fun health(context: Context): List<HealthItem> = emptyList()
 
@@ -54,6 +65,20 @@ sealed interface Trigger {
     /** 不用麻烦模型，直接回一句（比如「账都对上了」） */
     data class Note(val text: String) : Trigger
 }
+
+/** 问过你、还等着你点的一轮（[Feature.pendingTrigger]） */
+data class PendingTrigger(
+    /** 完整的键，`ledger:check`。点了交给 [FeatureRegistry.trigger] */
+    val key: String,
+    /** 虚线上的字。和那一轮开场白冒号前那段一样（「每晚对账」），点了之后原地换成的实线上也是它 */
+    val label: String,
+    /** 什么时候问的，虚线上写成「21:30」 */
+    val at: Long,
+    /** 虚线底下那句：「有 3 笔账没认出来，现在对一下？」 */
+    val text: String,
+    /** 主按钮：「现在对」 */
+    val action: String
+)
 
 /**
  * 体检的一项。[ok] = null 是查不到、只能手动设的（MagicOS 的「应用启动管理」）。

@@ -1,6 +1,9 @@
 package com.abc.daodian.agent.feature
 
 import android.content.Context
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 
 /**
  * 装了哪些模块。`DaodianApp.onCreate` 把根目录 `Features.kt` 的清单装进来，agent 只读它。
@@ -29,5 +32,17 @@ object FeatureRegistry {
     suspend fun trigger(context: Context, key: String): Trigger? {
         val id = key.substringBefore(':')
         return features.firstOrNull { it.id == id }?.trigger(context, key.substringAfter(':', ""))
+    }
+
+    /** 等你点的那一轮。几个模块同时有的话只给第一个：对完一个，下一个自己冒出来 */
+    fun pendingTrigger(context: Context): Flow<PendingTrigger?> {
+        val flows = features.map { it.pendingTrigger(context) }
+        if (flows.isEmpty()) return flowOf(null)
+        return combine(flows) { all -> all.firstOrNull { it != null } }
+    }
+
+    suspend fun dismissTrigger(context: Context, key: String) {
+        val id = key.substringBefore(':')
+        features.firstOrNull { it.id == id }?.dismissTrigger(context, key.substringAfter(':', ""))
     }
 }

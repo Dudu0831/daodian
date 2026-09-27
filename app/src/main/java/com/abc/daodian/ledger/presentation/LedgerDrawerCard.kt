@@ -31,7 +31,7 @@ import com.abc.daodian.shared.ui.activityViewModel
 fun LedgerDrawerCard(onOpen: () -> Unit) {
     val vm = activityViewModel<LedgerViewModel>()
     val month by vm.thisMonth.collectAsState()
-    val checkTime = LedgerFormat.nextCheck(vm.checkTime.collectAsState().value)
+    val checkNote = LedgerFormat.checkNote(vm.checkTime.collectAsState().value, vm.checkWaiting.collectAsState().value)
     val colors = DaodianColors.current
     DrawerPaper(onOpen) {
         DrawerPaperHead("${month?.period?.kicker ?: "本月"} · 记账", "明细 ›")
@@ -63,7 +63,7 @@ fun LedgerDrawerCard(onOpen: () -> Unit) {
         if ((month?.pending ?: 0) > 0) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 Box(Modifier.size(5.dp).background(colors.accent, CircleShape))
-                Text("${month!!.pending} 笔没认出来，$checkTime 问你", style = DaodianType.caption, color = colors.accent)
+                Text("${month!!.pending} 笔没认出来，$checkNote", style = DaodianType.caption, color = colors.accent)
             }
         }
     }

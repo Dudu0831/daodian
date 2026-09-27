@@ -17,6 +17,7 @@ import com.abc.daodian.agent.engine.ask.Asker
 import com.abc.daodian.agent.engine.ask.Pick
 import com.abc.daodian.agent.engine.background.AgentActivity
 import com.abc.daodian.agent.feature.FeatureRegistry
+import com.abc.daodian.agent.feature.PendingTrigger
 import com.abc.daodian.agent.feature.Trigger
 import com.abc.daodian.agent.model.provider.ApiHealth
 import com.abc.daodian.agent.model.provider.PingResult
@@ -159,6 +160,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
      * [key] 形如 `ledger:check`。
      */
     fun startTrigger(key: String) = viewModelScope.launch {
+        // 先看忙不忙再问模块：模块那边一接手就把通知收了、记成「对过了」，这时候再放弃就两头落空
+        if (aiBusy) return@launch
         val trigger = FeatureRegistry.trigger(getApplication(), key) ?: return@launch
         if (aiBusy) return@launch
         when (trigger) {
@@ -172,6 +175,17 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 runTurn(trigger.text, trigger = true)
             }
         }
+    }
+
+    /**
+     * 问过你、还等着你点的那一轮（通知弹了、还没对的每晚对账）：对话末尾一段虚线，
+     * 点主按钮走 [startTrigger]，点「今天算了」走 [dismissTrigger]。从桌面图标进来也看得到
+     */
+    val pendingTrigger: StateFlow<PendingTrigger?> = FeatureRegistry.pendingTrigger(app)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun dismissTrigger(key: String) = viewModelScope.launch {
+        FeatureRegistry.dismissTrigger(getApplication(), key)
     }
 
     /** 从记账页「这笔不对？去对话里说」过来：把开头替你写好，放进输入框 */

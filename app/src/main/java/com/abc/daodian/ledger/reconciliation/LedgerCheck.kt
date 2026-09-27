@@ -27,6 +27,8 @@ import com.abc.daodian.shared.navigation.Launch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
@@ -35,6 +37,7 @@ import java.time.ZonedDateTime
 /**
  * 每晚对账（DESIGN.md §10.1 ③）：到点先强制整理一次，还有没认出来的才弹通知
  * [现在] [晚点] [今天算了]；一笔都没有就不打扰。一天最多主动问一次（「晚点」那次不算）。
+ * 通知弹了、你还没理的时候（[waiting]），对话页末尾也有一段虚线等你点，不用非得从通知进。
  *
  * 闹钟是记账自己的，不碰 schedule/：每次响完排下一天；开机、覆盖安装、app 冷启动都重排一遍。
  */
@@ -43,6 +46,8 @@ object LedgerCheck {
     private const val CHANNEL = "ledger"
     private const val NOTIFICATION_ID = 7301
     private const val SNOOZE_MILLIS = 60 * 60 * 1000L
+    /** 问过之后最多等你这么久。下一晚到点会重新问一遍，这是闹钟没响时的兜底 */
+    private const val OPEN_MILLIS = 24 * 60 * 60 * 1000L
 
     const val ACTION_FIRE = "com.abc.daodian.ledger.CHECK_FIRE"
     const val ACTION_LATER = "com.abc.daodian.ledger.CHECK_LATER"
@@ -98,6 +103,7 @@ object LedgerCheck {
         val unreadable = store.dao.unreadableRaws().size
         if (pending + unreadable == 0) {
             dismiss(app)
+            LedgerSettings.setCheckOpenAt(app, 0)
             return
         }
         if (!isSnoozeFire && LedgerSettings.askedDay(app) == today) return
@@ -105,6 +111,8 @@ object LedgerCheck {
         val autoToday = store.query(ExpenseQuery(fromDay = today, toDay = today, state = TxnState.AUTO, limit = 200))
             .filter { it.direction == Direction.OUT }
         LedgerSettings.setAskedDay(app, today)
+        // 先记下「问过了、等你对」再弹：通知权限被关了，对话页那段虚线照样在
+        LedgerSettings.setCheckOpenAt(app, System.currentTimeMillis())
         notify(app, pending + unreadable, autoToday.size, autoToday.sumOf { it.amount })
     }
 
@@ -133,10 +141,29 @@ object LedgerCheck {
         runCatching { nm.notify(NOTIFICATION_ID, n) }
     }
 
-    /** 对完了（或者不用对了）：通知收掉，「晚点」也取消 */
+    /** 问过你、还等着对的那一次：什么时候问的、还有几笔。没有、或者账已经都认出来了就是 null */
+    data class Waiting(val at: Long, val count: Int)
+
+    fun waiting(context: Context): Flow<Waiting?> {
+        val app = context.applicationContext
+        val dao = LedgerStore.get(app).dao
+        return combine(
+            LedgerSettings.checkOpenAtFlow(app), dao.observePendingTxns(), dao.observeUnreadableRaws()
+        ) { at, pending, unreadable ->
+            // 和通知上的笔数同一个算法（[check]）；在对话里随口说清楚了几笔，这里跟着少
+            val count = pending + unreadable
+            if (at > 0 && count > 0 && System.currentTimeMillis() - at < OPEN_MILLIS) Waiting(at, count) else null
+        }
+    }
+
+    /**
+     * 对完了，或者「今天算了」（通知上、对话页虚线段上点的都算）：通知收掉，「晚点」也取消 ——
+     * 不然点过「晚点」再说算了，一小时后还会再问
+     */
     suspend fun done(context: Context) {
         dismiss(context)
         LedgerSettings.setSnoozedUntil(context, 0)
+        LedgerSettings.setCheckOpenAt(context, 0)
         arm(context)
     }
 
@@ -149,8 +176,6 @@ object LedgerCheck {
         LedgerSettings.setSnoozedUntil(context, System.currentTimeMillis() + SNOOZE_MILLIS)
         arm(context)
     }
-
-    fun skip(context: Context) = dismiss(context)
 }
 
 /** 对账闹钟、通知上的「晚点」「今天算了」，以及开机 / 覆盖安装后的重排 */
@@ -163,7 +188,7 @@ class CheckReceiver : BroadcastReceiver() {
                     when (intent.action) {
                         LedgerCheck.ACTION_FIRE -> LedgerCheck.fire(context)
                         LedgerCheck.ACTION_LATER -> LedgerCheck.later(context)
-                        LedgerCheck.ACTION_SKIP -> LedgerCheck.skip(context)
+                        LedgerCheck.ACTION_SKIP -> LedgerCheck.done(context)
                         else -> Unit     // 开机、覆盖安装：闹钟没了，下面重排
                     }
                     LedgerCheck.arm(context)

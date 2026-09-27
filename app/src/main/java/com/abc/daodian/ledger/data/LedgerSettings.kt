@@ -29,6 +29,8 @@ object LedgerSettings {
     private val ASKED_DAY = intPreferencesKey("asked_day")
     /** 「晚点」推到的时刻 */
     private val SNOOZED_UNTIL = longPreferencesKey("snoozed_until")
+    /** 对账通知弹出的时刻，0 = 没有等着对的。对完、「今天算了」、下一次对账没什么可问的，都清掉 */
+    private val CHECK_OPEN_AT = longPreferencesKey("check_open_at")
 
     private fun store(context: Context) = context.applicationContext.ledgerDataStore
 
@@ -60,5 +62,11 @@ object LedgerSettings {
 
     suspend fun setSnoozedUntil(context: Context, at: Long) {
         store(context).edit { it[SNOOZED_UNTIL] = at }
+    }
+
+    fun checkOpenAtFlow(context: Context): Flow<Long> = store(context).data.map { it[CHECK_OPEN_AT] ?: 0L }
+
+    suspend fun setCheckOpenAt(context: Context, at: Long) {
+        store(context).edit { it[CHECK_OPEN_AT] = at }
     }
 }

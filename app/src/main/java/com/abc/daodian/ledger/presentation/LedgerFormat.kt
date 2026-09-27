@@ -33,6 +33,12 @@ internal object LedgerFormat {
         return "${t.monthValue}月${t.dayOfMonth}日 %02d:%02d".format(t.hour, t.minute)
     }
 
+    /**
+     * 「N 笔没认出来，」后面那半句：还没问是「今晚 21:30 问你」；问过了、你还没对（[waiting]，
+     * 对话页末尾那段虚线也在）是「还等你对」—— 过了点写「明天 21:30 问你」就像今晚没问过一样
+     */
+    fun checkNote(time: LocalTime, waiting: Boolean): String = if (waiting) "还等你对" else "${nextCheck(time)} 问你"
+
     /** 下次对账是什么时候：「今晚 21:30」「今天 17:19」，今天的钟点已经过了就是「明天 21:30」 */
     fun nextCheck(time: LocalTime, now: LocalTime = LocalTime.now()): String {
         val hm = "%02d:%02d".format(time.hour, time.minute)

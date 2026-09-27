@@ -22,11 +22,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
@@ -61,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.abc.daodian.agent.feature.FeatureRegistry
+import com.abc.daodian.agent.feature.PendingTrigger
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.agent.voice.VoiceInput
 import com.abc.daodian.shared.theme.DaodianColors
@@ -95,6 +98,9 @@ fun ChatScreen(
     val asking = vm.asking
     val profile by vm.profile.collectAsState()
     val apiState by vm.apiState.collectAsState()
+    // 通知弹了、还没对的每晚对账：对话末尾一段虚线。正在跑一轮时收起来 —— 这时候点了也开不了
+    val waiting by vm.pendingTrigger.collectAsState()
+    val pending = waiting.takeIf { !vm.aiBusy }
     var input by remember { mutableStateOf("") }
     // 历史读回来的那一刻换一个列表状态，直接停在最后一条（LazyColumn 会往回补满一屏）——
     // 不然先在最顶上画一帧，下一帧才被贴底跟随拉到底
@@ -173,7 +179,7 @@ fun ChatScreen(
             if (!scrolling) follow = !listState.canScrollForward
         }
     }
-    LaunchedEffect(follow, vm.aiBusy, messages.size) {
+    LaunchedEffect(follow, vm.aiBusy, messages.size, pending != null) {
         if (!follow || messages.isEmpty()) return@LaunchedEffect
         val tailUntil = System.nanoTime() + FOLLOW_TAIL_NANOS
         while (vm.aiBusy || System.nanoTime() < tailUntil) {
@@ -214,6 +220,12 @@ fun ChatScreen(
         follow = true
     }
 
+    fun startPending(p: PendingTrigger) {
+        cancelListening()
+        follow = true
+        vm.startTrigger(p.key)
+    }
+
     val running by vm.running.collectAsState()
     val manualEntry = remember { FeatureRegistry.manualEntry }
 
@@ -243,7 +255,12 @@ fun ChatScreen(
                 label = "emptyToChat"
             ) { isEmpty ->
                 if (isEmpty) {
-                    EmptyState(onPickExample = { send(it) })
+                    EmptyState(
+                        onPickExample = { send(it) },
+                        pending = pending,
+                        onGo = ::startPending,
+                        onDismiss = { vm.dismissTrigger(it.key) }
+                    )
                 } else {
                     LazyColumn(
                         state = listState,
@@ -274,6 +291,13 @@ fun ChatScreen(
                                         }
                                         AssistantTurnRow(msg, actions)
                                     }
+                                }
+                            }
+                        }
+                        pending?.let { p ->
+                            item(key = "pending:${p.key}") {
+                                Box(Modifier.animateItem(fadeInSpec = Motion.flow(), placementSpec = Motion.flow(), fadeOutSpec = Motion.exit())) {
+                                    PendingTriggerBlock(p, onGo = { startPending(p) }, onDismiss = { vm.dismissTrigger(p.key) })
                                 }
                             }
                         }
@@ -350,41 +374,67 @@ fun ChatScreen(
 /**
  * 空状态。招呼语跟时段走，底下四条例句是「这个 app 怎么用」的全部说明书 ——
  * 点一下就直接发出去，不用先学语法。
+ * 有等着你点的一轮（[pending]）时，那段虚线压在最底下、贴着输入框，和有对话时的位置一样。
  */
 @Composable
-private fun EmptyState(onPickExample: (String) -> Unit) {
+private fun EmptyState(
+    onPickExample: (String) -> Unit,
+    pending: PendingTrigger?,
+    onGo: (PendingTrigger) -> Unit,
+    onDismiss: (PendingTrigger) -> Unit
+) {
     val colors = DaodianColors.current
     val greeting = remember { Format.greeting(LocalTime.now().hour) }
 
-    // 键盘弹起时高度会砍掉一半，不给滚动的话例句会被裁掉两条
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp)
-    ) {
-        Spacer(Modifier.height(96.dp))
-        Text(greeting, style = DaodianType.greetingSoft, color = colors.muted)
-        Text("有什么要记着的？", style = DaodianType.greeting, color = colors.ink)
+    // 键盘弹起时高度会砍掉一半，不给滚动的话例句会被裁掉两条。
+    // 内容至少撑满一屏，虚线段前面那个 weight 才有空可占，把它推到底；键盘弹起、放不下时 weight 缩成 0，整页照常滚
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .heightIn(min = maxHeight)
+                .padding(horizontal = 24.dp)
+        ) {
+            Spacer(Modifier.height(96.dp))
+            Text(greeting, style = DaodianType.greetingSoft, color = colors.muted)
+            Text("有什么要记着的？", style = DaodianType.greeting, color = colors.ink)
 
-        Spacer(Modifier.height(52.dp))
-        Text("这样说就行", style = DaodianType.sectionLabel, color = colors.muted)
-        Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(52.dp))
+            Text("这样说就行", style = DaodianType.sectionLabel, color = colors.muted)
+            Spacer(Modifier.height(6.dp))
 
-        FeatureRegistry.examples.zip(ordinals).forEach { (prompt, ordinal) ->
+            FeatureRegistry.examples.zip(ordinals).forEach { (prompt, ordinal) ->
+                HorizontalDivider(color = colors.rule)
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { onPickExample(prompt) }
+                        .padding(vertical = 15.dp),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp)
+                ) {
+                    Text(ordinal, style = DaodianType.ordinal, color = colors.hint)
+                    Text(prompt, style = DaodianType.body, color = colors.ink2)
+                }
+            }
             HorizontalDivider(color = colors.rule)
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { onPickExample(prompt) }
-                    .padding(vertical = 15.dp),
-                horizontalArrangement = Arrangement.spacedBy(18.dp)
+            Spacer(Modifier.height(24.dp))
+
+            Spacer(Modifier.weight(1f))
+            androidx.compose.animation.AnimatedVisibility(
+                visible = pending != null,
+                enter = fadeIn(Motion.flow()),
+                exit = fadeOut(Motion.exit())
             ) {
-                Text(ordinal, style = DaodianType.ordinal, color = colors.hint)
-                Text(prompt, style = DaodianType.body, color = colors.ink2)
+                // 退场那几帧 pending 已经是 null 了，用最后一次的画完
+                val last = remember { arrayOfNulls<PendingTrigger>(1) }
+                pending?.let { last[0] = it }
+                last[0]?.let { p ->
+                    Box(Modifier.padding(bottom = 16.dp)) {
+                        PendingTriggerBlock(p, onGo = { onGo(p) }, onDismiss = { onDismiss(p) })
+                    }
+                }
             }
         }
-        HorizontalDivider(color = colors.rule)
-        Spacer(Modifier.height(24.dp))
     }
 }
