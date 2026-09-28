@@ -172,6 +172,9 @@ interface LedgerDao {
     @Query("SELECT * FROM tag WHERE name = :name")
     suspend fun tagByName(name: String): Tag?
 
+    @Query("SELECT name FROM tag ORDER BY name")
+    suspend fun tagNames(): List<String>
+
     @Insert
     suspend fun insertTag(t: Tag): Long
 

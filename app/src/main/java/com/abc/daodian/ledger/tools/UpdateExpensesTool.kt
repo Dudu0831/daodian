@@ -74,13 +74,14 @@ class UpdateExpensesTool(
         if (items.isEmpty()) return ToolOutcome("changes 是空的，没改任何东西。", ok = false)
 
         val categories = backend.categories()
+        val tagNames = backend.tagNames()
         val txns = backend.txns(items.mapNotNull { it.longOrNull("txn_id") } + items.mapNotNull { it.longOrNull("refund_of") })
             .associateBy { it.id }
 
         val changes = mutableListOf<TxnChange>()
         val rejects = mutableListOf<String>()
         for (n in items) {
-            when (val v = changeOf(n, txns, categories)) {
+            when (val v = changeOf(n, txns, categories, tagNames)) {
                 is LedgerGuard.Check.Ok -> changes += v.value
                 is LedgerGuard.Check.No -> rejects += "#${n.longOrNull("txn_id") ?: "?"}：${v.reason}"
             }
@@ -98,7 +99,12 @@ class UpdateExpensesTool(
         return ToolOutcome(out, ok = rejects.isEmpty(), ref = after.firstOrNull()?.id, payload = after.map { it.id })
     }
 
-    private fun changeOf(n: JsonNode, txns: Map<Long, TxnBrief>, categories: List<CategoryNode>): LedgerGuard.Check<TxnChange> {
+    private fun changeOf(
+        n: JsonNode,
+        txns: Map<Long, TxnBrief>,
+        categories: List<CategoryNode>,
+        tagNames: List<String>
+    ): LedgerGuard.Check<TxnChange> {
         val id = n.longOrNull("txn_id") ?: return LedgerGuard.Check.No("缺 txn_id")
         val t = txns[id] ?: return LedgerGuard.Check.No("没有这笔流水，先用 list_expenses 查编号")
         if (t.state == TxnState.VOID) return LedgerGuard.Check.No("这笔已经作废了")
@@ -109,12 +115,14 @@ class UpdateExpensesTool(
         var categoryId: Long? = null
         var newSub: NewSubcategory? = null
         n.text("category")?.let { path ->
-            when (val p = LedgerGuard.pickCategory(path, t.direction, categories, allowNewSub = true)) {
+            when (val p = LedgerGuard.pickCategory(path, t.direction, categories, allowNewSub = true, tagNames = tagNames)) {
                 is LedgerGuard.Check.No -> return p
                 is LedgerGuard.Check.Ok -> { categoryId = p.value.categoryId; newSub = p.value.newSub }
             }
             if (categoryId == null && newSub == null) return LedgerGuard.Check.No("「$path」解析不出类别")
         }
+
+        LedgerGuard.tagClash(n.strings("add_tags"), tagNames, categories)?.let { return LedgerGuard.Check.No(it) }
 
         val splitNodes = n.get("split")?.takeIf { it.isArray && it.size() > 0 }
         val split = splitNodes?.map { part ->

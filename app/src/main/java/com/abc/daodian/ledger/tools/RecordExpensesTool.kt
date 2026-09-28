@@ -112,6 +112,7 @@ class RecordExpensesTool(
             (ignoreItems + unreadableItems).mapNotNull { it.longOrNull("raw_id") }).toSet()
         val raws = backend.raws(allRawIds).associateBy { it.id }
         val categories = backend.categories()
+        val tagNames = backend.tagNames()
         val owners = backend.txnsOfRaws(allRawIds)
         val refundTargets = backend.txns(items.mapNotNull { it.longOrNull("refund_of") }).associateBy { it.id }
 
@@ -123,7 +124,7 @@ class RecordExpensesTool(
 
         items.forEachIndexed { i, e ->
             val label = "第 ${i + 1} 笔"
-            when (val v = draftOf(e, raws, owners, categories, refundTargets, claimed, zone)) {
+            when (val v = draftOf(e, raws, owners, categories, refundTargets, claimed, zone, tagNames)) {
                 is LedgerGuard.Check.No -> rejects += "$label：${v.reason}"
                 is LedgerGuard.Check.Ok -> {
                     val d = v.value
@@ -211,7 +212,8 @@ class RecordExpensesTool(
         categories: List<CategoryNode>,
         refundTargets: Map<Long, TxnBrief>,
         claimed: Set<Long>,
-        zone: ZoneId
+        zone: ZoneId,
+        tagNames: List<String>
     ): LedgerGuard.Check<ExpenseDraft> {
         val rawIds = e.longs("raw_ids").distinct()
         if (rawIds.isEmpty()) return LedgerGuard.Check.No("raw_ids 是空的，每笔都要引用原始通知")
@@ -259,10 +261,12 @@ class RecordExpensesTool(
         val pick = if (target != null) {
             LedgerGuard.Check.Ok(LedgerGuard.CategoryPick(categoryIdOfPath(target.category, categories), null))
         } else {
-            LedgerGuard.pickCategory(e.text("category"), direction, categories, allowNewSub = true)
+            LedgerGuard.pickCategory(e.text("category"), direction, categories, allowNewSub = true, tagNames = tagNames)
         }
         if (pick is LedgerGuard.Check.No) return pick
         val category = (pick as LedgerGuard.Check.Ok).value
+
+        LedgerGuard.tagClash(e.strings("tags"), tagNames, categories)?.let { return LedgerGuard.Check.No(it) }
 
         val ask = e.text("ask")
         val summary = e.text("summary") ?: return LedgerGuard.Check.No("summary 必填")

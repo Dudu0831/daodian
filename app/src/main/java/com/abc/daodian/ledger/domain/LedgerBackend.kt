@@ -14,6 +14,9 @@ interface LedgerBackend {
 
     suspend fun categories(): List<CategoryNode>
 
+    /** 已有的标签名。建二级、建标签前查同名用（§10.4） */
+    suspend fun tagNames(): List<String>
+
     suspend fun txns(ids: Collection<Long>): List<TxnBrief>
 
     /** 这些原始通知已经挂在哪笔流水上（作废的不算）。rawId → 流水 */

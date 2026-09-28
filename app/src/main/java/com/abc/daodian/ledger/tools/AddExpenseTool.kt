@@ -67,7 +67,10 @@ class AddExpenseTool(
         val occurredAt = LedgerDays.instant(o.text("occurred_at"), zone) ?: nowMillis
         if (occurredAt > nowMillis + 60_000) return ToolOutcome("没记。发生时刻在将来，问问他是哪天", ok = false)
 
-        val pick = when (val p = LedgerGuard.pickCategory(o.text("category"), direction, backend.categories(), allowNewSub = true)) {
+        val categories = backend.categories()
+        val tagNames = backend.tagNames()
+        LedgerGuard.tagClash(o.strings("tags"), tagNames, categories)?.let { return ToolOutcome("没记。$it", ok = false) }
+        val pick = when (val p = LedgerGuard.pickCategory(o.text("category"), direction, categories, allowNewSub = true, tagNames = tagNames)) {
             is LedgerGuard.Check.No -> return ToolOutcome("没记。${p.reason}", ok = false)
             is LedgerGuard.Check.Ok -> p.value
         }

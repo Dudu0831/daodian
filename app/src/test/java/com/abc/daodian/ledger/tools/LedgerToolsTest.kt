@@ -119,6 +119,31 @@ class LedgerToolsTest {
         assertNull((LedgerGuard.pickCategory("日用/理发", Direction.TRANSFER, categories, true) as LedgerGuard.Check.Ok).value.categoryId)
     }
 
+    @Test
+    fun `categories and tags do not share names`() {
+        // 新二级撞上已有标签：打回，让它打那个标签
+        val sub = LedgerGuard.pickCategory("餐饮/约会", Direction.OUT, categories, true, tagNames = listOf("约会"))
+        assertTrue(sub is LedgerGuard.Check.No)
+        assertTrue((sub as LedgerGuard.Check.No).reason.contains("标签「约会」"))
+        // 新标签撞上已有类别：打回，让它用那个类别
+        val clash = LedgerGuard.tagClash(listOf("#外卖"), emptyList(), categories)
+        assertNotNull(clash)
+        assertTrue(clash!!, clash.contains("餐饮/外卖"))
+        // 已经有的标签不查；不撞的照常
+        assertNull(LedgerGuard.tagClash(listOf("外卖"), listOf("外卖"), categories))
+        assertNull(LedgerGuard.tagClash(listOf("约会"), emptyList(), categories))
+    }
+
+    @Test
+    fun `a tag named like a category is sent back to the model`() {
+        val backend = FakeLedger(raws, categories)
+        val json = """{"expenses":[${expense("1", "197.00", "日用/理发").replace("\"tags\":[]", "\"tags\":[\"理发\"]")}],"ignore":[],"unreadable":[]}"""
+        val out = record(backend, json)
+        assertFalse(out.output, out.ok)
+        assertTrue(out.output, out.output.contains("日用/理发"))
+        assertTrue(backend.txns.isEmpty())
+    }
+
     // ---------------- record_expenses ----------------
 
     @Test
@@ -255,7 +280,11 @@ class LedgerToolsTest {
 }
 
 /** 内存账本：只实现工具用得到的那点行为 */
-private class FakeLedger(raws: List<RawNote>, private val cats: List<CategoryNode>) : LedgerBackend {
+private class FakeLedger(
+    raws: List<RawNote>,
+    private val cats: List<CategoryNode>,
+    private val tags: List<String> = emptyList()
+) : LedgerBackend {
 
     private val rawById = raws.associateBy { it.id }
     val txns = LinkedHashMap<Long, TxnBrief>()
@@ -266,6 +295,7 @@ private class FakeLedger(raws: List<RawNote>, private val cats: List<CategoryNod
 
     override suspend fun raws(ids: Collection<Long>) = ids.mapNotNull { rawById[it] }
     override suspend fun categories() = cats
+    override suspend fun tagNames() = tags
     override suspend fun txns(ids: Collection<Long>) = ids.mapNotNull { txns[it] }
     override suspend fun txnsOfRaws(rawIds: Collection<Long>): Map<Long, TxnBrief> =
         rawIds.mapNotNull { r -> txns.values.firstOrNull { r in it.rawIds && it.state != TxnState.VOID }?.let { r to it } }.toMap()

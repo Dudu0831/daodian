@@ -104,6 +104,8 @@ class LedgerStore private constructor(private val db: LedgerDatabase) : LedgerBa
     override suspend fun categories(): List<CategoryNode> =
         dao.categories().map { CategoryNode(it.id, it.name, it.parentId, it.kind) }
 
+    override suspend fun tagNames(): List<String> = dao.tagNames()
+
     override suspend fun txns(ids: Collection<Long>): List<TxnBrief> =
         if (ids.isEmpty()) emptyList() else briefs(dao.txns(ids.distinct()))
 

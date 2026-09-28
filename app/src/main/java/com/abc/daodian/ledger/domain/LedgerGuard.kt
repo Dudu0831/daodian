@@ -29,14 +29,16 @@ object LedgerGuard {
      * - 一级必须已存在、和方向对得上（支出 / 退款挂支出类别，收入挂收入类别）
      * - 只写一级也行（「其他」「日用」）：就是没细分，统计照样算进这个一级
      * - 二级不存在时，[allowNewSub] 才顺手建（每个一级下封顶 [MAX_SUB_PER_TOP]）；
-     *   别的一级下面已经有同名的（「日用/理发」有了还写「其他/理发」）就打回，让它用现成的
+     *   别的一级下面已经有同名的（「日用/理发」有了还写「其他/理发」）就打回，让它用现成的；
+     *   和已有标签同名的（[tagNames]）也打回，让它打那个标签（§10.4）
      * - 转移不挂类别：给了也忽略
      */
     fun pickCategory(
         path: String?,
         direction: Direction,
         categories: List<CategoryNode>,
-        allowNewSub: Boolean
+        allowNewSub: Boolean,
+        tagNames: Collection<String> = emptyList()
     ): Check<CategoryPick> {
         val kind = direction.categoryKind ?: return Check.Ok(CategoryPick(null, null))
         if (path.isNullOrBlank()) return Check.Ok(CategoryPick(null, null))
@@ -58,8 +60,14 @@ object LedgerGuard {
         val sub = children.firstOrNull { it.name.equals(parts[1], ignoreCase = true) }
         if (sub != null) return Check.Ok(CategoryPick(sub.id, null))
         if (!allowNewSub) return Check.No("「${top.name}」下面没有「${parts[1]}」。现有的：${children.joinToString("、") { it.name }}。")
-        // 别处已经有同名、或名字互相包含的二级（「话费」vs「话费网费」）：用现成的，不另建
         val name = parts[1]
+        tagNames.firstOrNull { it.equals(name, ignoreCase = true) }?.let { tag ->
+            return Check.No(
+                "已经有标签「$tag」了，打标签用它，别建成二级：二级只写买的是什么，场合、为谁、哪件事、状态打标签。" +
+                    "这笔归「${top.name}」或它下面现有的二级。"
+            )
+        }
+        // 别处已经有同名、或名字互相包含的二级（「话费」vs「话费网费」）：用现成的，不另建
         categories.firstOrNull { c ->
             !c.isTop && c.kind == kind && (c.name.contains(name, ignoreCase = true) || name.contains(c.name, ignoreCase = true))
         }?.let { twin ->
@@ -74,6 +82,21 @@ object LedgerGuard {
         }
         if (parts[1].length > 8) return Check.No("二级类别名「${parts[1]}」太长，8 个字以内。")
         return Check.Ok(CategoryPick(null, NewSubcategory(top.id, parts[1])))
+    }
+
+    /**
+     * 新标签不能和已有类别同名（§10.4）：撞了就打回，让它用那个类别归类。已经有的标签不查。
+     * 没撞是 null，撞了是写给模型的原因
+     */
+    fun tagClash(tags: List<String>, tagNames: Collection<String>, categories: List<CategoryNode>): String? {
+        for (raw in tags) {
+            val name = raw.trim().removePrefix("#")
+            if (tagNames.any { it.equals(name, ignoreCase = true) }) continue
+            val c = categories.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: continue
+            return "已经有类别「${LedgerText.path(c.id, categories)}」了，归类用它，别打成标签「$name」：" +
+                "类别是买的是什么，标签才是场合、为谁、哪件事、状态。"
+        }
+        return null
     }
 
     /** 金额必须能在某条原文里找到（§10.6 第 1 条）。挡住绝大多数幻觉 */
