@@ -80,7 +80,10 @@ class RecordExpensesTool(
                 ),
                 "tags" to LedgerJson.arr("标签，没有就空数组", mapOf("type" to "string")),
                 "confidence" to LedgerJson.num("对类别有多大把握，0~1"),
-                "ask" to LedgerJson.strOrNull("没把握时想问用户的一句话（带上时间和金额，他才认得出是哪笔）；有把握就 null"),
+                "ask" to LedgerJson.strOrNull(
+                    "没把握时想问用户的话：先一句问题（带上时间和金额，他才认得出是哪笔），再写你最像的 1–3 个猜测，" +
+                        "各带要归的类别和依据；有把握就 null"
+                ),
                 "refund_of" to LedgerJson.intOrNull("退款退的是哪一笔已有流水（#后面的数字）；不是退款或找不到 null"),
                 "refund_of_raw" to LedgerJson.intOrNull(
                     "原笔还没编号（和退款在同一批里）时，填原笔那条消费通知的 raw 编号；用了 refund_of 就填 null"

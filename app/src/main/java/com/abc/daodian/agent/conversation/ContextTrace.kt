@@ -20,7 +20,7 @@ import java.time.format.DateTimeFormatter
  *
  *     adb shell run-as com.abc.daodian.debug cat files/context_trace.txt
  *
- * 超过 64KB 就从头写。对话页和桌面速记都记（速记没有摘要，只垫记忆）。
+ * 超过 64KB 就从头写。对话页和桌面速记都记（速记没有摘要，只垫记忆和模块现状）。
  */
 object ContextTrace {
 
@@ -34,7 +34,7 @@ object ContextTrace {
             val bg = when {
                 preamble == null -> "无"
                 preamble.afterTurnId > 0 -> "${preamble.text.length} 字（摘要盖到 #${preamble.afterTurnId}）"
-                else -> "${preamble.text.length} 字（只有记忆）"
+                else -> "${preamble.text.length} 字（没有摘要）"
             }
             val range = if (sent.isEmpty()) "-" else "#${sent.first().id}–#${sent.last().id}"
             val staleFolded = request.input.count { it is Item.ToolResult && it.output == FoldStale.FOLDED }

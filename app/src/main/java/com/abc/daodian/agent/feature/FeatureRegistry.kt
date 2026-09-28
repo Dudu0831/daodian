@@ -1,6 +1,7 @@
 package com.abc.daodian.agent.feature
 
 import android.content.Context
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
@@ -27,6 +28,19 @@ object FeatureRegistry {
     val manualEntry: String? get() = features.firstNotNullOfOrNull { it.manualEntry }
 
     fun health(context: Context): List<HealthItem> = features.flatMap { it.health(context) }
+
+    /** 各模块垫在历史前面的现状，按模块顺序。哪个模块读库出错就少它一段，不连累这句话 */
+    suspend fun backgrounds(context: Context): List<String> =
+        features.mapNotNull { f ->
+            val text = try {
+                f.background(context)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            text?.takeIf { it.isNotBlank() }
+        }
 
     /** [key] 形如 `ledger:check`：冒号前是模块 id */
     suspend fun trigger(context: Context, key: String): Trigger? {

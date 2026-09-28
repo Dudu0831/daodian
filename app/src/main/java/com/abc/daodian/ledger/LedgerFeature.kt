@@ -19,6 +19,7 @@ import com.abc.daodian.agent.shell.FeatureUi
 import com.abc.daodian.ledger.capture.PaySources
 import com.abc.daodian.ledger.data.LedgerStore
 import com.abc.daodian.ledger.domain.LedgerDays
+import com.abc.daodian.ledger.domain.LedgerText
 import com.abc.daodian.ledger.organize.OrganizeWorker
 import com.abc.daodian.ledger.presentation.CaptureScreen
 import com.abc.daodian.ledger.presentation.CaptureViewModel
@@ -54,6 +55,13 @@ object LedgerFeature : Feature, FeatureUi {
     override val id = "ledger"
 
     override val prompt = LedgerPrompt.CHAT
+
+    /**
+     * 实际的类别表，每句都垫着：整理员后来建的二级，对话里也认得，不再另起一个意思差不多的。
+     * 只在新建二级时变（DESIGN.md §10.1「两个模型怎么传话」）
+     */
+    override suspend fun background(context: Context): String =
+        "记账的类别表（以这份为准）：\n" + LedgerText.categoryTree(LedgerStore.get(context.applicationContext).categories())
 
     override fun tools(context: Context): List<Tool> = LedgerTools.forChat(LedgerStore.get(context.applicationContext))
 

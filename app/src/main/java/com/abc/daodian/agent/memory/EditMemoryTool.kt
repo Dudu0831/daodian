@@ -18,7 +18,8 @@ class EditMemoryTool(private val book: MemoryBackend) : Tool {
 
     override val description =
         "记住或忘掉关于用户的事。只在他明确要你记、要你忘、或者纠正你记错的时候用（「记住我周二晚上健身」「别记那个了」）。" +
-            "记的是他这个人：作息、他的说法指什么、偏好、常提的人和地方。提醒和账不往这里记，它们有自己的工具。"
+            "记的是他这个人：作息、他的说法指什么、偏好、常提的人和地方。某一条提醒、某一笔账不往这里记，它们有自己的工具；" +
+            "但以后认账用得上的说法要记（「尾号 8837 的卡是老婆在用」「每月 5 号建行扣的 3500 是房租」），后台整理账目的也读记忆。"
 
     override val parameters: Map<String, Any?> = mapOf(
         "type" to "object",

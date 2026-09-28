@@ -1,12 +1,15 @@
 package com.abc.daodian.ledger.organize
 
 import android.content.Context
+import com.abc.daodian.BuildConfig
 import com.abc.daodian.agent.engine.AgentEvent
 import com.abc.daodian.agent.engine.AgentLoop
 import com.abc.daodian.agent.engine.Session
 import com.abc.daodian.agent.engine.background.AgentActivity
 import com.abc.daodian.agent.engine.context.LastTurns
 import com.abc.daodian.agent.engine.tool.ToolRegistry
+import com.abc.daodian.agent.memory.Memory
+import com.abc.daodian.agent.memory.MemoryBook
 import com.abc.daodian.agent.model.ResponsesClient
 import com.abc.daodian.agent.model.provider.ApiHealth
 import com.abc.daodian.agent.model.provider.ProviderStore
@@ -20,9 +23,12 @@ import com.abc.daodian.ledger.domain.LedgerText
 import com.abc.daodian.ledger.tools.LedgerPrompt
 import com.abc.daodian.ledger.tools.LedgerTools
 import com.abc.daodian.ledger.tools.RecordExpensesTool
+import java.io.File
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -98,14 +104,18 @@ object Organizer {
         run = run.copy(id = dao.insertRun(run))
         var seen = emptySet<Long>()
         try {
+            // 你在对话里说过的「8837 是老婆的卡」这类：对话模型记进记忆，整理员从这里读到（DESIGN.md §10.1「两个模型怎么传话」）
+            val memories = MemoryBook.get(context).all()
             for (i in 0 until MAX_BATCHES) {
                 val batch = dao.pendingRaws(before, BATCH)
                 // 上一批交完了还剩同样几条：模型处理不了它们，别原地打转，留给下次
                 if (batch.isEmpty() || batch.map { it.id }.toSet() == seen) break
                 seen = batch.map { it.id }.toSet()
 
+                val input = inputOf(store, batch, memories)
+                trace(context, "$reason 第 ${i + 1} 批 · ${input.counts} · 约 ${input.text.length} 字")
                 var failure: String? = null
-                loop.run(Session(), inputOf(store, batch), ZonedDateTime.now()).collect { e ->
+                loop.run(Session(), input.text, ZonedDateTime.now()).collect { e ->
                     when (e) {
                         is AgentEvent.ToolFinished -> (e.outcome.payload as? RecordExpensesTool.Recorded)?.let { r ->
                             run = run.copy(recorded = run.recorded + r.txnIds.size, ignored = run.ignored + r.ignored + r.unreadable)
@@ -129,20 +139,49 @@ object Organizer {
         return Result.Done(run)
     }
 
+    /** 喂给整理 agent 的一批：[text] 是原文，[counts] 只数个数（写 trace 用，不落内容） */
+    private class Input(val text: String, val counts: String)
+
     /** 这一轮喂给整理 agent 的全部背景。会变的都在这里，system 提示词保持不动 */
-    private suspend fun inputOf(store: LedgerStore, batch: List<RawNotification>): String {
+    private suspend fun inputOf(store: LedgerStore, batch: List<RawNotification>, memories: List<Memory>): Input {
         val zone = ZoneId.systemDefault()
         val today = LocalDate.now(zone)
         val recent = store.query(ExpenseQuery(fromDay = LedgerDays.dayInt(today.minusDays(RECENT_DAYS)), limit = RECENT_LIMIT)).reversed()
-        val memory = store.merchantMemory()
-        return buildString {
+        val merchants = store.merchantMemory()
+        val categories = store.categories()
+        val text = buildString {
             append("这一批原始通知（${batch.size} 条）：\n")
             batch.forEach { append(LedgerText.raw(store.noteOf(it), zone)).append('\n') }
-            append("\n").append(LedgerText.categoryTree(store.categories())).append('\n')
+            append("\n").append(LedgerText.categoryTree(categories)).append('\n')
             append("\n商户记忆（用户确认过的）：")
-            append(if (memory.isEmpty()) "还没有" else memory.joinToString("；") { (m, c) -> "$m → $c" })
+            append(if (merchants.isEmpty()) "还没有" else merchants.joinToString("；") { (m, c) -> "$m → $c" })
+            append("\n\n关于用户记下的事（他说过的，认账时参考）：")
+            if (memories.isEmpty()) append("还没有") else memories.forEach { append("\n- ").append(it.text) }
             append("\n\n最近几天已有的流水：")
             if (recent.isEmpty()) append("没有") else recent.forEach { append('\n').append(LedgerText.txn(it, zone)) }
         }
+        return Input(
+            text,
+            "通知 ${batch.size} 条 · 类别 ${categories.size} 个 · 商户记忆 ${merchants.size} 条 · " +
+                "记忆 ${memories.size} 条 · 最近流水 ${recent.size} 笔"
+        )
     }
+
+    /**
+     * 每批喂了几样东西（只数个数，不写内容）。只在 debug 包里写 —— 这台 ROM 看不到 logcat：
+     *
+     *     adb shell "run-as com.abc.daodian.debug cat files/organize_trace.txt"
+     */
+    private fun trace(context: Context, line: String) {
+        if (!BuildConfig.DEBUG) return
+        runCatching {
+            val file = File(context.filesDir, TRACE_FILE)
+            if (file.length() > TRACE_MAX_BYTES) file.delete()
+            file.appendText("${LocalDateTime.now().format(TRACE_CLOCK)} $line\n")
+        }
+    }
+
+    private const val TRACE_FILE = "organize_trace.txt"
+    private const val TRACE_MAX_BYTES = 64 * 1024
+    private val TRACE_CLOCK = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")
 }

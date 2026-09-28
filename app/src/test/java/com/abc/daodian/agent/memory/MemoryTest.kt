@@ -84,15 +84,35 @@ class MemoryTest {
 
     @Test
     fun `preamble lists memories with ids and the digest`() {
-        assertNull(Recall.preamble(emptyList(), null, zone))
+        assertNull(Recall.preamble(emptyList(), null, zone = zone))
         val p = Recall.preamble(
             listOf(Memory(3, "他说的「晚点」一般指晚上 9 点", sept20, Memory.SAID)),
             Digest("他让记了周五交周报。", through = 12, throughAt = sept20),
-            zone
+            zone = zone
         )!!
         assertEquals(12, p.afterTurnId)
         assertTrue(p.text.contains("- m3 · 9月20日 · 他说的「晚点」一般指晚上 9 点"))
         assertTrue(p.text.contains("到 9月20日 为止"))
+        assertTrue(p.text.endsWith("他让记了周五交周报。"))
+    }
+
+    @Test
+    fun `module backgrounds sit between memories and the digest`() {
+        val tree = "记账的类别表：\n支出类别：餐饮（外卖、夜宵）"
+        val only = Recall.preamble(emptyList(), null, listOf(tree), zone)!!
+        assertEquals(tree, only.text)
+        assertEquals(0, only.afterTurnId)
+
+        val p = Recall.preamble(
+            listOf(Memory(3, "尾号 8837 的卡是老婆在用", sept20, Memory.SAID)),
+            Digest("他让记了周五交周报。", through = 12, throughAt = sept20),
+            listOf(tree),
+            zone
+        )!!
+        val memory = p.text.indexOf("m3")
+        val module = p.text.indexOf("记账的类别表")
+        val digest = p.text.indexOf("更早的对话")
+        assertTrue(memory in 0 until module && module < digest)
         assertTrue(p.text.endsWith("他让记了周五交周报。"))
     }
 

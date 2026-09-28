@@ -26,6 +26,12 @@ interface Feature {
      */
     val prompt: String
 
+    /**
+     * 垫在对话历史前面的一段现状（和记忆、摘要放一起，DESIGN.md §6.9），比如记账的类别表：
+     * 模型每句话都该知道、会变但不常变的东西。变一次前缀缓存失效一次，所以别放每分钟都在变的。没有就是 null
+     */
+    suspend fun background(context: Context): String? = null
+
     /** 对话 agent 的工具（桌面速记同一套）。写操作（[com.abc.daodian.agent.engine.tool.ToolEffect.WRITE]）会在对话里留痕 */
     fun tools(context: Context): List<Tool>
 
