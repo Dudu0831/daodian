@@ -254,13 +254,17 @@ fun LedgerOverviewScreen(
                 )
             }
 
-            val data = o?.takeIf { it.period == period }
+            // 切了日月季年、翻了一段：新的读回来之前接着画上一份，读回来一帧换掉。
+            // 以前一切就把上一份扔了，大数字先变 0、柱子和类别先塌掉再弹回来，看着就是闪。
+            // 下面整块按这份数据自己的那一段画（小字、柱子、点进去的类别），不和顶上已经换了的标签混着
+            val data = o
+            val shown = data?.period ?: period
             Column(Modifier.padding(horizontal = Gutter).padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Kicker("${period.kicker} · ${if (showIncome) "收入" else "支出"}")
+                Kicker("${shown.kicker} · ${if (showIncome) "收入" else "支出"}")
                 BigAmount(LedgerFormat.yuan(if (showIncome) data?.income ?: 0 else data?.spent ?: 0))
                 val first = data?.firstDay
                 val note = when {
-                    first != null && first > period.from && first <= period.to ->
+                    first != null && first > shown.from && first <= shown.to ->
                         LedgerDays.dateOf(first).let { "${it.monthValue}月${it.dayOfMonth}日开始记" }
                     else -> "${data?.count ?: 0} 笔"
                 }
@@ -276,7 +280,7 @@ fun LedgerOverviewScreen(
 
             if (data != null && data.bars.isNotEmpty()) {
                 Spacer(Modifier.height(24.dp))
-                Bars(data.bars, period.mode) { vm.setPeriod(it) }
+                Bars(data.bars, shown.mode) { vm.setPeriod(it) }
             }
 
             Spacer(Modifier.height(24.dp))
@@ -293,7 +297,7 @@ fun LedgerOverviewScreen(
             slices.forEach { s ->
                 SliceRow(
                     name = s.name, amount = s.amount, fraction = s.amount.toFloat() / max, dashed = s.topId == null,
-                    onClick = { onOpenCategory(s.topId ?: ExpenseQuery.UNCATEGORIZED, showIncome, period) }
+                    onClick = { onOpenCategory(s.topId ?: ExpenseQuery.UNCATEGORIZED, showIncome, shown) }
                 )
             }
 

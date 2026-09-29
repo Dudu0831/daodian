@@ -23,6 +23,7 @@ import com.abc.daodian.ledger.domain.AccountRef
 import com.abc.daodian.ledger.domain.Actor
 import com.abc.daodian.ledger.domain.CategoryKind
 import com.abc.daodian.ledger.domain.CategoryNode
+import com.abc.daodian.ledger.domain.Direction
 import com.abc.daodian.ledger.domain.ExpenseDraft
 import com.abc.daodian.ledger.domain.ExpenseQuery
 import com.abc.daodian.ledger.domain.LedgerBackend
@@ -269,6 +270,15 @@ class LedgerStore private constructor(private val db: LedgerDatabase) : LedgerBa
                 continue
             }
 
+            // 改方向（储蓄卡把退款写成「收入」）：不再是退款的，从原笔上解开；不再是支出的，挂着它的退款也解开
+            val turned = c.direction?.takeIf { it != t.direction }
+            if (turned != null) {
+                if (t.direction == Direction.REFUND) dao.deleteLinksFrom(t.id, REFUND)
+                if (t.direction == Direction.OUT) dao.deleteLinksTo(t.id, REFUND)
+                logs += Triple("direction", t.direction.name, turned.name)
+                next = next.copy(direction = turned)
+            }
+
             val oldAlloc = dao.allocations(listOf(t.id))
             val newAlloc: List<Allocation>? = when {
                 c.split != null -> c.split.map { (cat, cents) -> Allocation(txnId = t.id, categoryId = cat, amount = cents) }
@@ -276,6 +286,9 @@ class LedgerStore private constructor(private val db: LedgerDatabase) : LedgerBa
                     val cat = c.categoryId ?: ensureSub(c.newSubcategory!!, actor)
                     listOf(Allocation(txnId = t.id, categoryId = cat, amount = t.amount))
                 }
+                // 换到了另一边的类别（收入 → 退款），原来的不作数：放回未归类；转移本来就不挂
+                turned != null && turned.categoryKind != t.direction.categoryKind ->
+                    listOf(Allocation(txnId = t.id, categoryId = null, amount = t.amount))
                 else -> null
             }
             if (newAlloc != null) {

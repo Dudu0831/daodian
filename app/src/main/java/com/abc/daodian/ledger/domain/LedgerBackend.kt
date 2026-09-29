@@ -100,6 +100,8 @@ data class TxnChange(
     val rememberMerchant: Boolean = false,
     val confirm: Boolean = false,
     val voidReason: String? = null,
+    /** 改方向（储蓄卡的退款通知写的是「收入」）。换到另一边类别的，原来的类别不作数 */
+    val direction: Direction? = null,
     val refundOf: Long? = null,
     val reason: String? = null
 )

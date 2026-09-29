@@ -113,6 +113,9 @@ interface LedgerDao {
     @Query("DELETE FROM txn_link WHERE fromId = :fromId AND kind = :kind")
     suspend fun deleteLinksFrom(fromId: Long, kind: String)
 
+    @Query("DELETE FROM txn_link WHERE toId = :toId AND kind = :kind")
+    suspend fun deleteLinksTo(toId: Long, kind: String)
+
     @Query("SELECT * FROM txn_link WHERE fromId IN (:ids)")
     suspend fun linksFrom(ids: Collection<Long>): List<TxnLink>
 

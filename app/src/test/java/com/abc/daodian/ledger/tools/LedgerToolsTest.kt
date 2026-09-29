@@ -319,6 +319,45 @@ class LedgerToolsTest {
     }
 
     @Test
+    fun `income that was really a refund turns into one and follows the original's category`() {
+        // 9-28 真机：建行储蓄卡充电扣 3.00，没用完的 1.82 退回来，通知上写的是「收入」
+        val charge = listOf(
+            RawNote(51, "建设银行", at(18, 39), "动账提醒", "您尾号4918的储蓄账户9月22日18时38分支出人民币3.00元。点击查看>>", null, false, false),
+            RawNote(52, "建设银行", at(22, 18), "动账提醒", "您尾号4918的储蓄账户9月22日22时17分收入人民币1.82元。点击查看>>", null, false, false),
+        )
+        val backend = FakeLedger(charge, categories)
+        record(backend, """{"expenses":[${expense("51", "3.00", "其他")},${expense("52", "1.82", "工资", direction = "IN")}],"ignore":[],"unreadable":[]}""")
+        val (out, back) = backend.txns.keys.toList()
+        val tool = UpdateExpensesTool(backend) { zone }
+        fun change(direction: String?, refundOf: Long?, category: String? = null) = runBlocking {
+            tool.execute(
+                """{"changes":[{"txn_id":$back,"category":${category?.let { "\"$it\"" }},"split":null,"summary":null,"note":null,
+                "add_tags":[],"remove_tags":[],"merchant":null,"remember_merchant":false,"confirm":true,"void_reason":null,
+                "direction":${direction?.let { "\"$it\"" }},"refund_of":$refundOf}]}""",
+                ctx
+            )
+        }
+
+        // 真机上卡住的那一下：方向没改就挂 refund_of —— 打回时告诉它连方向一起改
+        val stuck = change(direction = null, refundOf = out)
+        assertFalse(stuck.output, stuck.ok)
+        assertTrue(stuck.output, stuck.output.contains("REFUND"))
+        // 改成退款，既没挂原笔也没给支出类别：收入类别对不上，打回
+        assertFalse(change(direction = "REFUND", refundOf = null).ok)
+
+        // 挂上原笔：模型给的类别不看，跟原笔走
+        val ok = change(direction = "REFUND", refundOf = out, category = "工资")
+        assertTrue(ok.output, ok.ok)
+        val refund = backend.txns.getValue(back)
+        assertEquals(Direction.REFUND, refund.direction)
+        assertEquals(out, refund.refundOf)
+        assertEquals("其他", refund.category)
+        assertEquals(listOf(6L to 182L), backend.allocations.getValue(back))
+        assertEquals(TxnState.CONFIRMED, refund.state)
+        assertEquals("一笔 1.82 改成退款 → 其他", ok.output.lineSequence().first().substringAfter('：'))
+    }
+
+    @Test
     fun `chat expense is confirmed and needs no raw`() {
         val backend = FakeLedger(raws, categories)
         val out = runBlocking {
@@ -385,11 +424,15 @@ private class FakeLedger(
     override suspend fun update(changes: List<TxnChange>, actor: Actor) {
         changes.forEach { c ->
             val t = txns.getValue(c.txnId)
+            // 换到另一边的类别：原来的不作数，放回未归类
+            val kindTurned = c.direction != null && c.direction.categoryKind != t.direction.categoryKind
+            if (kindTurned) allocations[c.txnId] = listOf(null to t.amount)
             c.split?.let { allocations[c.txnId] = it }
             c.categoryId?.let { allocations[c.txnId] = listOf(it to t.amount) }
             txns[c.txnId] = t.copy(
+                direction = c.direction ?: t.direction,
                 state = if (c.voidReason != null) TxnState.VOID else if (c.confirm) TxnState.CONFIRMED else t.state,
-                category = c.categoryId?.let(::path) ?: t.category,
+                category = c.categoryId?.let(::path) ?: if (kindTurned) null else t.category,
                 refundOf = c.refundOf ?: t.refundOf,
                 tags = (t.tags + c.addTags).distinct() - c.removeTags.toSet()
             )
