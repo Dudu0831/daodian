@@ -38,8 +38,8 @@ class UpdateExpensesTool(
     override val effect = ToolEffect.WRITE
 
     override val description =
-        "改已有的流水（按 # 编号）。用户说「197 那笔是理发」「山姆那笔一半是吃的」「这笔重复了」「根本没这笔钱」时用。" +
-            "不知道编号先用 list_expenses 查。用户明说了类别就 confirm=true；" +
+        "改已有的流水（按 # 编号），一次可以改好几笔。用户说「197 那笔是理发」「山姆那笔一半是吃的」「这笔重复了」" +
+            "「根本没这笔钱」「今天这几笔都是约会」时用。不知道编号先用 list_expenses 查。用户明说了类别就 confirm=true；" +
             "他说「以后这家都算 X」才 remember_merchant=true。"
 
     override val parameters: Map<String, Any?> = LedgerJson.obj(
@@ -57,7 +57,8 @@ class UpdateExpensesTool(
                 ),
                 "summary" to LedgerJson.strOrNull("新的一句话摘要；不改 null"),
                 "note" to LedgerJson.strOrNull("备注，用户补充的话；不改 null"),
-                "add_tags" to LedgerJson.arr("加上的标签", mapOf("type" to "string")),
+                "add_tags" to LedgerJson.arr("加上的标签，用已有的名字；只在用户说了才打", mapOf("type" to "string")),
+                "remove_tags" to LedgerJson.arr("取下的标签（用户说「那笔不算约会」）", mapOf("type" to "string")),
                 "merchant" to LedgerJson.strOrNull("商户名；不改 null"),
                 "remember_merchant" to LedgerJson.bool("以后这个商户默认归这个类别（只有用户这么说了才 true）"),
                 "confirm" to LedgerJson.bool("用户确认了这笔（类别对了）"),
@@ -91,8 +92,17 @@ class UpdateExpensesTool(
         backend.update(changes, Actor.USER)
         val after = backend.txns(changes.map { it.txnId })
         // 第一行是给人看的（对话里的回执就画它），下面是给模型的明细
+        val byId = changes.associateBy { it.txnId }
         val headline = after.joinToString("；") { t ->
-            "${t.summary} ${Money.yuan(t.amount)}" + if (t.state == TxnState.VOID) " 作废了" else " → ${t.category ?: "未归类"}"
+            val c = byId[t.id]
+            val tags = c?.let(::tagDelta).orEmpty()
+            val recategorized = c != null && (c.categoryId != null || c.newSubcategory != null || c.split != null)
+            "${t.summary} ${Money.yuan(t.amount)}" + when {
+                t.state == TxnState.VOID -> " 作废了"
+                // 只动了标签的，不写类别：「和她吃饭 356.00 · 标签 +约会」
+                recategorized || tags.isEmpty() -> " → ${t.category ?: "未归类"}"
+                else -> ""
+            } + tags
         }
         val out = "改好了 ${after.size} 笔：$headline\n" + after.joinToString("\n") { LedgerText.txn(it, zone) } +
             if (rejects.isNotEmpty()) "\n没改成：\n" + rejects.joinToString("\n") else ""
@@ -123,6 +133,11 @@ class UpdateExpensesTool(
         }
 
         LedgerGuard.tagClash(n.strings("add_tags"), tagNames, categories)?.let { return LedgerGuard.Check.No(it) }
+        val removeTags = n.strings("remove_tags").take(8)
+        val attached = t.tags.map { it.lowercase() }
+        removeTags.firstOrNull { it.trim().removePrefix("#").lowercase() !in attached }?.let {
+            return LedgerGuard.Check.No("这笔没挂「$it」，挂着的是：${t.tags.joinToString("、").ifEmpty { "没有标签" }}")
+        }
 
         val splitNodes = n.get("split")?.takeIf { it.isArray && it.size() > 0 }
         val split = splitNodes?.map { part ->
@@ -164,12 +179,19 @@ class UpdateExpensesTool(
                 summary = n.text("summary"),
                 note = n.text("note"),
                 addTags = n.strings("add_tags").take(8),
+                removeTags = removeTags,
                 merchant = merchant,
                 rememberMerchant = remember,
                 confirm = touchesCategory || n.get("confirm")?.asBoolean(false) == true,
                 refundOf = refundOf
             )
         )
+    }
+
+    /** 「 · 标签 +约会 −请客」；没动标签是空的 */
+    private fun tagDelta(c: TxnChange): String {
+        val parts = c.addTags.map { "+" + it.trim().removePrefix("#") } + c.removeTags.map { "−" + it.trim().removePrefix("#") }
+        return if (parts.isEmpty()) "" else " · 标签 " + parts.joinToString(" ")
     }
 
     companion object {

@@ -19,7 +19,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,20 +39,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
@@ -61,17 +54,17 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.abc.daodian.agent.engine.ask.AskQuestion
 import com.abc.daodian.agent.engine.ask.AskUserTool
 import com.abc.daodian.agent.engine.ask.Pick
+import com.abc.daodian.agent.feature.FeatureRegistry
+import com.abc.daodian.agent.shell.FeatureUi
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.theme.Motion
-import kotlin.math.hypot
-import kotlin.math.max
+import com.abc.daodian.shared.ui.InkChip
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -154,7 +147,10 @@ fun AskCard(
                             if (i > 0 && !sealed) HorizontalDivider(color = colors.ruleSoft)
                             Crossfade(sealed, animationSpec = tween(Motion.MID), label = "askRow") { done ->
                                 if (done) {
-                                    RecordLine(q, answerLabelOf(q, block.picks.getOrNull(i), request.single), request.single)
+                                    RecordLine(
+                                        q, answerLabelOf(q, block.picks.getOrNull(i), request.single), request.single,
+                                        note = block.notes.getOrNull(i)?.short
+                                    )
                                 } else {
                                     Question(
                                         q = q,
@@ -281,27 +277,38 @@ private fun Question(
                 ChipLabel("其他…", selected = false, dimmed = false, enabled = live, dashed = true, accent = editing, onClick = onOther)
             }
         }
+        if (live && q.ref != null) Addon(q.ref)
     }
+}
+
+/** 模块在这题底下挂的一块（记账：顺手打标签），见 [FeatureUi.AskAddon]。不是它的 ref 就什么都不画 */
+@Composable
+private fun Addon(ref: String) {
+    val uis = remember { FeatureRegistry.features.filterIsInstance<FeatureUi>() }
+    uis.forEach { it.AskAddon(ref) }
 }
 
 /**
  * 收起后的一题。问账的：左边宋体金额，右边答案。没有金额的：淡色问句接着答案，排成一行，
- * 问句太长就让它折行 —— 截成「下周哪天…」看不出问的是什么。没点的写「先放着」
+ * 问句太长就让它折行 —— 截成「下周哪天…」看不出问的是什么。没点的写「先放着」。
+ * 顺手办了的事（[note]，挂上的标签）淡淡接在答案后面：「和她吃饭 · 约会」
  */
 @Composable
-private fun RecordLine(q: AskQuestion, answer: String?, single: Boolean) {
+private fun RecordLine(q: AskQuestion, answer: String?, single: Boolean, note: String? = null) {
     val colors = DaodianColors.current
     val style = DaodianType.bodySmall.copy(fontSize = 14.sp, lineHeight = 23.sp)
     val shown = answer ?: "先放着"
     val tone = if (answer == null) colors.muted else colors.ink2
+    val tail = note?.let { "  · $it" }
     when {
-        single -> Text(shown, style = style, color = tone, modifier = Modifier.padding(vertical = 1.dp))
+        single -> Text(shown + tail.orEmpty(), style = style, color = tone, modifier = Modifier.padding(vertical = 1.dp))
         q.amount != null -> Row(Modifier.padding(vertical = 1.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 q.amount, style = DaodianType.rowTitle.copy(fontSize = 14.sp, lineHeight = 23.sp),
                 color = colors.muted, maxLines = 1, modifier = Modifier.width(76.dp)
             )
             Text(shown, style = style, color = tone)
+            if (tail != null) Text(tail, style = style, color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         else -> Text(
             buildAnnotatedString {
@@ -343,82 +350,6 @@ private fun ChipLabel(
             modifier = Modifier.padding(horizontal = 14.dp)
         )
     }
-}
-
-/** 猜测上的字色：墨色洇满之后翻成纸色 */
-private class InkTone(val fg: Color, val sub: Color)
-
-/**
- * 一颗猜测。按下缩到 0.96；选中时墨色以手指落下的地方为圆心洇满整颗，取消时原路退回。
- * 同一题别的猜测淡到一半（[dimmed]），还能改。
- */
-@Composable
-private fun InkChip(
-    selected: Boolean,
-    dimmed: Boolean,
-    enabled: Boolean,
-    shape: Shape,
-    modifier: Modifier = Modifier,
-    dashed: Boolean = false,
-    accent: Boolean = false,
-    onClick: () -> Unit,
-    content: @Composable (InkTone) -> Unit
-) {
-    val colors = DaodianColors.current
-    val interaction = remember { MutableInteractionSource() }
-    var origin by remember { mutableStateOf(Offset.Unspecified) }
-    LaunchedEffect(interaction) {
-        interaction.interactions.collect { if (it is PressInteraction.Press) origin = it.pressPosition }
-    }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.96f else 1f, Motion.flow(Motion.SHORT), label = "chipPress")
-    val alpha by animateFloatAsState(if (dimmed) 0.5f else 1f, Motion.flow(), label = "chipDim")
-    val fill = remember { Animatable(if (selected) 1f else 0f) }
-    LaunchedEffect(selected) { fill.animateTo(if (selected) 1f else 0f, if (selected) Motion.settle() else Motion.flow()) }
-    val fg by animateColorAsState(if (selected) colors.onSolid else colors.ink, Motion.flow(), label = "chipFg")
-    val sub by animateColorAsState(if (selected) colors.onSolid.copy(alpha = 0.72f) else colors.muted, Motion.flow(), label = "chipSub")
-    val edge by animateColorAsState(
-        when {
-            selected -> colors.solid
-            accent -> colors.accent
-            else -> colors.rule2
-        },
-        Motion.flow(Motion.SHORT), label = "chipEdge"
-    )
-    Box(
-        modifier
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                this.alpha = alpha
-            }
-            .clip(shape)
-            .drawBehind {
-                val f = fill.value
-                if (f > 0f) {
-                    val o = if (origin.isSpecified) origin else center
-                    val reach = hypot(max(o.x, size.width - o.x), max(o.y, size.height - o.y))
-                    drawCircle(colors.solid, radius = reach * f, center = o)
-                }
-            }
-            .then(if (dashed) Modifier.dashedBorder(edge, size = 17.dp) else Modifier.border(1.dp, edge, shape))
-            .clickable(interaction, indication = null, enabled = enabled, role = Role.Button, onClick = onClick),
-        contentAlignment = Alignment.CenterStart
-    ) {
-        content(InkTone(fg, sub))
-    }
-}
-
-/** 「其他…」那颗的虚线边 */
-private fun Modifier.dashedBorder(color: Color, size: Dp): Modifier = drawBehind {
-    val w = 1.dp.toPx()
-    drawRoundRect(
-        color,
-        topLeft = Offset(w / 2, w / 2),
-        size = Size(this.size.width - w, this.size.height - w),
-        cornerRadius = CornerRadius(size.toPx()),
-        style = Stroke(width = w, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())))
-    )
 }
 
 @Composable

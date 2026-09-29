@@ -17,8 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -47,6 +45,7 @@ import com.abc.daodian.shared.ui.GroupRule
 import com.abc.daodian.shared.ui.Marker
 import com.abc.daodian.shared.ui.OutlineBadge
 import com.abc.daodian.shared.ui.PaperGroup
+import com.abc.daodian.shared.ui.PaperSwitch
 import com.abc.daodian.shared.ui.ScreenTopBar
 import com.abc.daodian.shared.ui.SettingRow
 import com.abc.daodian.shared.ui.activityViewModel
@@ -158,18 +157,7 @@ private fun MemoryGroup(onOpen: () -> Unit) {
             note = if (auto) "停下来 10 分钟，从新聊的里找值得记的" else "关着 · 只记你明说让它记的",
             onClick = { memory.setAutoTidy(!auto) }
         ) {
-            Switch(
-                checked = auto,
-                onCheckedChange = { memory.setAutoTidy(it) },
-                colors = SwitchDefaults.colors(
-                    checkedTrackColor = colors.solid,
-                    checkedThumbColor = colors.onSolid,
-                    checkedBorderColor = colors.solid,
-                    uncheckedTrackColor = colors.surfaceAlt,
-                    uncheckedThumbColor = colors.rule2,
-                    uncheckedBorderColor = colors.rule2
-                )
-            )
+            PaperSwitch(checked = auto, onCheckedChange = { memory.setAutoTidy(it) })
         }
     }
 }

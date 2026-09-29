@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -83,4 +85,22 @@ fun FixLink() {
         Text("去开", style = DaodianType.caption, color = colors.accent)
         ChevronRightIcon(size = 11.dp, tint = colors.accent)
     }
+}
+
+/** 行尾的开关：开着是墨色，关着是纸色 */
+@Composable
+fun PaperSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    val colors = DaodianColors.current
+    Switch(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        colors = SwitchDefaults.colors(
+            checkedTrackColor = colors.solid,
+            checkedThumbColor = colors.onSolid,
+            checkedBorderColor = colors.solid,
+            uncheckedTrackColor = colors.surfaceAlt,
+            uncheckedThumbColor = colors.rule2,
+            uncheckedBorderColor = colors.rule2
+        )
+    )
 }

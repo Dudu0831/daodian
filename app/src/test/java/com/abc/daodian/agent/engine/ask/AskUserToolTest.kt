@@ -52,6 +52,25 @@ class AskUserToolTest {
     }
 
     @Test
+    fun `a question can point at a record, and what was done there rides along`() {
+        val withRef = full.replace("\"hint\":\"前两天也是\",", "\"hint\":\"前两天也是\",\"ref\":\"#12\",")
+        val r = AskUserTool.requestOf(withRef)!!
+        assertEquals("#12", r.questions[0].ref)
+        assertNull(r.questions[1].ref)
+
+        val note = AskNote("约会", "这笔挂着标签「约会」，已经挂好了，别再打")
+        val answer = AskAnswer.Picked(listOf(Pick.Option(0), null), listOf(note, null))
+        val out = AskUserTool.outputOf(r, answer)
+        assertTrue(out, out.contains("选了「午饭」（餐饮 · 堂食）；这笔挂着标签「约会」"))
+        assertEquals(answer, AskUserTool.answerOf(out))
+
+        val said = AskAnswer.Said("午饭", listOf(note, null))
+        val saidOut = AskUserTool.outputOf(r, said)
+        assertTrue(saidOut, saidOut.contains("另外第 1 题"))
+        assertEquals(said, AskUserTool.answerOf(saidOut))
+    }
+
+    @Test
     fun `said and unanswered round trip too`() {
         val said = AskAnswer.Said("午饭，话费")
         assertEquals(said, AskUserTool.answerOf(AskUserTool.outputOf(null, said)))

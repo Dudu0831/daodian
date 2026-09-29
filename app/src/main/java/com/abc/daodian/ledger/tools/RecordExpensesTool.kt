@@ -42,7 +42,12 @@ class RecordExpensesTool(
     private val backend: LedgerBackend,
     /** 写进每笔流水的 parsed_by：模型名 + 提示词版本 */
     private val parsedBy: () -> String,
-    private val zone: () -> ZoneId = { ZoneId.systemDefault() }
+    private val zone: () -> ZoneId = { ZoneId.systemDefault() },
+    /**
+     * 设置里「整理员自己打标签」开没开。关着（默认）连 tags 这个参数都不给；
+     * 开着也只认已有的标签，新名字不挂（DESIGN.md §10.4）
+     */
+    private val tagging: Boolean = false
 ) : Tool {
 
     data class Recorded(val txnIds: List<Long>, val ignored: Int, val unreadable: Int, val rejected: Int)
@@ -78,7 +83,9 @@ class RecordExpensesTool(
                     "类别路径「一级/二级」，如「日用/超市日用」。一级只能用现有的；二级没有合适的可以写个新的。" +
                         "没把握就 null（未归类）并填 ask。TRANSFER 填 null"
                 ),
-                "tags" to LedgerJson.arr("标签，没有就空数组", mapOf("type" to "string")),
+                *listOfNotNull(
+                    ("tags" to LedgerJson.arr("标签，只用用户打过的；没把握就空数组", mapOf("type" to "string"))).takeIf { tagging }
+                ).toTypedArray(),
                 "confidence" to LedgerJson.num("对类别有多大把握，0~1"),
                 "ask" to LedgerJson.strOrNull(
                     "没把握时想问用户的话：先一句问题（带上时间和金额，他才认得出是哪笔），再写你最像的 1–3 个猜测，" +
@@ -266,8 +273,6 @@ class RecordExpensesTool(
         if (pick is LedgerGuard.Check.No) return pick
         val category = (pick as LedgerGuard.Check.Ok).value
 
-        LedgerGuard.tagClash(e.strings("tags"), tagNames, categories)?.let { return LedgerGuard.Check.No(it) }
-
         val ask = e.text("ask")
         val summary = e.text("summary") ?: return LedgerGuard.Check.No("summary 必填")
         return LedgerGuard.Check.Ok(
@@ -285,7 +290,9 @@ class RecordExpensesTool(
                 note = null,
                 categoryId = category.categoryId,
                 newSubcategory = category.newSub,
-                tags = e.strings("tags").take(8),
+                // 只挂已有的：整理员不新建标签，也就撞不上类别
+                tags = if (tagging) e.strings("tags").mapNotNull { t -> tagNames.firstOrNull { it.equals(t.trim().removePrefix("#"), ignoreCase = true) } }.distinct().take(8)
+                else emptyList(),
                 confidence = e.get("confidence")?.takeIf { it.isNumber }?.asDouble()?.coerceIn(0.0, 1.0),
                 // 没归类又没留问题：替它补一句，不然晚上对账时没话可问
                 ask = ask ?: if (category.categoryId == null && category.newSub == null && direction.categoryKind != null) {

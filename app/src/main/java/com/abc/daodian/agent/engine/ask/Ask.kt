@@ -26,7 +26,12 @@ data class AskQuestion(
     /** 第一个猜测的依据：「前两天 11 点多也各有一笔三十来块，你都说是午饭」 */
     val hint: String?,
     /** 猜测，最可能的在前 */
-    val options: List<AskOption>
+    val options: List<AskOption>,
+    /**
+     * 问的是哪一条记录（一笔账「#12」）。模块认得它就在这题底下挂一块自己的东西
+     * （记账：顺手打标签，[com.abc.daodian.agent.shell.FeatureUi.AskAddon]）
+     */
+    val ref: String? = null
 )
 
 data class AskOption(
@@ -39,15 +44,24 @@ data class AskOption(
 /** 用户怎么答的 */
 sealed interface AskAnswer {
 
-    /** 逐题的答案，和 [AskRequest.questions] 一一对应；没点的是 null（「先放着」） */
-    data class Picked(val picks: List<Pick?>) : AskAnswer
+    /**
+     * 逐题的答案，和 [AskRequest.questions] 一一对应；没点的是 null（「先放着」）。
+     * [notes] 也逐题对应：模块在那题上顺手办了的事（挂上的标签），没有是 null 或空列表
+     */
+    data class Picked(val picks: List<Pick?>, val notes: List<AskNote?> = emptyList()) : AskAnswer
 
     /** 一颗没点，在输入框里直接说了一句 —— 给整张卡的，由模型去对哪题是哪题 */
-    data class Said(val text: String) : AskAnswer
+    data class Said(val text: String, val notes: List<AskNote?> = emptyList()) : AskAnswer
 
     /** 没答：叫停了，或者 app 在等的时候被杀了 */
     data object Unanswered : AskAnswer
 }
+
+/**
+ * 模块在问卡的一题上顺手办了的事（[com.abc.daodian.agent.feature.Feature.askNote]），比如挂上了标签。
+ * [short] 收起后接在答案后面（「约会」），[told] 写进回给模型的话，它就不会再办一遍
+ */
+data class AskNote(val short: String, val told: String)
 
 /** 一题的答案 */
 sealed interface Pick {

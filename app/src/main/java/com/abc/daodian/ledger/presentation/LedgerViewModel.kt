@@ -11,10 +11,12 @@ import com.abc.daodian.ledger.data.db.ChangeLog
 import com.abc.daodian.ledger.data.db.DirectionSum
 import com.abc.daodian.ledger.data.db.Sum
 import com.abc.daodian.ledger.domain.CategoryKind
+import com.abc.daodian.ledger.domain.CategoryNode
 import com.abc.daodian.ledger.domain.Direction
 import com.abc.daodian.ledger.domain.ExpenseQuery
 import com.abc.daodian.ledger.domain.LedgerDays
 import com.abc.daodian.ledger.domain.RawNote
+import com.abc.daodian.ledger.domain.TagBoard
 import com.abc.daodian.ledger.domain.TxnBrief
 import com.abc.daodian.ledger.organize.OrganizeWorker
 import com.abc.daodian.ledger.reconciliation.LedgerCheck
@@ -256,6 +258,21 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
             TxnDetail(t, store.raws(t.rawIds).sortedBy { it.postTime }, dao.changesOf(id), cats)
         }
 
+    // ---------------- 标签（账单页、对账问卡，DESIGN.md §10.4「标签怎么打」）----------------
+
+    /** 一笔的标签：挂着的、候选、全部。挂上、取下之后自己刷新（改标签会动这笔的 updatedAt） */
+    fun tags(txnId: Long): Flow<TagBoard?> = dao.observeLastChange().mapLatest { store.tagBoard(txnId) }
+
+    /** 类别表：打字找标签时查撞没撞类别 */
+    val categoryNodes: StateFlow<List<CategoryNode>> = dao.observeCategories()
+        .map { list -> list.filter { !it.archived }.map { CategoryNode(it.id, it.name, it.parentId, it.kind) } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** 挂上 / 取下，点了就落库。[where] 写进改动历史（「账单页」「对账问卡」） */
+    fun setTag(txnId: Long, name: String, on: Boolean, where: String) = viewModelScope.launch {
+        store.setTag(txnId, name, on, "你在${where}上点的")
+    }
+
     // ---------------- 设置 ----------------
 
     val organizeHours = LedgerSettings.organizeHoursFlow(app)
@@ -287,6 +304,12 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
         LedgerSettings.setCheckTime(getApplication(), time)
         LedgerCheck.arm(getApplication())
     }
+
+    /** 设置里「整理员自己打标签」，默认关 */
+    val organizerTags = LedgerSettings.organizerTagsFlow(app)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setOrganizerTags(on: Boolean) = viewModelScope.launch { LedgerSettings.setOrganizerTags(getApplication(), on) }
 
     fun organizeNow() = OrganizeWorker.runNow(getApplication())
 }

@@ -20,6 +20,13 @@ object LedgerText {
         if (t.rawIds.isNotEmpty()) append(" 来自 raw#").append(t.rawIds.joinToString(",raw#"))
     }
 
+    /** 标签的一笔例子，整理员照着学：`2026-09-27 19:18 海底捞 356.00「和她吃饭」` */
+    fun tagExample(t: TxnBrief, zone: ZoneId): String = buildString {
+        append(LedgerDays.stamp(t.occurredAt, zone))
+        (t.merchant ?: t.merchantRaw ?: t.account)?.let { append(" ").append(it) }
+        append(" ").append(Money.yuan(t.amount)).append("「").append(t.summary).append("」")
+    }
+
     /** `raw#17 [2026-09-22 19:20 掌上生活] 交易提醒｜您在支付宝-山姆会员商店有一笔…` */
     fun raw(r: RawNote, zone: ZoneId): String = buildString {
         append("raw#${r.id} [${LedgerDays.stamp(r.postTime, zone)} ${r.source}] ")

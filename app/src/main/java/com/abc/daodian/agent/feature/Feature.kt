@@ -2,6 +2,7 @@ package com.abc.daodian.agent.feature
 
 import android.content.Context
 import android.content.Intent
+import com.abc.daodian.agent.engine.ask.AskNote
 import com.abc.daodian.agent.engine.tool.Tool
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -55,6 +56,13 @@ interface Feature {
 
     /** 虚线段上点了「今天算了」。[key] 同 [trigger] */
     suspend fun dismissTrigger(context: Context, key: String) {}
+
+    /**
+     * 问卡上 [ref]（「#12」）那一题，你顺手办了什么（记账：挂上的标签）。「就这样」时问一次，
+     * 收起后接在答案后面、写进回给模型的话。不是自己的 ref、什么都没办就是 null。
+     * 画那一块的是 [com.abc.daodian.agent.shell.FeatureUi.AskAddon]
+     */
+    suspend fun askNote(context: Context, ref: String): AskNote? = null
 
     /** 体检项：挂了会让这个模块的核心功能失效的系统权限 */
     fun health(context: Context): List<HealthItem> = emptyList()

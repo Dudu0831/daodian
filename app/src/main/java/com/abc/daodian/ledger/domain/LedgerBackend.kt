@@ -93,6 +93,8 @@ data class TxnChange(
     val summary: String? = null,
     val note: String? = null,
     val addTags: List<String> = emptyList(),
+    /** 取下的标签；取下后一笔都不挂了的标签连名字一起删 */
+    val removeTags: List<String> = emptyList(),
     val merchant: String? = null,
     /** 记进商户记忆：以后这家默认归这类。只有用户确认过的才会走到这里 */
     val rememberMerchant: Boolean = false,

@@ -16,9 +16,15 @@ object LedgerTools {
     /** 账本那把锁的名字。后台整理整轮拿着它；对话里的写工具每次写之前排队拿 */
     const val LOCK = "ledger"
 
-    fun forOrganizer(backend: LedgerBackend, parsedBy: () -> String, zone: () -> ZoneId = { ZoneId.systemDefault() }): List<Tool> =
+    /** [tagging]：设置里「整理员自己打标签」开没开 */
+    fun forOrganizer(
+        backend: LedgerBackend,
+        parsedBy: () -> String,
+        tagging: Boolean = false,
+        zone: () -> ZoneId = { ZoneId.systemDefault() }
+    ): List<Tool> =
         listOf(
-            RecordExpensesTool(backend, parsedBy, zone),
+            RecordExpensesTool(backend, parsedBy, zone, tagging),
             ListExpensesTool(backend, zone)
         )
 

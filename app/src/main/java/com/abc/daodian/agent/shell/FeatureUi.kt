@@ -25,6 +25,13 @@ interface FeatureUi {
     /** 设置页顶上体检结论底下补一行（提醒：最近投递准不准） */
     @Composable
     fun HealthNote() {}
+
+    /**
+     * 问卡上一题底下挂的一块（记账：顺手打标签）。[ref] 是模型在那题上写的「#12」，不是自己的就什么都不画。
+     * 只在等你答的时候画；办了什么，「就这样」时由 [com.abc.daodian.agent.feature.Feature.askNote] 报给问卡
+     */
+    @Composable
+    fun AskAddon(ref: String) {}
 }
 
 /** 模块页面能做的跳转 */

@@ -27,16 +27,21 @@ import com.abc.daodian.ledger.domain.ExpenseDraft
 import com.abc.daodian.ledger.domain.ExpenseQuery
 import com.abc.daodian.ledger.domain.LedgerBackend
 import com.abc.daodian.ledger.domain.LedgerDays
+import com.abc.daodian.ledger.domain.LedgerGuard
+import com.abc.daodian.ledger.domain.LedgerTags
 import com.abc.daodian.ledger.domain.LedgerText
 import com.abc.daodian.ledger.domain.Money
 import com.abc.daodian.ledger.domain.NewSubcategory
 import com.abc.daodian.ledger.domain.RawNote
 import com.abc.daodian.ledger.domain.RawVerdict
+import com.abc.daodian.ledger.domain.TagBoard
+import com.abc.daodian.ledger.domain.TagUse
 import com.abc.daodian.ledger.domain.TxnBrief
 import com.abc.daodian.ledger.domain.TxnChange
 import com.abc.daodian.ledger.domain.TxnSource
 import com.abc.daodian.ledger.domain.TxnState
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 
 /**
@@ -323,6 +328,7 @@ class LedgerStore private constructor(private val db: LedgerDatabase) : LedgerBa
                 }
             }
             addTags(t.id, c.addTags, now).takeIf { it.isNotEmpty() }?.let { logs += Triple("tags", null, it.joinToString()) }
+            removeTags(t.id, c.removeTags).takeIf { it.isNotEmpty() }?.let { logs += Triple("tags", it.joinToString(), null) }
 
             dao.updateTxn(next.copy(updatedAt = now))
             log(t.id, actor, now, c.reason, *logs.toTypedArray())
@@ -373,11 +379,21 @@ class LedgerStore private constructor(private val db: LedgerDatabase) : LedgerBa
     }
 
     private suspend fun addTags(txnId: Long, names: List<String>, now: Long): List<String> {
-        val clean = names.map { it.trim().removePrefix("#") }.filter { it.isNotEmpty() }.distinct()
+        val clean = names.map(LedgerTags::clean).filter { it.isNotEmpty() }.distinct()
         if (clean.isEmpty()) return clean
         val ids = clean.map { n -> dao.tagByName(n)?.id ?: dao.insertTag(Tag(name = n, createdAt = now)) }
         dao.insertTxnTags(ids.map { TxnTag(txnId, it) })
         return clean
+    }
+
+    /** 取下挂着的几个，返回真取下了的。一笔都不挂了的标签连名字一起删 */
+    private suspend fun removeTags(txnId: Long, names: List<String>): List<String> {
+        val attached = dao.tagsOf(listOf(txnId)).map { it.name }
+        val gone = names.map(LedgerTags::clean).mapNotNull { n -> attached.firstOrNull { it.equals(n, ignoreCase = true) } }.distinct()
+        if (gone.isEmpty()) return gone
+        dao.deleteTxnTags(txnId, gone)
+        dao.deleteUnusedTags(gone)
+        return gone
     }
 
     private suspend fun log(txnId: Long, actor: Actor, at: Long, reason: String?, vararg fields: Triple<String, String?, String?>) {
@@ -387,6 +403,34 @@ class LedgerStore private constructor(private val db: LedgerDatabase) : LedgerBa
     }
 
     fun dayOf(millis: Long): Int = LedgerDays.dayOf(millis, zone)
+
+    // ---------------- 标签（DESIGN.md §10.4「标签怎么打」）----------------
+
+    /** 每个标签用得怎么样，最近 [LedgerTags.RECENT_DAYS] 天算「最近」 */
+    suspend fun tagUses(): List<TagUse> =
+        dao.tagUses(LedgerDays.dayInt(LocalDate.now(zone).minusDays(LedgerTags.RECENT_DAYS)))
+
+    /** 给一笔打标签时要的：挂着的、候选、全部。没有这笔是 null */
+    suspend fun tagBoard(txnId: Long): TagBoard? {
+        val t = dao.txns(listOf(txnId)).singleOrNull() ?: return null
+        val attached = dao.tagsOf(listOf(txnId)).map { it.name }
+        val uses = tagUses()
+        val sameMerchant = t.merchantId?.let { dao.tagsOfMerchant(it, t.id) }.orEmpty()
+        return TagBoard(attached, LedgerTags.rank(attached, dao.tagsOnDay(t.day, t.id), sameMerchant, uses), LedgerTags.byUse(uses))
+    }
+
+    /**
+     * 你在界面上点的（账单页、对账问卡）：挂上或取下一个标签，记进改动历史。
+     * 新名字和类别同名的不挂，返回原因（§10.6 第 14 条）；挂上了是 null
+     */
+    suspend fun setTag(txnId: Long, name: String, on: Boolean, reason: String): String? {
+        val n = LedgerTags.clean(name)
+        if (n.isEmpty()) return "标签名是空的"
+        if (on) LedgerGuard.tagClash(listOf(n), tagNames(), categories())?.let { return it }
+        val change = if (on) TxnChange(txnId, addTags = listOf(n), reason = reason) else TxnChange(txnId, removeTags = listOf(n), reason = reason)
+        update(listOf(change), Actor.USER)
+        return null
+    }
 
     /** 整理 agent 要的背景：商户记忆（只有你确认过的） */
     suspend fun merchantMemory(): List<Pair<String, String>> {

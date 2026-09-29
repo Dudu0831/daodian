@@ -33,12 +33,13 @@ import com.abc.daodian.shared.ui.GroupLabel
 import com.abc.daodian.shared.ui.GroupRule
 import com.abc.daodian.shared.ui.Marker
 import com.abc.daodian.shared.ui.PaperGroup
+import com.abc.daodian.shared.ui.PaperSwitch
 import com.abc.daodian.shared.ui.SettingRow
 import com.abc.daodian.shared.ui.activityViewModel
 import java.time.LocalTime
 
 /**
- * 设置页里记账那一组：通知使用权、抓到的通知（进抓取页）、整理间隔、每晚对账、现在整理一次。
+ * 设置页里记账那一组：通知使用权、抓到的通知（进抓取页）、整理间隔、每晚对账、整理员自己打标签、现在整理一次。
  * 不算进体检结论 —— 它挂了不影响提醒响。流程见 DESIGN.md §10
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -53,6 +54,7 @@ fun LedgerSettingsSection(onOpenCapture: () -> Unit) {
     val lastRun by vm.lastRun.collectAsState()
     val pendingRaws by vm.pendingRaws.collectAsState()
     val organizing by vm.organizing.collectAsState()
+    val organizerTags by vm.organizerTags.collectAsState()
     val listener by PaySources.listener.collectAsState()
     var pickingCheckTime by remember { mutableStateOf(false) }
     var pickingHours by remember { mutableStateOf(false) }
@@ -104,6 +106,15 @@ fun LedgerSettingsSection(onOpenCapture: () -> Unit) {
             onClick = { pickingCheckTime = true }
         ) {
             Text(checkTime.toString().take(5), style = DaodianType.settingValue, color = colors.ink)
+        }
+        GroupRule()
+        SettingRow(
+            title = "整理员自己打标签",
+            note = if (organizerTags) "照你打过的学：只用你打过的标签，有把握才打，不新建"
+            else "关着 · 标签只由你打：对账时点、账单页上点、对话里说",
+            onClick = { vm.setOrganizerTags(!organizerTags) }
+        ) {
+            PaperSwitch(checked = organizerTags, onCheckedChange = { vm.setOrganizerTags(it) })
         }
         GroupRule()
         SettingRow(

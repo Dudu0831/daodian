@@ -5,6 +5,7 @@ import com.abc.daodian.agent.engine.Item
 import com.abc.daodian.agent.engine.StopReason
 import com.abc.daodian.agent.engine.Turn
 import com.abc.daodian.agent.engine.ask.AskAnswer
+import com.abc.daodian.agent.engine.ask.AskNote
 import com.abc.daodian.agent.engine.ask.AskRequest
 import com.abc.daodian.agent.engine.ask.AskUserTool
 import com.abc.daodian.agent.engine.ask.Pick
@@ -130,7 +131,9 @@ sealed interface TurnBlock {
         /** 正在用输入框填「其他…」的那一题 */
         val editing: Int? = null,
         /** 「答」那枚印落下的时刻。只在刚答时盖一次 */
-        val answeredAt: Long = 0
+        val answeredAt: Long = 0,
+        /** 各题上顺手办了的事（挂上的标签），收起后接在答案后面 */
+        val notes: List<AskNote?> = emptyList()
     ) : TurnBlock {
         override val key: String get() = callId
     }
@@ -192,8 +195,8 @@ fun ChatMessage.AssistantTurn.answered(callId: String, answer: AskAnswer): ChatM
     val now = System.currentTimeMillis()
     val next = withAsk(callId) {
         when (answer) {
-            is AskAnswer.Picked -> it.copy(state = AskState.ANSWERED, picks = answer.picks, editing = null, answeredAt = now)
-            is AskAnswer.Said -> it.copy(state = AskState.SAID, editing = null, answeredAt = now)
+            is AskAnswer.Picked -> it.copy(state = AskState.ANSWERED, picks = answer.picks, editing = null, answeredAt = now, notes = answer.notes)
+            is AskAnswer.Said -> it.copy(state = AskState.SAID, editing = null, answeredAt = now, notes = answer.notes)
             AskAnswer.Unanswered -> it.copy(state = AskState.UNANSWERED, editing = null)
         }
     }
@@ -319,9 +322,11 @@ fun restoredMessages(turns: List<Turn>, traced: Set<String>, newId: () -> Long):
                             null -> if (r == null || request != null && AskUserTool.problemOf(request) == null) {
                                 blocks += TurnBlock.Ask(item.callId, 0, item.arguments, request, AskState.UNANSWERED)
                             }
-                            is AskAnswer.Picked -> blocks += TurnBlock.Ask(item.callId, 0, item.arguments, request, AskState.ANSWERED, answer.picks)
+                            is AskAnswer.Picked -> blocks += TurnBlock.Ask(
+                                item.callId, 0, item.arguments, request, AskState.ANSWERED, answer.picks, notes = answer.notes
+                            )
                             is AskAnswer.Said -> {
-                                blocks += TurnBlock.Ask(item.callId, 0, item.arguments, request, AskState.SAID)
+                                blocks += TurnBlock.Ask(item.callId, 0, item.arguments, request, AskState.SAID, notes = answer.notes)
                                 blocks += TurnBlock.Said("said-${item.callId}", 0, answer.text, 0)
                             }
                             AskAnswer.Unanswered -> blocks += TurnBlock.Ask(item.callId, 0, item.arguments, request, AskState.UNANSWERED)

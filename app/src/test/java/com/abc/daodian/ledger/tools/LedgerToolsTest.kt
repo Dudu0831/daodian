@@ -1,6 +1,8 @@
 package com.abc.daodian.ledger.tools
 
 import com.abc.daodian.agent.engine.tool.ToolContext
+import com.abc.daodian.agent.feature.ToolTrace
+import com.abc.daodian.agent.feature.TraceState
 import com.abc.daodian.ledger.domain.Actor
 import com.abc.daodian.ledger.domain.CategoryKind
 import com.abc.daodian.ledger.domain.CategoryNode
@@ -135,13 +137,35 @@ class LedgerToolsTest {
     }
 
     @Test
-    fun `a tag named like a category is sent back to the model`() {
-        val backend = FakeLedger(raws, categories)
-        val json = """{"expenses":[${expense("1", "197.00", "日用/理发").replace("\"tags\":[]", "\"tags\":[\"理发\"]")}],"ignore":[],"unreadable":[]}"""
-        val out = record(backend, json)
-        assertFalse(out.output, out.ok)
-        assertTrue(out.output, out.output.contains("日用/理发"))
-        assertTrue(backend.txns.isEmpty())
+    fun `organizer tags only when the setting is on, and only with tags he already has`() {
+        val json = """{"expenses":[${expense("1", "197.00", "日用/理发").replace("\"tags\":[]", "\"tags\":[\"约会\",\"理发\",\"新的\"]")}],"ignore":[],"unreadable":[]}"""
+        fun hasTagsParam(tool: RecordExpensesTool): Boolean {
+            val expenses = (tool.parameters["properties"] as Map<*, *>)["expenses"] as Map<*, *>
+            return ((expenses["items"] as Map<*, *>)["properties"] as Map<*, *>).containsKey("tags")
+        }
+
+        // 关着（默认）：参数里没有 tags，给了也不挂
+        val off = FakeLedger(raws, categories, tags = listOf("约会"))
+        val offTool = RecordExpensesTool(off, { "test@v" }, { zone })
+        assertFalse(hasTagsParam(offTool))
+        assertTrue(runBlocking { offTool.execute(json, ctx) }.ok)
+        assertEquals(emptyList<String>(), off.txns.values.single().tags)
+
+        // 开着：只挂已有的；新名字（撞不撞类别都一样）不挂，也不连累这一笔
+        val on = FakeLedger(raws, categories, tags = listOf("约会"))
+        val onTool = RecordExpensesTool(on, { "test@v" }, { zone }, tagging = true)
+        assertTrue(hasTagsParam(onTool))
+        assertTrue(runBlocking { onTool.execute(json, ctx) }.ok)
+        assertEquals(listOf("约会"), on.txns.values.single().tags)
+    }
+
+    @Test
+    fun `organizer prompt only teaches tagging when the setting is on`() {
+        assertTrue(LedgerPrompt.ORGANIZE.contains("标签不归你打"))
+        assertFalse(LedgerPrompt.ORGANIZE.contains("用户打过的标签"))
+        assertTrue(LedgerPrompt.ORGANIZE_TAGGING.contains("只用「用户打过的标签」里已有的"))
+        assertFalse(LedgerPrompt.ORGANIZE_TAGGING.contains("标签不归你打"))
+        assertEquals("${LedgerPrompt.VERSION}+tags", LedgerPrompt.version(true))
     }
 
     // ---------------- record_expenses ----------------
@@ -263,6 +287,38 @@ class LedgerToolsTest {
     }
 
     @Test
+    fun `tags go on and come off in chat, and the trace says which`() {
+        val backend = FakeLedger(raws, categories, tags = listOf("约会"))
+        record(
+            backend,
+            """{"expenses":[${expense("1", "197.00", "日用/理发")},${expense("2,3", "319.40", "日用/超市日用")}],"ignore":[],"unreadable":[]}"""
+        )
+        val (a, b) = backend.txns.keys.toList()
+        val tool = UpdateExpensesTool(backend) { zone }
+        fun change(id: Long, add: String = "[]", remove: String = "[]") =
+            """{"txn_id":$id,"category":null,"split":null,"summary":null,"note":null,"add_tags":$add,"remove_tags":$remove,
+            "merchant":null,"remember_merchant":false,"confirm":false,"void_reason":null,"refund_of":null}"""
+        fun run(vararg changes: String) = runBlocking { tool.execute("""{"changes":[${changes.joinToString(",")}]}""", ctx) }
+
+        // 一次打两笔：只动标签的不写类别，痕上合成一句
+        val both = run(change(a, add = """["约会"]"""), change(b, add = """["约会"]"""))
+        assertTrue(both.output, both.ok)
+        assertEquals(listOf("约会"), backend.txns.getValue(a).tags)
+        assertTrue(both.output, both.output.lineSequence().first().contains("一笔 197.00 · 标签 +约会；"))
+        val trace = LedgerTrace.of(ToolTrace(UpdateExpensesTool.NAME, "", TraceState.OK, both.output, both.ref))!!
+        assertEquals("改了 2 笔 · 标签 +约会", trace.text)
+
+        // 取下；没挂着的取不了，撞了类别的打不上
+        assertTrue(run(change(a, remove = """["约会"]""")).ok)
+        assertEquals(emptyList<String>(), backend.txns.getValue(a).tags)
+        val notThere = run(change(a, remove = """["请客"]"""))
+        assertFalse(notThere.output, notThere.ok)
+        val clash = run(change(a, add = """["理发"]"""))
+        assertFalse(clash.output, clash.ok)
+        assertTrue(clash.output, clash.output.contains("日用/理发"))
+    }
+
+    @Test
     fun `chat expense is confirmed and needs no raw`() {
         val backend = FakeLedger(raws, categories)
         val out = runBlocking {
@@ -334,7 +390,8 @@ private class FakeLedger(
             txns[c.txnId] = t.copy(
                 state = if (c.voidReason != null) TxnState.VOID else if (c.confirm) TxnState.CONFIRMED else t.state,
                 category = c.categoryId?.let(::path) ?: t.category,
-                refundOf = c.refundOf ?: t.refundOf
+                refundOf = c.refundOf ?: t.refundOf,
+                tags = (t.tags + c.addTags).distinct() - c.removeTags.toSet()
             )
         }
     }

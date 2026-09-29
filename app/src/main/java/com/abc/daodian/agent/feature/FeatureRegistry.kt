@@ -1,6 +1,7 @@
 package com.abc.daodian.agent.feature
 
 import android.content.Context
+import com.abc.daodian.agent.engine.ask.AskNote
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -40,6 +41,18 @@ object FeatureRegistry {
                 null
             }
             text?.takeIf { it.isNotBlank() }
+        }
+
+    /** 问卡上一题顺手办了的事，第一个认得 [ref] 的模块说了算。读库出错就当没有，不耽误交卷 */
+    suspend fun askNote(context: Context, ref: String): AskNote? =
+        features.firstNotNullOfOrNull { f ->
+            try {
+                f.askNote(context, ref)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
         }
 
     /** [key] 形如 `ledger:check`：冒号前是模块 id */

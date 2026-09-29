@@ -42,7 +42,8 @@ object LedgerTrace {
                         call.failed -> head.ifEmpty { "没改成" }
                         !call.ok -> ""
                         lines.size == 1 -> lines.single()
-                        else -> "改了 ${lines.size} 笔"
+                        // 几笔打的是同一个标签：「改了 4 笔 · 标签 +约会」
+                        else -> "改了 ${lines.size} 笔" + (commonTags(lines) ?: "")
                     },
                     lines = if (call.ok && lines.size > 1) lines else emptyList(),
                     route = call.ref?.takeIf { call.ok && lines.size == 1 }?.let(LedgerRoutes::txn)
@@ -59,5 +60,11 @@ object LedgerTrace {
             )
             else -> null
         }
+    }
+
+    /** 每行都以同一段「 · 标签 …」结尾就是它，否则 null */
+    private fun commonTags(lines: List<String>): String? {
+        val tail = lines.first().substringAfterLast(" · 标签 ", "").takeIf { it.isNotEmpty() } ?: return null
+        return " · 标签 $tail".takeIf { t -> lines.all { it.endsWith(t) } }
     }
 }

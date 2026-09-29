@@ -1,6 +1,7 @@
 package com.abc.daodian.ledger.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -31,6 +32,8 @@ object LedgerSettings {
     private val SNOOZED_UNTIL = longPreferencesKey("snoozed_until")
     /** 对账通知弹出的时刻，0 = 没有等着对的。对完、「今天算了」、下一次对账没什么可问的，都清掉 */
     private val CHECK_OPEN_AT = longPreferencesKey("check_open_at")
+    /** 整理员自己打标签。默认关：标签只由你打 —— 对账时点、账单页上点、对话里说（DESIGN.md §10.4） */
+    private val ORGANIZER_TAGS = booleanPreferencesKey("organizer_tags")
 
     private fun store(context: Context) = context.applicationContext.ledgerDataStore
 
@@ -62,6 +65,14 @@ object LedgerSettings {
 
     suspend fun setSnoozedUntil(context: Context, at: Long) {
         store(context).edit { it[SNOOZED_UNTIL] = at }
+    }
+
+    fun organizerTagsFlow(context: Context): Flow<Boolean> = store(context).data.map { it[ORGANIZER_TAGS] ?: false }
+
+    suspend fun organizerTags(context: Context): Boolean = organizerTagsFlow(context).first()
+
+    suspend fun setOrganizerTags(context: Context, on: Boolean) {
+        store(context).edit { it[ORGANIZER_TAGS] = on }
     }
 
     fun checkOpenAtFlow(context: Context): Flow<Long> = store(context).data.map { it[CHECK_OPEN_AT] ?: 0L }

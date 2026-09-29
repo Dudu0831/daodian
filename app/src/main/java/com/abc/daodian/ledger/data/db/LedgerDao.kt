@@ -7,6 +7,7 @@ import androidx.room.Query
 import androidx.room.RawQuery
 import androidx.room.Update
 import androidx.sqlite.db.SupportSQLiteQuery
+import com.abc.daodian.ledger.domain.TagUse
 import kotlinx.coroutines.flow.Flow
 
 /** 统计查询的一行：某个键（一级类别 / 日期 / 方向）→ 金额（分）和笔数 */
@@ -184,6 +185,37 @@ interface LedgerDao {
     /** 流水 id → 标签名 */
     @Query("SELECT txn_tag.txnId AS txnId, tag.name AS name FROM txn_tag JOIN tag ON tag.id = txn_tag.tagId WHERE txn_tag.txnId IN (:txnIds)")
     suspend fun tagsOf(txnIds: Collection<Long>): List<TxnTagName>
+
+    @Query("DELETE FROM txn_tag WHERE txnId = :txnId AND tagId IN (SELECT id FROM tag WHERE name IN (:names))")
+    suspend fun deleteTxnTags(txnId: Long, names: Collection<String>)
+
+    /** 一笔都不挂了的标签连名字一起删：点错新建的那个，取下就没了 */
+    @Query("DELETE FROM tag WHERE name IN (:names) AND NOT EXISTS (SELECT 1 FROM txn_tag tt WHERE tt.tagId = tag.id)")
+    suspend fun deleteUnusedTags(names: Collection<String>)
+
+    /** 每个标签挂了几笔、[since]（yyyyMMdd）以来几笔、最后一笔哪天。作废的不算 */
+    @Query(
+        "SELECT g.name AS name, COUNT(t.id) AS `count`, " +
+            "SUM(CASE WHEN t.day >= :since THEN 1 ELSE 0 END) AS recent, MAX(t.day) AS lastDay " +
+            "FROM tag g LEFT JOIN txn_tag tt ON tt.tagId = g.id " +
+            "LEFT JOIN txn t ON t.id = tt.txnId AND t.state != 'VOID' GROUP BY g.id"
+    )
+    suspend fun tagUses(since: Int): List<TagUse>
+
+    /** 同一天别的几笔挂着的标签，刚动过的在前 */
+    @Query(
+        "SELECT g.name FROM txn_tag tt JOIN tag g ON g.id = tt.tagId JOIN txn t ON t.id = tt.txnId " +
+            "WHERE t.day = :day AND t.id != :txnId AND t.state != 'VOID' GROUP BY g.id ORDER BY MAX(t.updatedAt) DESC"
+    )
+    suspend fun tagsOnDay(day: Int, txnId: Long): List<String>
+
+    /** 这家商户以前的几笔挂过的标签，挂得多的在前 */
+    @Query(
+        "SELECT g.name FROM txn_tag tt JOIN tag g ON g.id = tt.tagId JOIN txn t ON t.id = tt.txnId " +
+            "WHERE t.merchantId = :merchantId AND t.id != :txnId AND t.state != 'VOID' " +
+            "GROUP BY g.id ORDER BY COUNT(*) DESC, MAX(t.day) DESC"
+    )
+    suspend fun tagsOfMerchant(merchantId: Long, txnId: Long): List<String>
 
     // ---------------- 改动历史 / 运行记录 ----------------
 

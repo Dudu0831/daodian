@@ -21,8 +21,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -44,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import com.abc.daodian.agent.model.provider.PingResult
 import com.abc.daodian.agent.model.provider.ProviderStore
 import com.abc.daodian.agent.conversation.ChatViewModel
+import com.abc.daodian.shared.ui.PaperSwitch
 import com.abc.daodian.shared.ui.ScreenTopBar
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
@@ -155,18 +154,7 @@ fun ProviderScreen(vm: ChatViewModel, onBack: () -> Unit) {
                     )
                 }
                 Spacer(Modifier.width(12.dp))
-                Switch(
-                    checked = thinking,
-                    onCheckedChange = { thinking = it; ping = null },
-                    colors = SwitchDefaults.colors(
-                        checkedTrackColor = colors.solid,
-                        checkedThumbColor = colors.onSolid,
-                        checkedBorderColor = colors.solid,
-                        uncheckedTrackColor = colors.surfaceAlt,
-                        uncheckedThumbColor = colors.rule2,
-                        uncheckedBorderColor = colors.rule2
-                    )
-                )
+                PaperSwitch(checked = thinking, onCheckedChange = { thinking = it; ping = null })
             }
             Spacer(Modifier.height(26.dp))
 

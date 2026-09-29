@@ -122,7 +122,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val callId: String,
         val request: AskRequest,
         val answer: CompletableDeferred<AskAnswer>
-    )
+    ) {
+        /** 已经在交卷了（正问模块顺手办了什么），别再交一次 */
+        var closing = false
+    }
 
     private var pendingAsk: PendingAsk? = null
 
@@ -289,7 +292,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 点了一颗猜测。再点同一颗是取消。只有一题的卡点了就算答：停一下让你看清点的是哪个，再收起 */
     fun pickAsk(callId: String, question: Int, option: Int) {
-        val pending = pendingAsk?.takeIf { it.callId == callId } ?: return
+        val pending = pendingAsk?.takeIf { it.callId == callId && !it.closing } ?: return
         var picked: Pick? = null
         patchTurnWith(pending.turnId) { t ->
             t.withAsk(callId) { a ->
@@ -316,11 +319,19 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 「就这样」/「都先放着」 */
     fun submitAsk(callId: String) {
-        val pending = pendingAsk?.takeIf { it.callId == callId } ?: return
+        val pending = pendingAsk?.takeIf { it.callId == callId && !it.closing } ?: return
         val block = (_messages.value.firstOrNull { it.id == pending.turnId } as? ChatMessage.AssistantTurn)
             ?.blocks?.firstOrNull { it is TurnBlock.Ask && it.callId == callId } as? TurnBlock.Ask ?: return
-        answerAsk(pending, AskAnswer.Picked(block.picks))
+        pending.closing = true
+        viewModelScope.launch {
+            val notes = notesOf(pending.request)
+            if (pendingAsk === pending) answerAsk(pending, AskAnswer.Picked(block.picks, notes))
+        }
     }
+
+    /** 各题上顺手办了的事（挂上的标签），问各题 ref 的主人。交卷时问一次 */
+    private suspend fun notesOf(request: AskRequest) =
+        request.questions.map { q -> q.ref?.let { FeatureRegistry.askNote(getApplication(), it) } }
 
     /** 「其他…」那一题，在输入框里写的答案：落回那一题，卡片还等着你 */
     private fun fillAsk(text: String) {
@@ -337,8 +348,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 没点，直接说了一句：给整张卡的，模型拿原话去对 */
     private fun sayToAsk(text: String) {
-        val pending = pendingAsk ?: return
-        answerAsk(pending, AskAnswer.Said(text))
+        val pending = pendingAsk?.takeIf { !it.closing } ?: return
+        pending.closing = true
+        viewModelScope.launch {
+            val notes = notesOf(pending.request)
+            if (pendingAsk === pending) answerAsk(pending, AskAnswer.Said(text, notes))
+        }
     }
 
     private fun answerAsk(pending: PendingAsk, answer: AskAnswer) {

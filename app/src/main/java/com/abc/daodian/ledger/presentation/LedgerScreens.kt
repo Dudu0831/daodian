@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -59,7 +60,7 @@ import com.abc.daodian.shared.ui.IconTapTarget
  *   ① 总览：日 / 月 / 季 / 年，支出、收入、柱子、按一级类别
  *   ② 一个类别：再细一层（二级），和这一类的每一笔
  *   ③ 一笔：全部字段、原始通知原文（依据）、改动记录
- * 都只看不改 —— 要改在对话里说，每一层都有路回对话。
+ * 都只看不改 —— 要改在对话里说，每一层都有路回对话。标签例外：一笔上可以直接挂、取下（TagPicker.kt）。
  */
 
 internal val Gutter = 26.dp
@@ -461,7 +462,8 @@ fun LedgerTxnScreen(
     val detail by flow.collectAsState(initial = null)
     val d = detail
 
-    Column(Modifier.fillMaxSize().background(colors.paper)) {
+    // 打标签的输入框弹键盘时，整页往上让出来（底下那颗按钮也跟上去）
+    Column(Modifier.fillMaxSize().background(colors.paper).imePadding()) {
         LedgerTopBar("", onBack)
         if (d == null) return@Column
         val t = d.txn
@@ -494,14 +496,19 @@ fun LedgerTxnScreen(
                     (t.merchant ?: t.merchantRaw)?.let { "商户" to it },
                     listOfNotNull(t.account, t.channel?.let { "走$it" }).joinToString(" · ").ifEmpty { null }?.let { "付款" to it },
                     "谁归的" to whoOf(t),
-                    t.tags.takeIf { it.isNotEmpty() }?.let { "标签" to it.joinToString("、") },
+                    // 标签那行自己画（能在这里挂、取下）；作废的没挂标签就不列
+                    ("标签" to "").takeIf { t.state != TxnState.VOID || t.tags.isNotEmpty() },
                     t.note?.let { "备注" to it },
                     t.refundOf?.let { "退的是" to "#$it" }
                 )
                 rows.forEachIndexed { i, (k, v) ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 11.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Text(k, style = DaodianType.bodySmall, color = colors.muted, modifier = Modifier.width(52.dp))
-                        Text(v, style = DaodianType.bodySmall, color = colors.ink, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+                    if (k == "标签") {
+                        TxnTagRow(vm, t.id, editable = t.state != TxnState.VOID)
+                    } else {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 11.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Text(k, style = DaodianType.bodySmall, color = colors.muted, modifier = Modifier.width(52.dp))
+                            Text(v, style = DaodianType.bodySmall, color = colors.ink, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+                        }
                     }
                     if (i < rows.lastIndex) HorizontalDivider(color = colors.ruleSoft)
                 }

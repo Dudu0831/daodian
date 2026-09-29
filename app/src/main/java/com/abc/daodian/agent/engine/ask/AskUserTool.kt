@@ -8,6 +8,7 @@ import com.abc.daodian.agent.engine.tool.ToolOutcome
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.JsonNodeFactory
+import com.fasterxml.jackson.databind.node.ObjectNode
 
 /**
  * 拿不准的时候问用户：先猜好答案，他点一下就行，也可以自己写或者直接说一句。见 DESIGN.md §6.6
@@ -40,6 +41,7 @@ class AskUserTool : Tool {
                         "amount" to nullable("问的是一笔钱就写金额「¥36.50」，否则 null"),
                         "question" to nullable("问句：「什么时候提醒？」。问账、有金额的可以 null"),
                         "hint" to nullable("第一个猜测的依据，一行：「前两天 11 点多也各有一笔三十来块，你都说是午饭」。没有像样的依据就 null"),
+                        "ref" to nullable("问的是哪一条记录就写它的编号（一笔账写「#12」），问卡上会多出对它能顺手办的事。不是就 null"),
                         "options" to mapOf(
                             "type" to "array",
                             "description" to "1–$MAX_OPTIONS 个猜测，最可能的放第一个；真猜不出（比如金额都不知道）才给空数组，他会自己写。不要放「其他」「不知道」「跳过」—— 界面自带",
@@ -54,7 +56,7 @@ class AskUserTool : Tool {
                             )
                         )
                     ),
-                    "required" to listOf("context", "amount", "question", "hint", "options"),
+                    "required" to listOf("context", "amount", "question", "hint", "ref", "options"),
                     "additionalProperties" to false
                 )
             )
@@ -145,6 +147,7 @@ class AskUserTool : Tool {
             val human = when (answer) {
                 is AskAnswer.Picked -> {
                     val arr = node.putArray("picks")
+                    putNotes(node, answer.notes)
                     buildString {
                         append("用户答了：")
                         answer.picks.forEachIndexed { i, pick ->
@@ -160,12 +163,17 @@ class AskUserTool : Tool {
                                 }
                                 is Pick.Typed -> { arr.addObject().put("typed", pick.text); append("自己写了「").append(pick.text).append("」") }
                             }
+                            answer.notes.getOrNull(i)?.let { append("；").append(it.told) }
                         }
                     }
                 }
                 is AskAnswer.Said -> {
                     node.put("said", answer.text)
-                    "用户没点选项，直接说：「${answer.text}」\n按这句话去对应各题；对不上的当没答。"
+                    putNotes(node, answer.notes)
+                    "用户没点选项，直接说：「${answer.text}」\n按这句话去对应各题；对不上的当没答。" +
+                        answer.notes.mapIndexedNotNull { i, n ->
+                            n?.let { "\n另外第 ${i + 1} 题（${request?.questions?.getOrNull(i)?.let(::nameOf) ?: "?"}）：${it.told}" }
+                        }.joinToString("")
                 }
                 AskAnswer.Unanswered -> {
                     node.put("unanswered", true)
@@ -179,6 +187,9 @@ class AskUserTool : Tool {
         fun answerOf(output: String): AskAnswer? = runCatching {
             val line = output.lineSequence().lastOrNull { it.startsWith(ANSWER_MARK) } ?: return null
             val o = mapper.readTree(line.removePrefix(ANSWER_MARK))
+            val notes = o.path("notes").map { n ->
+                if (n.isObject) AskNote(n.path("short").asText(), n.path("told").asText()) else null
+            }
             when {
                 o.has("picks") -> AskAnswer.Picked(o.path("picks").map { p ->
                     when {
@@ -186,11 +197,18 @@ class AskUserTool : Tool {
                         p.has("typed") -> Pick.Typed(p.path("typed").asText())
                         else -> null
                     }
-                })
-                o.has("said") -> AskAnswer.Said(o.path("said").asText())
+                }, notes)
+                o.has("said") -> AskAnswer.Said(o.path("said").asText(), notes)
                 else -> AskAnswer.Unanswered
             }
         }.getOrNull()
+
+        /** 逐题的顺手事写进机读那行；一件都没有就不写，老记录读回来也一样 */
+        private fun putNotes(node: ObjectNode, notes: List<AskNote?>) {
+            if (notes.none { it != null }) return
+            val arr = node.putArray("notes")
+            notes.forEach { n -> if (n == null) arr.addNull() else arr.addObject().put("short", n.short).put("told", n.told) }
+        }
 
         /** 一题在人话结果里的叫法：「¥36.50（9月22日 11:02 · 建行）」「什么时候提醒？」 */
         private fun nameOf(q: AskQuestion): String = when {
@@ -204,7 +222,7 @@ class AskUserTool : Tool {
             val options = n.path("options").mapNotNull { o ->
                 o.text("label")?.let { AskOption(it, o.text("detail")) }
             }
-            return AskQuestion(n.text("context"), n.text("amount"), n.text("question"), n.text("hint"), options)
+            return AskQuestion(n.text("context"), n.text("amount"), n.text("question"), n.text("hint"), options, n.text("ref"))
         }
 
         private fun JsonNode.text(field: String): String? =

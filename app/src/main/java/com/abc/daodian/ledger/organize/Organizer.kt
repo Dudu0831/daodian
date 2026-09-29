@@ -14,11 +14,13 @@ import com.abc.daodian.agent.model.ResponsesClient
 import com.abc.daodian.agent.model.provider.ApiHealth
 import com.abc.daodian.agent.model.provider.ProviderStore
 import com.abc.daodian.ledger.capture.PaySources
+import com.abc.daodian.ledger.data.LedgerSettings
 import com.abc.daodian.ledger.data.LedgerStore
 import com.abc.daodian.ledger.data.db.AgentRun
 import com.abc.daodian.ledger.data.db.RawNotification
 import com.abc.daodian.ledger.domain.ExpenseQuery
 import com.abc.daodian.ledger.domain.LedgerDays
+import com.abc.daodian.ledger.domain.LedgerTags
 import com.abc.daodian.ledger.domain.LedgerText
 import com.abc.daodian.ledger.tools.LedgerPrompt
 import com.abc.daodian.ledger.tools.LedgerTools
@@ -63,6 +65,10 @@ object Organizer {
     /** 最多带几笔。按时间从新到旧取，超了砍掉的是最早那几天 —— 给够一周的量 */
     private const val RECENT_LIMIT = 200
 
+    /** 开着打标签时，给它看多少个标签、每个几笔例子 */
+    private const val TAG_LIMIT = 30
+    private const val TAG_EXAMPLES = 3
+
     sealed interface Result {
         /** 没有待整理的，没叫模型 */
         data object Idle : Result
@@ -96,9 +102,12 @@ object Organizer {
         val profile = ProviderStore.flow(context).first()
         if (!profile.isConfigured) return Result.Skipped("还没配置模型")
 
-        val parsedBy = "${profile.model}@${LedgerPrompt.VERSION}"
-        val tools = ToolRegistry(LedgerTools.forOrganizer(store, { parsedBy }))
-        val loop = AgentLoop(ResponsesClient(profile), tools, LedgerPrompt.ORGANIZE, context = LastTurns(1), maxSteps = 5)
+        // 设置里「整理员自己打标签」：关着（默认）连 tags 参数都不给它（DESIGN.md §10.4）
+        val tagging = LedgerSettings.organizerTags(context)
+        val parsedBy = "${profile.model}@${LedgerPrompt.version(tagging)}"
+        val tools = ToolRegistry(LedgerTools.forOrganizer(store, { parsedBy }, tagging))
+        val system = if (tagging) LedgerPrompt.ORGANIZE_TAGGING else LedgerPrompt.ORGANIZE
+        val loop = AgentLoop(ResponsesClient(profile), tools, system, context = LastTurns(1), maxSteps = 5)
 
         var run = AgentRun(kind = "organize", reason = reason, startedAt = System.currentTimeMillis(), model = profile.model)
         run = run.copy(id = dao.insertRun(run))
@@ -112,7 +121,7 @@ object Organizer {
                 if (batch.isEmpty() || batch.map { it.id }.toSet() == seen) break
                 seen = batch.map { it.id }.toSet()
 
-                val input = inputOf(store, batch, memories)
+                val input = inputOf(store, batch, memories, tagging)
                 trace(context, "$reason 第 ${i + 1} 批 · ${input.counts} · 约 ${input.text.length} 字")
                 var failure: String? = null
                 loop.run(Session(), input.text, ZonedDateTime.now()).collect { e ->
@@ -143,12 +152,16 @@ object Organizer {
     private class Input(val text: String, val counts: String)
 
     /** 这一轮喂给整理 agent 的全部背景。会变的都在这里，system 提示词保持不动 */
-    private suspend fun inputOf(store: LedgerStore, batch: List<RawNotification>, memories: List<Memory>): Input {
+    private suspend fun inputOf(store: LedgerStore, batch: List<RawNotification>, memories: List<Memory>, tagging: Boolean): Input {
         val zone = ZoneId.systemDefault()
         val today = LocalDate.now(zone)
         val recent = store.query(ExpenseQuery(fromDay = LedgerDays.dayInt(today.minusDays(RECENT_DAYS)), limit = RECENT_LIMIT)).reversed()
         val merchants = store.merchantMemory()
         val categories = store.categories()
+        // 开着打标签才给：每个标签带最近几笔，它照着学
+        val tags = if (!tagging) emptyList() else LedgerTags.byUse(store.tagUses()).take(TAG_LIMIT).map { name ->
+            name to store.query(ExpenseQuery(tag = name, limit = TAG_EXAMPLES))
+        }.filter { it.second.isNotEmpty() }
         val text = buildString {
             append("这一批原始通知（${batch.size} 条）：\n")
             batch.forEach { append(LedgerText.raw(store.noteOf(it), zone)).append('\n') }
@@ -157,13 +170,20 @@ object Organizer {
             append(if (merchants.isEmpty()) "还没有" else merchants.joinToString("；") { (m, c) -> "$m → $c" })
             append("\n\n关于用户记下的事（他说过的，认账时参考）：")
             if (memories.isEmpty()) append("还没有") else memories.forEach { append("\n- ").append(it.text) }
+            if (tagging) {
+                append("\n\n用户打过的标签（只用这些，照这几笔学）：")
+                if (tags.isEmpty()) append("还没有，这次一个都不打")
+                tags.forEach { (name, txns) ->
+                    append("\n- ").append(name).append("：").append(txns.joinToString("；") { LedgerText.tagExample(it, zone) })
+                }
+            }
             append("\n\n最近几天已有的流水：")
             if (recent.isEmpty()) append("没有") else recent.forEach { append('\n').append(LedgerText.txn(it, zone)) }
         }
         return Input(
             text,
             "通知 ${batch.size} 条 · 类别 ${categories.size} 个 · 商户记忆 ${merchants.size} 条 · " +
-                "记忆 ${memories.size} 条 · 最近流水 ${recent.size} 笔"
+                "记忆 ${memories.size} 条 · " + (if (tagging) "标签 ${tags.size} 个 · " else "") + "最近流水 ${recent.size} 笔"
         )
     }
 
