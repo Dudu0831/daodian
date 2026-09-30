@@ -34,7 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import com.abc.daodian.ledger.capture.AppCatalog
+import com.abc.daodian.shared.apps.AppCatalog
 import com.abc.daodian.ledger.capture.PaySources
 import com.abc.daodian.ledger.data.db.RawState
 import com.abc.daodian.shared.format.Format

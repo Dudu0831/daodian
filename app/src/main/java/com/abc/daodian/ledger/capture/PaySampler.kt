@@ -12,6 +12,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.content.ContextCompat
 import com.abc.daodian.ledger.data.LedgerStore
+import com.abc.daodian.shared.notify.NoticeHub
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -33,6 +34,9 @@ import org.json.JSONObject
  *    抓取页上还能手动扫（[PaySources.sweepNow]）；同一条通知同一段正文靠指纹只存一次
  *
  * 连上 / 断开报给 [PaySources]（抓取页看连没连着、手动扫要找到这个实例）。
+ *
+ * 它也是全 app 唯一的通知监听：收到的每一条（不管勾没勾）都先经 [NoticeHub] 分给别的模块（派活），
+ * 再按记账自己勾的那些存。
  */
 class PaySampler : NotificationListenerService() {
 
@@ -53,6 +57,7 @@ class PaySampler : NotificationListenerService() {
     override fun onListenerConnected() {
         connected = true
         PaySources.attach(this)
+        NoticeHub.attach(this) { collect("manual") }
         // 自家广播关着门收，系统的 USER_PRESENT 得开着门才进得来。注册失败绝不能抛出去把进程带崩
         runCatching {
             ContextCompat.registerReceiver(this, onSweep, IntentFilter(PaySources.ACTION_SWEEP), ContextCompat.RECEIVER_NOT_EXPORTED)
@@ -66,6 +71,7 @@ class PaySampler : NotificationListenerService() {
     override fun onListenerDisconnected() {
         connected = false
         PaySources.detach(this)
+        NoticeHub.detach(this)
         handler.removeCallbacksAndMessages(null)
         runCatching { unregisterReceiver(onSweep) }
         runCatching { unregisterReceiver(onUnlock) }
@@ -76,9 +82,10 @@ class PaySampler : NotificationListenerService() {
         super.onDestroy()
     }
 
-    /** 所有 app 的通知都会来这里，只存你勾上的那些（[PaySources.listened]） */
+    /** 所有 app 的通知都会来这里：先分给别的模块，记账只存你勾上的那些（[PaySources.listened]） */
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         scope.launch {
+            NoticeHub.post(this@PaySampler, noticeOf(sbn, "posted"))
             if (sbn.packageName !in PaySources.listened(this@PaySampler)) return@launch
             store(sbn, "posted")
             val text = sbn.notification.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
@@ -98,12 +105,24 @@ class PaySampler : NotificationListenerService() {
      */
     internal suspend fun collect(how: String): Int? {
         if (!connected) return null
+        val active = runCatching { activeNotifications }.getOrNull() ?: return null
+        active.forEach { NoticeHub.post(this, noticeOf(it, how)) }
         val listened = PaySources.listened(this)
-        val mine = runCatching { activeNotifications }.getOrNull()
-            ?.filter { it.packageName in listened }
-            ?: return null
+        val mine = active.filter { it.packageName in listened }
         mine.forEach { store(it, how) }
         return mine.size
+    }
+
+    private fun noticeOf(sbn: StatusBarNotification, how: String): NoticeHub.Notice {
+        val extras = sbn.notification.extras
+        return NoticeHub.Notice(
+            pkg = sbn.packageName,
+            key = sbn.key,
+            at = sbn.notification.`when`.takeIf { it > 0 } ?: sbn.postTime,
+            title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
+            text = extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString(),
+            how = how
+        )
     }
 
     /** 存一条。新存进去了返回 true，指纹重复（早就存过）返回 false */

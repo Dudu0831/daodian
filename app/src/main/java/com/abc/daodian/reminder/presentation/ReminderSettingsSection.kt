@@ -47,6 +47,17 @@ fun ReminderSettingsSection(open: (String) -> Unit) {
         }
     }
 
+    GroupLabel("别人派的事 · 试验")
+    PaperGroup {
+        val relay by vm.relay.collectAsState()
+        SettingRow(
+            title = "听谁派活",
+            note = if (relay.who.isBlank()) "她在微信里给你发一句，这里接住、建成提醒。还没设听谁"
+            else "听「${relay.who}」· " + (if (relay.code.isBlank()) "她说的每句都交给模型判断" else "只接「${relay.code}」开头的"),
+            onClick = { open(ReminderRoutes.RELAY) }
+        ) { ChevronRightIcon(size = 13.dp, tint = colors.muted) }
+    }
+
     GroupLabel("记录")
     PaperGroup {
         SettingRow(

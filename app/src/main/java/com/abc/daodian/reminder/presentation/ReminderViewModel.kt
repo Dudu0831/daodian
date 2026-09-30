@@ -7,6 +7,7 @@ import com.abc.daodian.agent.conversation.data.ChatStore
 import com.abc.daodian.reminder.application.Reminders
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase
+import com.abc.daodian.reminder.relay.RelaySettings
 import com.abc.daodian.reminder.scheduling.DayTasks
 import com.abc.daodian.reminder.scheduling.Rescheduler
 import com.abc.daodian.reminder.tools.CreateReminderTool
@@ -38,6 +39,10 @@ class ReminderViewModel(app: Application) : AndroidViewModel(app) {
     /** 当天事项晚上几点提醒。设置页改它 */
     val dayCheckTime = DayTasks.checkTimeFlow(app)
         .stateIn(viewModelScope, SharingStarted.Eagerly, DayTasks.DEFAULT_CHECK)
+
+    /** 派活听谁（试验版）。设置页那一行写它 */
+    val relay = RelaySettings.flow(app)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RelaySettings.Values(emptySet(), "", ""))
 
     fun setDayCheckTime(time: LocalTime) = viewModelScope.launch { Reminders.setDayCheckTime(getApplication(), time) }
 

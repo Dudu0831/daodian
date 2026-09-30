@@ -9,6 +9,9 @@ object ReminderRoutes {
     const val EDIT = "reminder/edit?id={id}"
     const val LOG = "reminder/log"
 
+    /** 派活（试验版）：听谁、暗号、她发来的 */
+    const val RELAY = "reminder/relay"
+
     /** 编辑某一条；null = 新建一条（手动填，不经过模型） */
     fun edit(id: Long?) = "reminder/edit?id=${id ?: -1L}"
 

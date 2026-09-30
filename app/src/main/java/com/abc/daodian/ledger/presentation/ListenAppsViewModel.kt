@@ -6,7 +6,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.abc.daodian.ledger.capture.AppCatalog
+import com.abc.daodian.shared.apps.AppCatalog
 import com.abc.daodian.ledger.capture.PaySources
 import com.abc.daodian.ledger.data.LedgerSettings
 import java.text.Collator

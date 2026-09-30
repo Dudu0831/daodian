@@ -20,7 +20,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * 听哪些 app 的通知，以及跟「通知使用权」、监听连没连着打交道的几件事。
  *
  * 听哪些 app 全由你在「听哪些 app」那一页勾（存在 [LedgerSettings]），没有内置的，默认一个都不听。
- * 名字、图标从系统取（[AppCatalog]）。见 DESIGN.md §10.2。
+ * 名字、图标从系统取（[com.abc.daodian.shared.apps.AppCatalog]）。见 DESIGN.md §10.2。
  */
 object PaySources {
 

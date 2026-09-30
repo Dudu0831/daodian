@@ -3,6 +3,7 @@ package com.abc.daodian.reminder
 import android.content.Context
 import android.util.Log
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
@@ -24,11 +25,15 @@ import com.abc.daodian.reminder.presentation.ReminderViewModel
 import com.abc.daodian.reminder.presentation.edit.EditReminderScreen
 import com.abc.daodian.reminder.presentation.list.ReminderListScreen
 import com.abc.daodian.reminder.presentation.log.FireLogScreen
+import com.abc.daodian.reminder.presentation.relay.RelayScreen
+import com.abc.daodian.reminder.presentation.relay.RelayViewModel
+import com.abc.daodian.reminder.relay.Relay
 import com.abc.daodian.reminder.scheduling.Rescheduler
 import com.abc.daodian.reminder.scheduling.SweepWorker
 import com.abc.daodian.reminder.tools.CreateReminderTool
 import com.abc.daodian.reminder.tools.ReminderPrompt
 import com.abc.daodian.reminder.tools.ReminderTrace
+import com.abc.daodian.shared.notify.NoticeHub
 import com.abc.daodian.shared.ui.activityViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -70,6 +75,8 @@ object ReminderFeature : Feature, FeatureUi {
         val app = context.applicationContext
         Notifier.ensureChannel(app)
         SweepWorker.enqueue(app)
+        // 派活（试验版）：监听收到的通知分一份过来
+        NoticeHub.register(Relay)
         // 冷启动也当作一次重排触发源 —— 被强杀后用户点开 app 就是最好的自愈时机
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             runCatching { Rescheduler(app).rescheduleAll() }
@@ -97,6 +104,9 @@ object ReminderFeature : Feature, FeatureUi {
         }
         composable(ReminderRoutes.LOG) {
             FireLogScreen(vm = activityViewModel<ReminderViewModel>(), onBack = nav::back)
+        }
+        composable(ReminderRoutes.RELAY) {
+            RelayScreen(vm = viewModel<RelayViewModel>(), onBack = nav::back, onOpen = nav::open)
         }
     }
 

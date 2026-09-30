@@ -1,4 +1,4 @@
-package com.abc.daodian.ledger.capture
+package com.abc.daodian.shared.apps
 
 import android.content.Context
 import android.content.Intent
@@ -10,7 +10,7 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * 手机上装了哪些 app：「听哪些 app」那一页列出来给你勾，抓到的通知是哪家也从这里取名字。
+ * 手机上装了哪些 app：记账「听哪些 app」、派活「听哪个 app」两页列出来给你勾，抓到的通知是哪家也从这里取名字。
  *
  * 只列桌面上有图标的（manifest 里 `<queries>` 声明了 MAIN / LAUNCHER，不用 QUERY_ALL_PACKAGES）：
  * 银行、支付、短信都有图标；没图标的多是系统组件，不会发付款通知。见 DESIGN.md §10.2

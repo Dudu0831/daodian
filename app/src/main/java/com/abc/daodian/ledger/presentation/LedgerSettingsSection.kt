@@ -23,7 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import com.abc.daodian.ledger.capture.AppCatalog
+import com.abc.daodian.shared.apps.AppCatalog
 import com.abc.daodian.ledger.capture.PaySources
 import com.abc.daodian.ledger.data.LedgerSettings
 import com.abc.daodian.ledger.data.db.AgentRun

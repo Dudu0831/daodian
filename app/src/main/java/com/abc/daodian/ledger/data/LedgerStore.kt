@@ -3,7 +3,7 @@ package com.abc.daodian.ledger.data
 import android.content.Context
 import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
-import com.abc.daodian.ledger.capture.AppCatalog
+import com.abc.daodian.shared.apps.AppCatalog
 import com.abc.daodian.ledger.capture.PaySources
 import com.abc.daodian.ledger.data.db.Account
 import com.abc.daodian.ledger.data.db.Allocation
