@@ -309,6 +309,10 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     val organizerTags = LedgerSettings.organizerTagsFlow(app)
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    /** 听哪些 app（包名）。null = 还没读出来，别先画成「一个都没勾」 */
+    val listened: StateFlow<Set<String>?> = LedgerSettings.listenFlow(app)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     fun setOrganizerTags(on: Boolean) = viewModelScope.launch { LedgerSettings.setOrganizerTags(getApplication(), on) }
 
     fun organizeNow() = OrganizeWorker.runNow(getApplication())

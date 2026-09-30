@@ -27,7 +27,7 @@ sealed interface CaptureAction {
     data object Grabbing : CaptureAction
     data object Reconnecting : CaptureAction
 
-    /** 通知栏里挂着 [seen] 条那几家的，这次新存进来 [saved] 条（连着的实时回调、连上时那一扫也算） */
+    /** 通知栏里挂着 [seen] 条勾上的 app 的，这次新存进来 [saved] 条（连着的实时回调、连上时那一扫也算） */
     data class Grabbed(val at: Long, val seen: Int, val saved: Int, val reconnected: Boolean) : CaptureAction
 
     /** 监听没连上：请了系统也没绑回来 */

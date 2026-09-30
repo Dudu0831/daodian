@@ -21,7 +21,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 支付通知采集器：[PaySources] 里那几家的通知**原样**存进 `raw_notification`，不解析 ——
+ * 支付通知采集器：你勾上的那些 app（[PaySources.listened]）的通知**原样**存进 `raw_notification`，不解析 ——
  * 读懂是整理 agent 的事（DESIGN.md §10.1）。
  *
  * 类名还叫 PaySampler（调研阶段的名字）：「通知使用权」是按组件名授的，改名就得重新去系统设置里开一次。
@@ -76,12 +76,15 @@ class PaySampler : NotificationListenerService() {
         super.onDestroy()
     }
 
+    /** 所有 app 的通知都会来这里，只存你勾上的那些（[PaySources.listened]） */
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        if (sbn.packageName !in PaySources.PACKAGES) return
-        save(sbn, "posted")
-        val text = sbn.notification.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
-        if (text?.contains(PaySources.REDACTED) == true) {
-            for (s in RETRIES) handler.postDelayed({ sweep("retry+${s}s") }, s * 1000L)
+        scope.launch {
+            if (sbn.packageName !in PaySources.listened(this@PaySampler)) return@launch
+            store(sbn, "posted")
+            val text = sbn.notification.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+            if (text?.contains(PaySources.REDACTED) == true) {
+                for (s in RETRIES) handler.postDelayed({ sweep("retry+${s}s") }, s * 1000L)
+            }
         }
     }
 
@@ -90,20 +93,17 @@ class PaySampler : NotificationListenerService() {
     }
 
     /**
-     * 把通知栏里那几家的通知收一遍，存完才返回。返回挂着几条；没连着返回 null ——
+     * 把通知栏里勾上的 app 的通知收一遍，存完才返回。返回挂着几条；没连着返回 null ——
      * 没绑上时 getActiveNotifications() 不报错，给的是空数组，分不出「没连着」和「通知栏里没有」，所以先看连没连着。
      */
     internal suspend fun collect(how: String): Int? {
         if (!connected) return null
+        val listened = PaySources.listened(this)
         val mine = runCatching { activeNotifications }.getOrNull()
-            ?.filter { it.packageName in PaySources.PACKAGES }
+            ?.filter { it.packageName in listened }
             ?: return null
         mine.forEach { store(it, how) }
         return mine.size
-    }
-
-    private fun save(sbn: StatusBarNotification, how: String) {
-        scope.launch { store(sbn, how) }
     }
 
     /** 存一条。新存进去了返回 true，指纹重复（早就存过）返回 false */

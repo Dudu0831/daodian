@@ -11,6 +11,9 @@ object LedgerRoutes {
     /** 抓到的通知：监听状态、手动抓一下、原文。从设置页、记账总览底下进 */
     const val CAPTURE = "ledger/capture"
 
+    /** 听哪些 app：勾哪些 app 的通知要存。从设置页进 */
+    const val APPS = "ledger/apps"
+
     /** [mode] 是 PeriodMode 的名字，[day] 是 yyyyMMdd */
     fun category(top: Long, income: Boolean, mode: String, day: Int) = "ledger/category/$top?income=$income&mode=$mode&day=$day"
 

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
@@ -32,6 +33,7 @@ import com.abc.daodian.ledger.presentation.LedgerOverviewScreen
 import com.abc.daodian.ledger.presentation.LedgerSettingsSection
 import com.abc.daodian.ledger.presentation.LedgerTxnScreen
 import com.abc.daodian.ledger.presentation.LedgerViewModel
+import com.abc.daodian.ledger.presentation.ListenAppsScreen
 import com.abc.daodian.ledger.presentation.Period
 import com.abc.daodian.ledger.presentation.PeriodMode
 import com.abc.daodian.ledger.reconciliation.LedgerCheck
@@ -118,7 +120,7 @@ object LedgerFeature : Feature, FeatureUi {
         }
     }
 
-    // ---------------- 界面：总览 → 类别 → 一笔，只看不改，改账回对话；外加抓取页 ----------------
+    // ---------------- 界面：总览 → 类别 → 一笔，只看不改，改账回对话；外加抓取页、听哪些 app ----------------
 
     override fun NavGraphBuilder.routes(nav: AppNav) {
         composable(LedgerRoutes.HOME) {
@@ -181,13 +183,21 @@ object LedgerFeature : Feature, FeatureUi {
                 onOpenTxn = { nav.open(LedgerRoutes.txn(it)) }
             )
         }
+
+        // 按这一页取 ViewModel（不是按 Activity）：每次进来重新分「在听的 / 其他」两段
+        composable(LedgerRoutes.APPS) {
+            ListenAppsScreen(vm = viewModel(), onBack = nav::back)
+        }
     }
 
     @Composable
     override fun DrawerCard(open: (String) -> Unit) = LedgerDrawerCard(onOpen = { open(LedgerRoutes.HOME) })
 
     @Composable
-    override fun SettingsSection(open: (String) -> Unit) = LedgerSettingsSection(onOpenCapture = { open(LedgerRoutes.CAPTURE) })
+    override fun SettingsSection(open: (String) -> Unit) = LedgerSettingsSection(
+        onOpenCapture = { open(LedgerRoutes.CAPTURE) },
+        onOpenApps = { open(LedgerRoutes.APPS) }
+    )
 
     /** 对账问卡上一笔底下的「＋ 打标签」（设计稿方向 B） */
     @Composable

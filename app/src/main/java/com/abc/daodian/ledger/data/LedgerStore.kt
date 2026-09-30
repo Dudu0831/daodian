@@ -3,6 +3,7 @@ package com.abc.daodian.ledger.data
 import android.content.Context
 import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
+import com.abc.daodian.ledger.capture.AppCatalog
 import com.abc.daodian.ledger.capture.PaySources
 import com.abc.daodian.ledger.data.db.Account
 import com.abc.daodian.ledger.data.db.Allocation
@@ -50,7 +51,11 @@ import java.time.ZoneId
  *
  * 所有写都在一个事务里：工具交来的一批，要么全写进去，要么一点不留。
  */
-class LedgerStore private constructor(private val db: LedgerDatabase) : LedgerBackend {
+class LedgerStore private constructor(
+    private val db: LedgerDatabase,
+    /** 抓到的通知是哪家，名字从系统取（[AppCatalog]） */
+    private val app: Context
+) : LedgerBackend {
 
     val dao: LedgerDao = db.dao()
 
@@ -101,7 +106,7 @@ class LedgerStore private constructor(private val db: LedgerDatabase) : LedgerBa
         if (ids.isEmpty()) emptyList() else dao.raws(ids).map(::noteOf)
 
     fun noteOf(r: RawNotification) = RawNote(
-        id = r.id, source = PaySources.nameOf(r.pkg), postTime = r.postTime,
+        id = r.id, source = AppCatalog.label(app, r.pkg), postTime = r.postTime,
         title = r.title, text = r.text, extra = r.extra, redacted = r.redacted,
         done = r.state != RawState.PENDING,
         unreadable = r.state == RawState.UNREADABLE
@@ -466,7 +471,7 @@ class LedgerStore private constructor(private val db: LedgerDatabase) : LedgerBa
 
         fun get(context: Context): LedgerStore =
             instance ?: synchronized(this) {
-                instance ?: LedgerStore(LedgerDatabase.get(context)).also { instance = it }
+                instance ?: LedgerStore(LedgerDatabase.get(context), context.applicationContext).also { instance = it }
             }
     }
 }

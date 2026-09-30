@@ -114,6 +114,17 @@ fun ChevronRightIcon(modifier: Modifier = Modifier, size: Dp = 14.dp, tint: Colo
     }
 }
 
+/** 搜索框里的放大镜 */
+@Composable
+fun SearchIcon(modifier: Modifier = Modifier, size: Dp = 16.dp, tint: Color, strokeWidth: Dp = 1.3.dp) {
+    Canvas(modifier.size(size)) {
+        val k = this.size.width / 20f
+        val sw = strokeWidth.toPx()
+        drawCircle(tint, radius = 5.6f * k, center = Offset(8.8f * k, 8.8f * k), style = strokeOf(sw))
+        drawLine(tint, Offset(13f * k, 13f * k), Offset(16.6f * k, 16.6f * k), strokeWidth = sw, cap = StrokeCap.Round)
+    }
+}
+
 /** 「已记下」前面那个朱砂对勾 */
 @Composable
 fun CheckIcon(modifier: Modifier = Modifier, size: Dp = 11.dp, tint: Color, strokeWidth: Dp = 1.5.dp) {

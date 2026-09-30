@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.res.Resources
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
+import com.abc.daodian.ledger.data.LedgerSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,28 +17,15 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * 听哪几家的通知，以及跟「通知使用权」、监听连没连着打交道的几件事。
+ * 听哪些 app 的通知，以及跟「通知使用权」、监听连没连着打交道的几件事。
  *
- * 加一家：在 [ALL] 里加一行（包名 + 人话名字）就行 —— 采集、整理、界面都从这里取。
- * 各家通知给得出什么，见 DESIGN.md §10.2。
+ * 听哪些 app 全由你在「听哪些 app」那一页勾（存在 [LedgerSettings]），没有内置的，默认一个都不听。
+ * 名字、图标从系统取（[AppCatalog]）。见 DESIGN.md §10.2。
  */
 object PaySources {
 
-    data class Source(val pkg: String, val name: String)
-
-    val ALL = listOf(
-        Source("com.eg.android.AlipayGphone", "支付宝"),
-        Source("cmb.pb", "招商银行"),
-        Source("com.cmbchina.ccd.pluto.cmbActivity", "掌上生活"),
-        Source("com.chinamworld.main", "建设银行"),
-    )
-
-    val PACKAGES: Set<String> = ALL.mapTo(HashSet()) { it.pkg }
-
-    fun nameOf(pkg: String): String = ALL.firstOrNull { it.pkg == pkg }?.name ?: pkg
-
-    /** 界面上写「支付宝、招行…」时用 */
-    val names: String get() = ALL.joinToString("、") { it.name }
+    /** 你勾上的那些 app 的包名。采集时每来一条都问一次（DataStore 读过一次就在内存里） */
+    suspend fun listened(context: Context): Set<String> = LedgerSettings.listen(context)
 
     /**
      * 系统遮蔽敏感通知时填进正文的那句话。直接问 framework 要（隐藏资源
@@ -108,7 +96,7 @@ object PaySources {
     }
 
     /**
-     * 现在就把通知栏里那几家的通知收一遍，存完才返回。返回通知栏里挂着几条；监听没连着返回 null。
+     * 现在就把通知栏里勾上的 app 的通知收一遍，存完才返回。返回通知栏里挂着几条；监听没连着返回 null。
      * 只收得到还挂在通知栏里的 —— 划掉了的，系统也不留。
      */
     suspend fun sweepNow(how: String): Int? = withContext(Dispatchers.IO) { live?.collect(how) }

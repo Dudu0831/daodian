@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -34,6 +35,8 @@ object LedgerSettings {
     private val CHECK_OPEN_AT = longPreferencesKey("check_open_at")
     /** 整理员自己打标签。默认关：标签只由你打 —— 对账时点、账单页上点、对话里说（DESIGN.md §10.4） */
     private val ORGANIZER_TAGS = booleanPreferencesKey("organizer_tags")
+    /** 听哪些 app 的通知（包名）。默认一个都不听，全由你勾（DESIGN.md §10.2） */
+    private val LISTEN = stringSetPreferencesKey("listen_packages")
 
     private fun store(context: Context) = context.applicationContext.ledgerDataStore
 
@@ -73,6 +76,17 @@ object LedgerSettings {
 
     suspend fun setOrganizerTags(context: Context, on: Boolean) {
         store(context).edit { it[ORGANIZER_TAGS] = on }
+    }
+
+    fun listenFlow(context: Context): Flow<Set<String>> = store(context).data.map { it[LISTEN] ?: emptySet() }
+
+    suspend fun listen(context: Context): Set<String> = listenFlow(context).first()
+
+    suspend fun setListen(context: Context, pkg: String, on: Boolean) {
+        store(context).edit { p ->
+            val now = p[LISTEN] ?: emptySet()
+            p[LISTEN] = if (on) now + pkg else now - pkg
+        }
     }
 
     fun checkOpenAtFlow(context: Context): Flow<Long> = store(context).data.map { it[CHECK_OPEN_AT] ?: 0L }

@@ -4,7 +4,9 @@ import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
@@ -21,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.abc.daodian.ledger.capture.AppCatalog
 import com.abc.daodian.ledger.capture.PaySources
 import com.abc.daodian.ledger.data.LedgerSettings
 import com.abc.daodian.ledger.data.db.AgentRun
@@ -36,15 +39,17 @@ import com.abc.daodian.shared.ui.PaperGroup
 import com.abc.daodian.shared.ui.PaperSwitch
 import com.abc.daodian.shared.ui.SettingRow
 import com.abc.daodian.shared.ui.activityViewModel
+import java.text.Collator
 import java.time.LocalTime
+import java.util.Locale
 
 /**
- * 设置页里记账那一组：通知使用权、抓到的通知（进抓取页）、整理间隔、每晚对账、整理员自己打标签、现在整理一次。
+ * 设置页里记账那一组：通知使用权、听哪些 app、抓到的通知（进抓取页）、整理间隔、每晚对账、整理员自己打标签、现在整理一次。
  * 不算进体检结论 —— 它挂了不影响提醒响。流程见 DESIGN.md §10
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LedgerSettingsSection(onOpenCapture: () -> Unit) {
+fun LedgerSettingsSection(onOpenCapture: () -> Unit, onOpenApps: () -> Unit) {
     val vm = activityViewModel<LedgerViewModel>()
     val colors = DaodianColors.current
     val context = LocalContext.current
@@ -56,6 +61,7 @@ fun LedgerSettingsSection(onOpenCapture: () -> Unit) {
     val organizing by vm.organizing.collectAsState()
     val organizerTags by vm.organizerTags.collectAsState()
     val listener by PaySources.listener.collectAsState()
+    val listened by vm.listened.collectAsState()
     var pickingCheckTime by remember { mutableStateOf(false) }
     var pickingHours by remember { mutableStateOf(false) }
     // 从系统设置开完通知使用权回来，那一行要当场变
@@ -73,12 +79,33 @@ fun LedgerSettingsSection(onOpenCapture: () -> Unit) {
     PaperGroup {
         SettingRow(
             title = "通知使用权",
-            note = if (listening) "听${PaySources.names}的通知，原样存下来再交给模型整理"
+            note = if (listening) "开着 · 勾上的 app 发的通知，原样存下来再交给模型整理"
             else "没开，记不了账 —— 点这里去系统设置里打开「到点」",
             noteColor = if (listening) colors.muted else colors.red,
             onClick = { launch(PaySources.grantIntent(context)) }
         ) {
             if (listening) Marker(ok = true) else FixLink()
+        }
+        GroupRule()
+        val names = listened?.let { set ->
+            val collator = Collator.getInstance(Locale.CHINA)
+            set.map { AppCatalog.label(context, it) }.sortedWith(collator)
+        }
+        SettingRow(
+            title = "听哪些 app",
+            note = when {
+                names == null -> null
+                names.isEmpty() -> "一个都没勾，记不了账 —— 点进来勾上付了钱会发通知的 app"
+                else -> names.joinToString("、")
+            },
+            noteColor = if (names?.isEmpty() == true) colors.red else colors.muted,
+            onClick = onOpenApps
+        ) {
+            if (!names.isNullOrEmpty()) {
+                Text("${names.size} 个", style = DaodianType.settingValue, color = colors.ink)
+                Spacer(Modifier.width(10.dp))
+            }
+            ChevronRightIcon(size = 13.dp, tint = colors.muted)
         }
         GroupRule()
         val dropped = listening && !listener.connected

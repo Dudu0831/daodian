@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.abc.daodian.ledger.capture.AppCatalog
 import com.abc.daodian.ledger.capture.PaySources
 import com.abc.daodian.ledger.data.db.RawState
 import com.abc.daodian.shared.format.Format
@@ -157,7 +158,7 @@ fun CaptureScreen(vm: CaptureViewModel, onBack: () -> Unit, onOpenTxn: (Long) ->
                     }
                     ActionResult(action, onFix = ::openGrant)
                     Text(
-                        "只抓得到还挂在通知栏里的（${PaySources.names}）；从通知栏划掉了的，系统不留，抓不回来。",
+                        "只抓勾上的 app（设置 → 记账 → 听哪些 app），而且只抓得到还挂在通知栏里的；从通知栏划掉了的，系统不留，抓不回来。",
                         style = DaodianType.caption,
                         color = colors.hint,
                         modifier = Modifier.padding(horizontal = 10.dp).padding(top = 8.dp)
@@ -228,7 +229,7 @@ private fun ActionResult(action: CaptureAction, onFix: () -> Unit) {
     val (text, failed) = when (action) {
         is CaptureAction.Grabbed -> {
             val what = when {
-                action.seen == 0 && action.saved == 0 -> "通知栏里没有这几家的通知"
+                action.seen == 0 && action.saved == 0 -> "通知栏里没有勾上的 app 的通知"
                 action.saved == 0 -> "通知栏里挂着 ${action.seen} 条，早就都存下了"
                 else -> "通知栏里挂着 ${action.seen} 条，新存 ${action.saved} 条"
             }
@@ -254,6 +255,7 @@ private fun ActionResult(action: CaptureAction, onFix: () -> Unit) {
 @Composable
 private fun RawRow(row: CapturedRow, expanded: Boolean, onToggle: () -> Unit, onOpenTxn: (Long) -> Unit) {
     val colors = DaodianColors.current
+    val context = LocalContext.current
     val r = row.raw
     val faded = r.state == RawState.SUPERSEDED || r.state == RawState.IGNORED
     Column(
@@ -266,7 +268,7 @@ private fun RawRow(row: CapturedRow, expanded: Boolean, onToggle: () -> Unit, on
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 listOfNotNull(
-                    PaySources.nameOf(r.pkg),
+                    AppCatalog.label(context, r.pkg),
                     Format.clock(r.postTime),
                     LedgerFormat.capturedHow(r.capturedHow),
                     "被系统遮蔽".takeIf { r.redacted }

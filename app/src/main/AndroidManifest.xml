@@ -15,6 +15,17 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!--
+      记账「听哪些 app」要列出手机上装了哪些 app（DESIGN.md §10.2）。只要桌面上有图标的，
+      用 <queries> 声明就够，不申请 QUERY_ALL_PACKAGES
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
+    <!--
       usesCleartextTraffic: 当前 LLM_BASE_URL 是 http:// 明文。Android 从 API 28 起默认禁止
       明文流量，不开这个连接会被系统直接掐断。
       代价：key 在链路上不加密传输。等 endpoint 换成 https 就该把这行删掉。

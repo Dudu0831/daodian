@@ -232,6 +232,7 @@ fun LedgerOverviewScreen(
     val context = LocalContext.current
     val o by vm.overview.collectAsState()
     val period by vm.period.collectAsState()
+    val listened by vm.listened.collectAsState()
     var showIncome by rememberSaveable { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().background(colors.paper)) {
@@ -289,7 +290,11 @@ fun LedgerOverviewScreen(
             val max = slices.maxOfOrNull { kotlin.math.abs(it.amount) }?.takeIf { it > 0 } ?: 1
             if (slices.isEmpty() && data != null) {
                 Text(
-                    if (!PaySources.granted(context)) "没开通知使用权，记不了账 —— 设置里打开" else "这段时间还没有账",
+                    when {
+                        !PaySources.granted(context) -> "没开通知使用权，记不了账 —— 设置里打开"
+                        listened?.isEmpty() == true -> "一个 app 都没勾，记不了账 —— 设置 → 记账 → 听哪些 app"
+                        else -> "这段时间还没有账"
+                    },
                     style = DaodianType.bodySmall, color = colors.muted,
                     modifier = Modifier.padding(horizontal = Gutter, vertical = 10.dp)
                 )
