@@ -212,21 +212,26 @@ object Intake {
 
 ## 五、步骤（每步编得过）
 
-- [ ] 0. 试验版现在没提交。开工前先提交一次，方便对照。
-- [ ] 1. 建 `intake/` 核心：`Notice`、`NoticeSubscriber`、`Router`、`IntakeSettings`、`Intake`，加上 `RouterTest`。
-- [ ] 2. 服务搬家：`PaySampler` → `intake/NoticeListenerService`（遮蔽重读、解锁扫、连上扫一起搬），改清单。
-- [ ] 3. 记账接上：写 `LedgerCapture`，`ingest` 改收 `Notice`，`Organizer`、抓取页、设置组、总览换成 `Intake`；删 `PaySampler`、`PaySources`、`LedgerSettings` 的 LISTEN。
-- [ ] 4. 派活接上：`Relay` 改成订阅者，删 `RelaySettings.apps`，页面上两组换成两行；删 `NoticeHub`。
-- [ ] 5. 页面：勾选页挪进 intake、按订阅者 id；写「通知监听」页和设置组；`IntakeFeature` 接上；`ChatAgent` 跳过空 prompt；根目录装配。
-- [ ] 6. 扫一遍：`grep PaySampler|PaySources|NoticeHub|LedgerSettings.listen|ListenApps|RelaySettings.apps` 应该只剩文档。
-- [ ] 7. 文档：DESIGN、README、CLAUDE.md。
-- [ ] 8. 卸载重装，真机验收（下一节）。
+- [x] 0. 试验版现在没提交。开工前先提交一次，方便对照。
+- [x] 1. 建 `intake/` 核心：`Notice`、`NoticeSubscriber`、`Router`、`IntakeSettings`、`Intake`，加上 `RouterTest`。
+- [x] 2. 服务搬家：`PaySampler` → `intake/NoticeListenerService`（遮蔽重读、解锁扫、连上扫一起搬），改清单。
+- [x] 3. 记账接上：写 `LedgerCapture`，`ingest` 改收 `Notice`，`Organizer`、抓取页、设置组、总览换成 `Intake`；删 `PaySampler`、`PaySources`、`LedgerSettings` 的 LISTEN。
+- [x] 4. 派活接上：`Relay` 改成订阅者，删 `RelaySettings.apps`，页面上两组换成两行；删 `NoticeHub`。
+- [x] 5. 页面：勾选页挪进 intake、按订阅者 id；写「通知监听」页和设置组；`IntakeFeature` 接上；`ChatAgent` 跳过空 prompt；根目录装配。
+- [x] 6. 扫一遍：`grep PaySampler|PaySources|NoticeHub|LedgerSettings.listen|ListenApps|RelaySettings.apps` 应该只剩文档。
+- [x] 7. 文档：DESIGN、README、CLAUDE.md。
+- [ ] 8. 装机，真机验收（下一节）。
+
+**和上面定的不一样的两处**（做的时候改的）：
+
+- 不用卸载：别的都没挪，只挪了监听组件。覆盖安装后重新开一次通知使用权、重新勾 app 就行，提醒、账、对话、模型配置都留着。
+- 「按 app 看」那几行不能点：一个 app 两个模块都勾了的话，点了不知道该去谁的勾选页。要改勾选，点上面「谁在听」那几行。
 
 ---
 
 ## 六、真机验收
 
-- [ ] 卸载重装 → 设置 →「通知监听」→ 开使用权 → 回来显示「连着」。
+- [ ] 覆盖安装 → 设置 →「通知监听」→ 开使用权 → 回来显示「连着」。
 - [ ] 系统设置里监听的名字是「到点 · 通知监听」。
 - [ ] 记账勾支付宝、招商银行、掌上生活、建设银行 → 真付一笔 →「抓到的通知」里实时出现 → 手动整理照常进账。
 - [ ] 派活勾微信 →「听谁」底下出现她的名字 →「试一句」建成提醒。
