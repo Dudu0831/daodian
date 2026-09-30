@@ -17,7 +17,7 @@ import com.abc.daodian.reminder.relay.Relay
 val FEATURES: List<Feature> = listOf(ReminderFeature, LedgerFeature, IntakeFeature)
 
 /**
- * 要听通知的模块。你在「通知监听」里给谁勾了哪个 app，那个 app 的通知就交给谁。
+ * 要听通知的模块。你给谁勾了哪个 app（各模块设置页里「听哪些 app」），那个 app 的通知就交给谁。
  * 要听通知 = 实现 [NoticeSubscriber]、这里加一行。见 DESIGN.md §2.3
  */
 val SUBSCRIBERS: List<NoticeSubscriber> = listOf(LedgerCapture, Relay)

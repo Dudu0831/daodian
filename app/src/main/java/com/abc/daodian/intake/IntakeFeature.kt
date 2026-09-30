@@ -11,19 +11,22 @@ import com.abc.daodian.agent.engine.tool.Tool
 import com.abc.daodian.agent.feature.Feature
 import com.abc.daodian.agent.shell.AppNav
 import com.abc.daodian.agent.shell.FeatureUi
+import com.abc.daodian.agent.shell.PermissionStatus
 import com.abc.daodian.intake.presentation.AppPickerScreen
-import com.abc.daodian.intake.presentation.IntakeSettingsSection
-import com.abc.daodian.intake.presentation.IntakeStatusScreen
-import com.abc.daodian.shared.ui.activityViewModel
+import com.abc.daodian.intake.presentation.IntakePermissionSection
+import com.abc.daodian.intake.presentation.intakePermissionStatus
 
 /**
- * 通知监听层接到界面壳上的接头：设置里「通知监听」一组、两个页面、冷启动催系统把监听绑回来。
+ * 通知监听层接到界面壳上的接头：「权限与监听」页里的几组、设置首页那一行上的一句、勾 app 的页面、
+ * 冷启动催系统把监听绑回来。
  * 它不跟模型打交道 —— 没有提示词、没有工具。这一层只有这个文件和 `presentation/` 碰 agent，
  * 核心（[Intake]、[NoticeListenerService]）永远不碰。见 DESIGN.md §2.3
  */
 object IntakeFeature : Feature, FeatureUi {
 
     override val id = "intake"
+
+    override val label = "通知监听"
 
     override val prompt = ""
 
@@ -32,9 +35,6 @@ object IntakeFeature : Feature, FeatureUi {
     override fun onAppStart(context: Context) = Intake.rebind(context.applicationContext)
 
     override fun NavGraphBuilder.routes(nav: AppNav) {
-        composable(IntakeRoutes.STATUS) {
-            IntakeStatusScreen(vm = activityViewModel(), onBack = nav::back, onOpen = nav::open)
-        }
         // 按这一页取 ViewModel（不是按 Activity）：每次进来重新分「在听的 / 其他」两段，订阅者 id 从路由参数来
         composable(IntakeRoutes.APPS, arguments = listOf(navArgument("id") { type = NavType.StringType })) {
             AppPickerScreen(vm = viewModel(), onBack = nav::back)
@@ -42,5 +42,8 @@ object IntakeFeature : Feature, FeatureUi {
     }
 
     @Composable
-    override fun SettingsSection(open: (String) -> Unit) = IntakeSettingsSection(open)
+    override fun PermissionSection(open: (String) -> Unit) = IntakePermissionSection(open)
+
+    @Composable
+    override fun permissionStatus(): PermissionStatus? = intakePermissionStatus()?.let { (text, ok) -> PermissionStatus(text, ok) }
 }

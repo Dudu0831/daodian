@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
- * 记忆管理页和设置页「记忆」那一组的状态。见 DESIGN.md §6.9
+ * 记忆管理页（含「聊完自己整理」开关）和设置首页「记忆」那一行的状态。见 DESIGN.md §6.9
  *
  * 只是管理：看、改、删、自己写一条、开关自动整理。记忆是后台的事，这里没有「确认」「不对」这一类。
  * 写进去的和模型记的走同一道规矩（[MemoryRules]），不合规的原因当场写在底纸上。

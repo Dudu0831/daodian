@@ -21,6 +21,9 @@ interface Feature {
     /** 「reminder」。也是它的路由前缀、trigger 键的前缀 */
     val id: String
 
+    /** 给人看的名字：「提醒」「记账」「通知监听」。「权限与监听」页上写「提醒要的」 */
+    val label: String
+
     /**
      * 接在基础提示词后面的一段，按 `Features.kt` 的顺序拼。必须是常量 ——
      * system 要逐字节稳定（前缀缓存），会变的东西放进那一轮的输入。

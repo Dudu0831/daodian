@@ -15,12 +15,15 @@ import com.abc.daodian.agent.feature.ToolTrace
 import com.abc.daodian.agent.feature.TraceView
 import com.abc.daodian.agent.shell.AppNav
 import com.abc.daodian.agent.shell.FeatureUi
+import com.abc.daodian.agent.shell.SettingsEntry
 import com.abc.daodian.reminder.application.Reminders
 import com.abc.daodian.reminder.delivery.HealthCheck
 import com.abc.daodian.reminder.delivery.Notifier
 import com.abc.daodian.reminder.presentation.DeliveryNote
 import com.abc.daodian.reminder.presentation.ReminderDrawerCard
-import com.abc.daodian.reminder.presentation.ReminderSettingsSection
+import com.abc.daodian.reminder.presentation.RelayEntryStatus
+import com.abc.daodian.reminder.presentation.ReminderEntryStatus
+import com.abc.daodian.reminder.presentation.ReminderSettingsScreen
 import com.abc.daodian.reminder.presentation.ReminderViewModel
 import com.abc.daodian.reminder.presentation.edit.EditReminderScreen
 import com.abc.daodian.reminder.presentation.list.ReminderListScreen
@@ -46,6 +49,8 @@ import kotlinx.coroutines.launch
 object ReminderFeature : Feature, FeatureUi {
 
     override val id = "reminder"
+
+    override val label = "提醒"
 
     override val prompt = ReminderPrompt.RULES
 
@@ -101,6 +106,9 @@ object ReminderFeature : Feature, FeatureUi {
         composable(ReminderRoutes.LOG) {
             FireLogScreen(vm = activityViewModel<ReminderViewModel>(), onBack = nav::back)
         }
+        composable(ReminderRoutes.SETTINGS) {
+            ReminderSettingsScreen(onBack = nav::back, open = nav::open)
+        }
         composable(ReminderRoutes.RELAY) {
             RelayScreen(vm = viewModel<RelayViewModel>(), onBack = nav::back, onOpen = nav::open)
         }
@@ -109,8 +117,10 @@ object ReminderFeature : Feature, FeatureUi {
     @Composable
     override fun DrawerCard(open: (String) -> Unit) = ReminderDrawerCard(onOpen = { open(ReminderRoutes.LIST) })
 
-    @Composable
-    override fun SettingsSection(open: (String) -> Unit) = ReminderSettingsSection(open)
+    override val settingsEntries = listOf(
+        SettingsEntry("提醒", ReminderRoutes.SETTINGS) { ReminderEntryStatus() },
+        SettingsEntry("派活", ReminderRoutes.RELAY, tag = "试验") { RelayEntryStatus() }
+    )
 
     @Composable
     override fun HealthNote() = DeliveryNote()

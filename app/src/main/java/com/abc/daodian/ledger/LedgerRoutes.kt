@@ -8,8 +8,11 @@ object LedgerRoutes {
     const val CATEGORY = "ledger/category/{top}?income={income}&mode={mode}&day={day}"
     const val TXN = "ledger/txn/{id}"
 
-    /** 抓到的通知：监听状态、手动抓一下、原文。从设置页、记账总览底下进 */
+    /** 抓到的通知：监听状态、手动抓一下、原文。从记账设置页、记账总览底下进 */
     const val CAPTURE = "ledger/capture"
+
+    /** 记账的设置页：收 / 整理 / 对账。设置首页「记账」那一行进 */
+    const val SETTINGS = "ledger/settings"
 
     /** [mode] 是 PeriodMode 的名字，[day] 是 yyyyMMdd */
     fun category(top: Long, income: Boolean, mode: String, day: Int) = "ledger/category/$top?income=$income&mode=$mode&day=$day"

@@ -37,7 +37,7 @@ data class Subscription(val subscriber: NoticeSubscriber, val apps: List<String>
 /** 按 app 看：这个 app 的通知交给谁 */
 data class Route(val app: String, val to: List<String>)
 
-/** 「通知监听」页和设置组（[IntakeStatusScreen]、[IntakeSettingsSection]）。按 Activity 取，两处同一份 */
+/** 「权限与监听」页里通知监听那几组和设置首页那一句（[IntakePermissionSection]）。按 Activity 取，两处同一份 */
 class IntakeViewModel(app: Application) : AndroidViewModel(app) {
 
     val listener: StateFlow<Intake.Listener> = Intake.listener

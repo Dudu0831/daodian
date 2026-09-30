@@ -7,6 +7,9 @@ import com.abc.daodian.agent.conversation.data.ChatStore
 import com.abc.daodian.reminder.application.Reminders
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase
+import com.abc.daodian.intake.Intake
+import com.abc.daodian.reminder.relay.Relay
+import com.abc.daodian.reminder.relay.RelayDatabase
 import com.abc.daodian.reminder.relay.RelaySettings
 import com.abc.daodian.reminder.scheduling.DayTasks
 import com.abc.daodian.reminder.scheduling.Rescheduler
@@ -14,6 +17,7 @@ import com.abc.daodian.reminder.tools.CreateReminderTool
 import java.time.LocalDate
 import java.time.LocalTime
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -40,9 +44,17 @@ class ReminderViewModel(app: Application) : AndroidViewModel(app) {
     val dayCheckTime = DayTasks.checkTimeFlow(app)
         .stateIn(viewModelScope, SharingStarted.Eagerly, DayTasks.DEFAULT_CHECK)
 
-    /** 派活听谁（试验版）。设置页那一行写它 */
+    /** 派活听谁（试验版）。设置首页那一行写它 */
     val relay = RelaySettings.flow(app)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RelaySettings.Values("", ""))
+
+    /** 她最近一句，设置首页「派活」那一行写它怎么样了 */
+    val relayLatest = RelayDatabase.get(app).dao().recent(1).map { it.firstOrNull() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** 派活听着哪些 app（在通知监听层勾）。null = 还没读出来 */
+    val relayApps = Intake.appsFlow(app, Relay.id).map<Set<String>, Set<String>?> { it }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     fun setDayCheckTime(time: LocalTime) = viewModelScope.launch { Reminders.setDayCheckTime(getApplication(), time) }
 

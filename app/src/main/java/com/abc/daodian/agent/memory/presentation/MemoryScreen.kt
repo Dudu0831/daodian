@@ -47,8 +47,10 @@ import com.abc.daodian.shared.ui.GroupLabel
 import com.abc.daodian.shared.ui.GroupRule
 import com.abc.daodian.shared.ui.IconTapTarget
 import com.abc.daodian.shared.ui.PaperGroup
+import com.abc.daodian.shared.ui.PaperSwitch
 import com.abc.daodian.shared.ui.PlusIcon
 import com.abc.daodian.shared.ui.ScreenTopBar
+import com.abc.daodian.shared.ui.SettingRow
 import com.abc.daodian.shared.ui.SwipeToDelete
 import com.abc.daodian.shared.ui.UndoBar
 import com.abc.daodian.shared.ui.activityViewModel
@@ -59,7 +61,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * 记忆管理页：它记着的每一条，点一条从底下弹出来改，左滑删（5 秒撤销），右上角「+」自己写一条。见 DESIGN.md §6.9
+ * 记忆管理页：它记着的每一条，点一条从底下弹出来改，左滑删（5 秒撤销），右上角「+」自己写一条。
+ * 最底下是「聊完自己整理」开关。见 DESIGN.md §6.9
  *
  * 版式和设置页一样（一组一张纸），设计稿第二版方向 A：https://claude.ai/artifact/Wo6Je3fueZ99dSj5Vag7qm
  * 记忆是后台的事，这页只管理，不做确认、「不对」、「新」这类标记（用户 09-27 定的）。
@@ -69,6 +72,7 @@ fun MemoryScreen(onBack: () -> Unit) {
     val colors = DaodianColors.current
     val vm = activityViewModel<MemoryViewModel>()
     val memories by vm.memories.collectAsState()
+    val autoTidy by vm.autoTidy.collectAsState()
 
     /** 底纸开着：改哪一条；[Editing.memory] 为 null 是新记一条 */
     var editing by remember { mutableStateOf<Editing?>(null) }
@@ -117,6 +121,18 @@ fun MemoryScreen(onBack: () -> Unit) {
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+                if (list != null) {
+                    GroupLabel("整理")
+                    PaperGroup {
+                        SettingRow(
+                            title = "聊完自己整理",
+                            note = if (autoTidy) "停下来 10 分钟，从新聊的里找值得记的" else "关着 · 只记你明说让它记的",
+                            onClick = { vm.setAutoTidy(!autoTidy) }
+                        ) {
+                            PaperSwitch(checked = autoTidy, onCheckedChange = { vm.setAutoTidy(it) })
                         }
                     }
                 }

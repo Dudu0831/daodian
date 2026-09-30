@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.abc.daodian.agent.shell.ShellRoutes
 import com.abc.daodian.intake.IntakeRoutes
 import com.abc.daodian.reminder.ReminderRoutes
 import com.abc.daodian.reminder.relay.Relay
@@ -105,7 +106,7 @@ fun RelayScreen(vm: RelayViewModel, onBack: () -> Unit, onOpen: (String) -> Unit
                                 else -> "连着 · 和记账共用一个监听"
                             },
                             noteColor = if (ok) colors.muted else colors.red,
-                            onClick = { onOpen(IntakeRoutes.STATUS) },
+                            onClick = { onOpen(ShellRoutes.PERMISSIONS) },
                             leading = { Marker(ok) }
                         ) { ChevronRightIcon(size = 13.dp, tint = colors.muted) }
                         GroupRule()

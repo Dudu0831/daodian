@@ -17,6 +17,8 @@ import com.abc.daodian.agent.feature.TraceView
 import com.abc.daodian.agent.feature.Trigger
 import com.abc.daodian.agent.shell.AppNav
 import com.abc.daodian.agent.shell.FeatureUi
+import com.abc.daodian.agent.shell.SettingsEntry
+import com.abc.daodian.agent.shell.ShellRoutes
 import com.abc.daodian.intake.IntakeRoutes
 import com.abc.daodian.ledger.capture.LedgerCapture
 import com.abc.daodian.ledger.data.LedgerStore
@@ -30,7 +32,8 @@ import com.abc.daodian.ledger.presentation.LedgerCategoryScreen
 import com.abc.daodian.ledger.presentation.LedgerDrawerCard
 import com.abc.daodian.ledger.presentation.LedgerFormat
 import com.abc.daodian.ledger.presentation.LedgerOverviewScreen
-import com.abc.daodian.ledger.presentation.LedgerSettingsSection
+import com.abc.daodian.ledger.presentation.LedgerEntryStatus
+import com.abc.daodian.ledger.presentation.LedgerSettingsScreen
 import com.abc.daodian.ledger.presentation.LedgerTxnScreen
 import com.abc.daodian.ledger.presentation.LedgerViewModel
 import com.abc.daodian.ledger.presentation.Period
@@ -56,6 +59,8 @@ import kotlinx.coroutines.launch
 object LedgerFeature : Feature, FeatureUi {
 
     override val id = "ledger"
+
+    override val label = "记账"
 
     override val prompt = LedgerPrompt.CHAT
 
@@ -179,7 +184,15 @@ object LedgerFeature : Feature, FeatureUi {
                 vm = activityViewModel<CaptureViewModel>(),
                 onBack = nav::back,
                 onOpenTxn = { nav.open(LedgerRoutes.txn(it)) },
-                onOpenListener = { nav.open(IntakeRoutes.STATUS) }
+                onOpenListener = { nav.open(ShellRoutes.PERMISSIONS) }
+            )
+        }
+
+        composable(LedgerRoutes.SETTINGS) {
+            LedgerSettingsScreen(
+                onBack = nav::back,
+                onOpenCapture = { nav.open(LedgerRoutes.CAPTURE) },
+                onOpenApps = { nav.open(IntakeRoutes.apps(LedgerCapture.id)) }
             )
         }
     }
@@ -187,11 +200,7 @@ object LedgerFeature : Feature, FeatureUi {
     @Composable
     override fun DrawerCard(open: (String) -> Unit) = LedgerDrawerCard(onOpen = { open(LedgerRoutes.HOME) })
 
-    @Composable
-    override fun SettingsSection(open: (String) -> Unit) = LedgerSettingsSection(
-        onOpenCapture = { open(LedgerRoutes.CAPTURE) },
-        onOpenApps = { open(IntakeRoutes.apps(LedgerCapture.id)) }
-    )
+    override val settingsEntries = listOf(SettingsEntry("记账", LedgerRoutes.SETTINGS) { LedgerEntryStatus() })
 
     /** 对账问卡上一笔底下的「＋ 打标签」（设计稿方向 B） */
     @Composable

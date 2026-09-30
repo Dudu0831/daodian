@@ -291,7 +291,7 @@ fun LedgerOverviewScreen(
             if (slices.isEmpty() && data != null) {
                 Text(
                     when {
-                        !Intake.granted(context) -> "没开通知使用权，记不了账 —— 设置 → 通知监听"
+                        !Intake.granted(context) -> "没开通知使用权，记不了账 —— 设置 → 权限与监听"
                         listened?.isEmpty() == true -> "一个 app 都没勾，记不了账 —— 设置 → 记账 → 听哪些 app"
                         else -> "这段时间还没有账"
                     },

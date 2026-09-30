@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.map
 private val Context.memoryDataStore by preferencesDataStore("memory")
 
 /**
- * 记忆的设置：聊完要不要自己整理（设置页「记忆」那一组）。见 DESIGN.md §6.9
+ * 记忆的设置：聊完要不要自己整理（记忆页最底下那个开关）。见 DESIGN.md §6.9
  *
  * 关掉只停「自己从对话里找值得记的」：你明说「记住」照记，对话攒够了照样压成摘要（那是为了上下文，不是记忆）。
  */

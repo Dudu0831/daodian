@@ -26,8 +26,10 @@ object ShellRoutes {
     const val CHAT = "chat"
     const val SETTINGS = "settings"
     const val PROVIDER = "provider"
-    /** 记忆管理页（§6.9）。设置页「记忆」那一组、对话里「记住了」的痕都到这里 */
+    /** 记忆管理页（§6.9）。设置首页「记忆」那一行、对话里「记住了」的痕都到这里 */
     const val MEMORY = "memory"
+    /** 权限与监听：体检结论、各模块要的系统权限、通知监听。设置首页「权限与监听」那一行、抓取页和派活页上的状态行都到这里 */
+    const val PERMISSIONS = "permissions"
 }
 
 /**
@@ -139,6 +141,10 @@ fun AppNavHost(
 
         composable(ShellRoutes.MEMORY) {
             MemoryScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(ShellRoutes.PERMISSIONS) {
+            PermissionsScreen(uis = uis, onBack = { navController.popBackStack() }, open = { navController.navigate(it) })
         }
 
         uis.forEach { ui -> with(ui) { routes(nav) } }

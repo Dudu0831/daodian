@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
@@ -23,13 +24,13 @@ import com.abc.daodian.shared.theme.DaodianType
  * https://claude.ai/artifact/UdcBGTTx5quxPfsnR5Akq7
  */
 
-/** 组上方的小标签，大字距（§8.1 第 4 条） */
+/** 组上方的小标签，大字距（§8.1 第 4 条）。页面最上面那一组 [top] 给小一点，别离页头太远 */
 @Composable
-fun GroupLabel(text: String, modifier: Modifier = Modifier) {
+fun GroupLabel(text: String, modifier: Modifier = Modifier, top: Dp = 28.dp) {
     val colors = DaodianColors.current
     Text(
         text, style = DaodianType.sectionLabel, color = colors.muted,
-        modifier = modifier.padding(start = 4.dp, top = 28.dp, bottom = 10.dp)
+        modifier = modifier.padding(start = 4.dp, top = top, bottom = 10.dp)
     )
 }
 
