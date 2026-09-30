@@ -40,7 +40,7 @@ data class RawNotification(
     val capturedAt: Long,
     /**
      * 怎么抓到的：posted（实时回调）/ active（监听连上时扫）/ unlock（解锁时扫）/ organize（整理前扫，
-     * 09-24 以前叫 manual）/ tap（页面上点「扫一遍」「现在抓一下」）/ picked（勾上这个 app 时扫）/ retry+Ns（遮蔽后重读）/ import
+     * 09-24 以前叫 manual）/ tap（「权限与监听」页上点「扫一遍」；09-30 以前抓取页还有个「现在抓一下」）/ picked（勾上这个 app 时扫）/ retry+Ns（遮蔽后重读）/ import
      */
     val capturedHow: String,
     /** `key | postTime | text`，同一条通知同一段正文只存一次 */

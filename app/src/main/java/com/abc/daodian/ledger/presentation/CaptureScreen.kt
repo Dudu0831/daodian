@@ -4,17 +4,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
@@ -27,21 +24,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.LifecycleResumeEffect
-import com.abc.daodian.intake.Intake
 import com.abc.daodian.ledger.data.db.RawState
 import com.abc.daodian.shared.apps.AppCatalog
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
-import com.abc.daodian.shared.ui.ChevronRightIcon
-import com.abc.daodian.shared.ui.GroupRule
-import com.abc.daodian.shared.ui.Marker
 import com.abc.daodian.shared.ui.PaperGroup
 import com.abc.daodian.shared.ui.ScreenTopBar
 import com.abc.daodian.shared.ui.SettingRow
@@ -50,8 +41,9 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 /*
- * 抓到的通知（抓取页）：手动抓一下、存下来的原文，一条条看。监听本身（使用权、连没连着、重连）
- * 归通知监听层，这里只写一行状态，点了去那一页（DESIGN.md §2.3）。
+ * 抓到的通知（抓取页）：存下来的原文，一条条看，后来进了哪一笔。从记账设置页、记账总览底下「少了一笔？」进。
+ * 监听本身（使用权、连没连着、重连、扫通知栏）归通知监听层，在「权限与监听」页（DESIGN.md §2.3）；
+ * 这里不放通知的行、不跳过去，也没有「现在抓一下」—— 连上时、解锁时、整理前监听层自己会扫。
  *
  * 调研时有过一个临时采样页，记账转正时删了；09-24 用户发现通知还是会漏抓，放回来。
  * 为什么会漏见 DESIGN.md §2.3：实时回调会丢（荣耀冻进程），监听也会断（系统不一定绑回来）。
@@ -59,91 +51,28 @@ import java.time.ZoneId
  */
 
 @Composable
-fun CaptureScreen(vm: CaptureViewModel, onBack: () -> Unit, onOpenTxn: (Long) -> Unit, onOpenListener: () -> Unit) {
+fun CaptureScreen(vm: CaptureViewModel, onBack: () -> Unit, onOpenTxn: (Long) -> Unit) {
     val colors = DaodianColors.current
-    val context = LocalContext.current
-    val listener by vm.listener.collectAsState()
     val rows by vm.rows.collectAsState()
     val total by vm.total.collectAsState()
     val pending by vm.pending.collectAsState()
-    val lastPosted by vm.lastPosted.collectAsState()
     val organizing by vm.organizing.collectAsState()
-    val action by vm.action.collectAsState()
-    var granted by remember { mutableStateOf(Intake.granted(context)) }
-    // 从系统设置开完通知使用权回来，当场变
-    LifecycleResumeEffect(Unit) {
-        granted = Intake.granted(context)
-        onPauseOrDispose { }
-    }
     var expanded by remember { mutableStateOf(emptySet<Long>()) }
-    val busy = action == CaptureAction.Grabbing
 
     Column(Modifier.fillMaxSize().background(colors.paper)) {
         ScreenTopBar("抓到的通知", onBack)
         LazyColumn(Modifier.weight(1f), contentPadding = WindowInsets.navigationBars.asPaddingValues()) {
-            item(key = "status") {
+            item(key = "pending") {
                 Column(Modifier.padding(horizontal = 16.dp)) {
                     PaperGroup {
-                        val ok = granted && listener.connected
-                        SettingRow(
-                            title = "通知监听",
-                            note = if (granted) listenerNote(listener) else "没开通知使用权，一条都抓不到 —— 点进去打开",
-                            noteColor = if (ok) colors.muted else colors.red,
-                            onClick = onOpenListener,
-                            leading = { Marker(ok) }
-                        ) {
-                            ChevronRightIcon(size = 13.dp, tint = colors.muted)
-                        }
-                        if (granted) {
-                            GroupRule()
-                            SettingRow(
-                                title = "最近一次实时收到",
-                                note = lastPosted?.let { "${LedgerFormat.recent(it)} · 比这晚付的钱没进来，就是实时回调漏了，手动抓一下" }
-                                    ?: "还没有 —— 付一笔钱，这里应该当场变",
-                                leading = { NoMarker() }
-                            )
-                        }
-                        GroupRule()
                         SettingRow(
                             title = if (pending > 0) "待整理 $pending 条" else "没有待整理的",
                             note = if (organizing) "模型在读通知，读完了进账" else "抓到的先放在这，整理了才进账",
-                            onClick = if (pending > 0 && !organizing) ({ vm.organizeNow() }) else null,
-                            leading = { NoMarker() }
+                            onClick = if (pending > 0 && !organizing) ({ vm.organizeNow() }) else null
                         ) {
                             if (pending > 0 && !organizing) Text("现在整理 ›", style = DaodianType.caption, color = colors.accent)
                         }
                     }
-                }
-            }
-
-            item(key = "grab") {
-                Column(Modifier.padding(horizontal = 16.dp).padding(top = 18.dp)) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .alpha(if (busy) 0.55f else 1f)
-                            .background(colors.solid, RoundedCornerShape(25.dp))
-                            .clickable(enabled = !busy) { if (granted) vm.grab() else onOpenListener() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            when {
-                                !granted -> "先去开通知使用权"
-                                action == CaptureAction.Grabbing -> "在抓……"
-                                else -> "现在抓一下"
-                            },
-                            style = DaodianType.button,
-                            color = colors.onSolid
-                        )
-                    }
-                    ActionResult(action, onFix = onOpenListener)
-                    Text(
-                        "只抓勾上的 app（设置 → 记账 → 听哪些 app），而且只抓得到还挂在通知栏里的；从通知栏划掉了的，系统不留，抓不回来。",
-                        style = DaodianType.caption,
-                        color = colors.hint,
-                        modifier = Modifier.padding(horizontal = 10.dp).padding(top = 8.dp)
-                    )
                 }
             }
 
@@ -158,7 +87,7 @@ fun CaptureScreen(vm: CaptureViewModel, onBack: () -> Unit, onOpenTxn: (Long) ->
             if (list != null && list.isEmpty()) {
                 item(key = "empty") {
                     Text(
-                        "还没抓到过。付一笔钱试试，或者点上面「现在抓一下」。",
+                        "还没抓到过。付一笔钱试试。",
                         style = DaodianType.bodySmall,
                         color = colors.muted,
                         modifier = Modifier.padding(horizontal = Gutter, vertical = 12.dp)
@@ -194,41 +123,6 @@ fun CaptureScreen(vm: CaptureViewModel, onBack: () -> Unit, onOpenTxn: (Long) ->
             }
         }
     }
-}
-
-/** 「连着 · 今天 09:12 起」「断了 · 今天 10:30」「这次打开 app 以来还没连上过」 */
-private fun listenerNote(l: Intake.Listener): String = when {
-    l.connected -> "连着" + (l.since?.let { " · ${LedgerFormat.recent(it)} 起" } ?: "")
-    l.since != null -> "断了 · ${LedgerFormat.recent(l.since)} —— 点进去重连，或者直接「现在抓一下」"
-    else -> "这次打开 app 以来还没连上过 —— 点进去重连，或者直接「现在抓一下」"
-}
-
-/** 按钮下面一行：刚才抓的结果 */
-@Composable
-private fun ActionResult(action: CaptureAction, onFix: () -> Unit) {
-    val colors = DaodianColors.current
-    val (text, failed) = when (action) {
-        is CaptureAction.Grabbed -> {
-            val what = when {
-                action.seen == 0 && action.saved == 0 -> "通知栏里没有勾上的 app 的通知"
-                action.saved == 0 -> "通知栏里挂着 ${action.seen} 条，早就都存下了"
-                else -> "通知栏里挂着 ${action.seen} 条，新存 ${action.saved} 条"
-            }
-            (if (action.reconnected) "监听断了，重连上了。" else "") + "${Format.clock(action.at)} 抓了一次：$what" to false
-        }
-        is CaptureAction.NotConnected ->
-            "${Format.clock(action.at)} 监听没连上，系统不肯把它绑回来。去把「到点」的通知使用权关掉再打开 ›" to true
-        else -> return
-    }
-    Text(
-        text,
-        style = DaodianType.caption,
-        color = if (failed) colors.red else colors.ink2,
-        modifier = Modifier
-            .then(if (failed) Modifier.clickable(onClick = onFix) else Modifier)
-            .padding(horizontal = 10.dp)
-            .padding(top = 12.dp)
-    )
 }
 
 /** 一条原始通知：哪家、几点、怎么抓到的、原文；右边是它后来怎样了。点开看全文和抓到的时刻 */
@@ -309,12 +203,6 @@ private fun StateTag(row: CapturedRow, onOpenTxn: (Long) -> Unit) {
         RawState.SUPERSEDED -> Text("换成全文了", style = DaodianType.caption, color = colors.hint, modifier = Modifier.padding(start = 12.dp))
         RawState.DONE -> Text("已整理", style = DaodianType.caption, color = colors.hint, modifier = Modifier.padding(start = 12.dp))
     }
-}
-
-/** 没有状态可标的行，占住记号那一格，标题和上面几行对齐 */
-@Composable
-private fun NoMarker() {
-    Box(Modifier.size(16.dp))
 }
 
 private fun dayOf(millis: Long): LocalDate = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()

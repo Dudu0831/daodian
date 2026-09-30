@@ -12,12 +12,12 @@ import com.abc.daodian.reminder.relay.Relay
  * 全 app 唯一的模块清单。顺序有意义：提示词按这个顺序拼（改顺序 = system 变了，前缀缓存失效一次），
  * 抽屉里的纸、设置页的组也按这个顺序摆。加模块 = 这里加一行。见 DESIGN.md §2.2
  *
- * 通知监听层排最后：它没有提示词，只在设置页里占一组「通知监听」，放在各模块的组后面。
+ * 通知监听层排最后：它没有提示词，只在「权限与监听」页里占几组，放在各模块的体检项后面。
  */
 val FEATURES: List<Feature> = listOf(ReminderFeature, LedgerFeature, IntakeFeature)
 
 /**
- * 要听通知的模块。你给谁勾了哪个 app（各模块设置页里「听哪些 app」），那个 app 的通知就交给谁。
+ * 要听通知的模块。你给谁勾了哪个 app（设置 → 权限与监听 → 谁在听），那个 app 的通知就交给谁。
  * 要听通知 = 实现 [NoticeSubscriber]、这里加一行。见 DESIGN.md §2.3
  */
 val SUBSCRIBERS: List<NoticeSubscriber> = listOf(LedgerCapture, Relay)

@@ -9,10 +9,10 @@ object ReminderRoutes {
     const val EDIT = "reminder/edit?id={id}"
     const val LOG = "reminder/log"
 
-    /** 提醒的设置页：当天事项收尾、投递日志。设置首页「提醒」那一行进 */
+    /** 提醒的设置页：当天事项收尾、派活、投递日志。设置首页「提醒」那一行进 */
     const val SETTINGS = "reminder/settings"
 
-    /** 派活（试验版）：听谁、暗号、她发来的 */
+    /** 她发来的（派活试验版）：每一句办成了什么、试一句。提醒设置页「派活」那一组进，派活没接住的通知也拉起这里 */
     const val RELAY = "reminder/relay"
 
     /** 编辑某一条；null = 新建一条（手动填，不经过模型） */

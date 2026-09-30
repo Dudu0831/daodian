@@ -2,9 +2,11 @@ package com.abc.daodian.reminder.presentation
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -20,37 +22,32 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.LifecycleResumeEffect
-import com.abc.daodian.intake.Intake
 import com.abc.daodian.reminder.ReminderRoutes
-import com.abc.daodian.reminder.delivery.HealthCheck
-import com.abc.daodian.reminder.relay.RelayMessage
-import com.abc.daodian.reminder.relay.RelayStatus
-import com.abc.daodian.reminder.relay.state
+import com.abc.daodian.reminder.presentation.relay.RelayCodeDialog
+import com.abc.daodian.reminder.presentation.relay.RelayWhoDialog
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.ui.ChevronRightIcon
 import com.abc.daodian.shared.ui.GroupLabel
+import com.abc.daodian.shared.ui.GroupRule
 import com.abc.daodian.shared.ui.PaperGroup
 import com.abc.daodian.shared.ui.ScreenTopBar
 import com.abc.daodian.shared.ui.SettingRow
 import com.abc.daodian.shared.ui.activityViewModel
-import java.time.Instant
-import java.time.LocalDate
 import java.time.LocalTime
-import java.time.ZoneId
 import kotlin.math.abs
 
 /*
- * 提醒在设置里的几样：自己的设置页（当天事项收尾、投递日志），设置首页「提醒」「派活」两行上的现状，
- * 「权限与监听」页体检结论底下那一行（最近投递准不准）。设计稿方向 A：https://claude.ai/artifact/VFmJaUSSQ4dEjbMN2FRmt2
+ * 提醒在设置里的两样：自己的设置页（当天事项、派活、准不准），「权限与监听」页体检结论底下那一行（最近投递准不准）。
  */
 
-/** 提醒的设置页：当天事项收尾时刻；投递日志 */
+/**
+ * 提醒的设置页：当天事项（收尾时刻）、派活（听谁、暗号、她发来的）、准不准（投递日志）。
+ * 和记账的设置页一个样子：几组、每行右边是值，点了弹框改或者往下走一页。
+ * 派活要的通知使用权、听哪些 app 不在这里，在「权限与监听」页（DESIGN.md §2.3）—— 这一页不放通知的行、不往那边跳。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReminderSettingsScreen(onBack: () -> Unit, open: (String) -> Unit) {
@@ -58,7 +55,12 @@ fun ReminderSettingsScreen(onBack: () -> Unit, open: (String) -> Unit) {
     val colors = DaodianColors.current
     val logs by vm.logs.collectAsState()
     val checkTime by vm.dayCheckTime.collectAsState()
+    val relay by vm.relay.collectAsState()
+    val relayCount by vm.relayCount.collectAsState()
+    val seen by vm.relaySeen.collectAsState()
     var pickingCheckTime by remember { mutableStateOf(false) }
+    var pickingWho by remember { mutableStateOf(false) }
+    var pickingCode by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().background(colors.paper)) {
         ScreenTopBar("提醒", onBack)
@@ -78,6 +80,38 @@ fun ReminderSettingsScreen(onBack: () -> Unit, open: (String) -> Unit) {
                     onClick = { pickingCheckTime = true }
                 ) {
                     Text(checkTime.toString().take(5), style = DaodianType.settingValue, color = colors.ink)
+                }
+            }
+
+            // 派活（试验版）：她在微信里说一句，这里接住交给模型建成提醒。说明写死，只有右边的值会变 —— 打开时行高不跳
+            GroupLabel("派活 · 试验")
+            PaperGroup {
+                SettingRow(
+                    title = "听谁",
+                    note = "她在微信里说一句，这里接住，交给模型建成提醒。",
+                    onClick = { pickingWho = true }
+                ) {
+                    relay?.let { Value(it.who) }
+                }
+                GroupRule()
+                SettingRow(
+                    title = "暗号",
+                    note = "设了只接这几个字开头的；空着句句都交给模型。",
+                    onClick = { pickingCode = true }
+                ) {
+                    relay?.let { Value(it.code) }
+                }
+                GroupRule()
+                SettingRow(
+                    title = "她发来的",
+                    note = "每一句办成了什么；在里面可以试一句。",
+                    onClick = { open(ReminderRoutes.RELAY) }
+                ) {
+                    relayCount?.takeIf { it > 0 }?.let {
+                        Text("$it 句", style = DaodianType.settingValue, color = colors.ink)
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    ChevronRightIcon(size = 13.dp, tint = colors.muted)
                 }
             }
 
@@ -107,91 +141,35 @@ fun ReminderSettingsScreen(onBack: () -> Unit, open: (String) -> Unit) {
             text = { TimePicker(state = state) }
         )
     }
+
+    val r = relay
+    if (pickingWho && r != null) {
+        RelayWhoDialog(
+            current = r.who,
+            seen = seen,
+            onSave = { vm.setRelayWho(it); pickingWho = false },
+            onDismiss = { pickingWho = false }
+        )
+    }
+    if (pickingCode && r != null) {
+        RelayCodeDialog(
+            current = r.code,
+            onSave = { vm.setRelayCode(it); pickingCode = false },
+            onDismiss = { pickingCode = false }
+        )
+    }
 }
 
-/**
- * 设置首页「提醒」那一行的现状：缺权限、走了兜底补发就写红字（到点可能不响）；好着写收尾时刻和最近投递准不准
- */
+/** 行右边的值；空着写淡淡的「没设」 */
 @Composable
-fun ReminderEntryStatus() {
-    val vm = activityViewModel<ReminderViewModel>()
+private fun Value(text: String) {
     val colors = DaodianColors.current
-    val context = LocalContext.current
-    val logs by vm.logs.collectAsState()
-    val nonAlarm by vm.nonAlarmCount.collectAsState()
-    val checkTime by vm.dayCheckTime.collectAsState()
-    // 从系统设置开完权限回来，这一行要当场变
-    var missing by remember { mutableStateOf(missingOf(context)) }
-    LifecycleResumeEffect(Unit) {
-        missing = missingOf(context)
-        onPauseOrDispose { }
-    }
-    val time = "收尾 ${checkTime.toString().take(5)}"
-    when {
-        missing.isNotEmpty() -> Line(missing.joinToString("、") + "没开，到点可能不响", colors.red)
-        nonAlarm > 0 -> Line("最近 ${logs.size} 次投递里 $nonAlarm 次走了兜底补发 —— 主闹钟在被掐", colors.red)
-        logs.isEmpty() -> Line("$time · 还没有投递记录", colors.muted)
-        else -> Line("$time · 最近 ${logs.size} 次投递，最大漂移 ${drift(logs.maxOf { it.driftMillis })}", colors.muted)
-    }
-}
-
-private fun missingOf(context: android.content.Context): List<String> =
-    HealthCheck.run(context).filter { !it.ok }.map { it.label }
-
-/**
- * 设置首页「派活」那一行的现状：第一行是她最近一句怎么样了（出了问题写红字：没开使用权、监听断了），
- * 第二行是听谁、暗号
- */
-@Composable
-fun RelayEntryStatus() {
-    val vm = activityViewModel<ReminderViewModel>()
-    val colors = DaodianColors.current
-    val context = LocalContext.current
-    val relay by vm.relay.collectAsState()
-    val latest by vm.relayLatest.collectAsState()
-    val apps by vm.relayApps.collectAsState()
-    val listener by Intake.listener.collectAsState()
-    var granted by remember { mutableStateOf(Intake.granted(context)) }
-    LifecycleResumeEffect(Unit) {
-        granted = Intake.granted(context)
-        onPauseOrDispose { }
-    }
-    val setup = when {
-        relay.who.isBlank() -> "还没设听谁 · 她在微信里说一句，这里接住建成提醒"
-        relay.code.isBlank() -> "听「${relay.who}」· 没设暗号，句句都交给模型"
-        else -> "听「${relay.who}」· 暗号 ${relay.code}"
-    }
-    val problem = when {
-        relay.who.isBlank() -> null
-        apps?.isEmpty() == true -> "还没勾听哪个 app"
-        !granted -> "没开通知使用权，她说的收不到"
-        !listener.connected -> listener.since?.let { "监听断了 · 她 ${clock(it)} 以后说的接不到" } ?: "监听没连上，她说的接不到"
-        else -> null
-    }
-    if (problem != null) Line(problem, colors.red)
-    else if (relay.who.isNotBlank()) Line(latest?.let(::latestOf) ?: "还没收到她的话", colors.ink2)
-    Line(setup, colors.muted)
-}
-
-/** 「她最近一句 13:40 · 建了提醒」 */
-private fun latestOf(m: RelayMessage): String = "她最近一句 ${clock(m.at)} · " + when (m.state) {
-    RelayStatus.CREATED -> "建了提醒"
-    RelayStatus.NOT_TASK -> "不是待办"
-    RelayStatus.SKIPPED -> m.detail ?: "只记下了"
-    RelayStatus.WORKING -> "在办"
-    RelayStatus.FAILED -> "没办成"
-}
-
-/** 设置行里的小字一行 */
-@Composable
-private fun Line(text: String, color: Color) {
-    Text(text, style = DaodianType.settingNote, color = color)
-}
-
-/** 今天的写钟点，别的日子带上日期 */
-private fun clock(millis: Long): String {
-    val day = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
-    return if (day == LocalDate.now()) Format.clock(millis) else Format.humanDateTimeShort(millis)
+    Text(
+        text.ifBlank { "没设" },
+        style = DaodianType.settingValue,
+        color = if (text.isBlank()) colors.hint else colors.ink,
+        maxLines = 1
+    )
 }
 
 /** 「权限与监听」页体检结论底下那一行：最近投递准不准。走了兜底补发就是主闹钟在被掐，写红字 */

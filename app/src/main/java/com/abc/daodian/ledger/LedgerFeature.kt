@@ -18,9 +18,6 @@ import com.abc.daodian.agent.feature.Trigger
 import com.abc.daodian.agent.shell.AppNav
 import com.abc.daodian.agent.shell.FeatureUi
 import com.abc.daodian.agent.shell.SettingsEntry
-import com.abc.daodian.agent.shell.ShellRoutes
-import com.abc.daodian.intake.IntakeRoutes
-import com.abc.daodian.ledger.capture.LedgerCapture
 import com.abc.daodian.ledger.data.LedgerStore
 import com.abc.daodian.ledger.domain.LedgerDays
 import com.abc.daodian.ledger.domain.LedgerText
@@ -32,7 +29,6 @@ import com.abc.daodian.ledger.presentation.LedgerCategoryScreen
 import com.abc.daodian.ledger.presentation.LedgerDrawerCard
 import com.abc.daodian.ledger.presentation.LedgerFormat
 import com.abc.daodian.ledger.presentation.LedgerOverviewScreen
-import com.abc.daodian.ledger.presentation.LedgerEntryStatus
 import com.abc.daodian.ledger.presentation.LedgerSettingsScreen
 import com.abc.daodian.ledger.presentation.LedgerTxnScreen
 import com.abc.daodian.ledger.presentation.LedgerViewModel
@@ -183,24 +179,19 @@ object LedgerFeature : Feature, FeatureUi {
             CaptureScreen(
                 vm = activityViewModel<CaptureViewModel>(),
                 onBack = nav::back,
-                onOpenTxn = { nav.open(LedgerRoutes.txn(it)) },
-                onOpenListener = { nav.open(ShellRoutes.PERMISSIONS) }
+                onOpenTxn = { nav.open(LedgerRoutes.txn(it)) }
             )
         }
 
         composable(LedgerRoutes.SETTINGS) {
-            LedgerSettingsScreen(
-                onBack = nav::back,
-                onOpenCapture = { nav.open(LedgerRoutes.CAPTURE) },
-                onOpenApps = { nav.open(IntakeRoutes.apps(LedgerCapture.id)) }
-            )
+            LedgerSettingsScreen(onBack = nav::back, onOpenCapture = { nav.open(LedgerRoutes.CAPTURE) })
         }
     }
 
     @Composable
     override fun DrawerCard(open: (String) -> Unit) = LedgerDrawerCard(onOpen = { open(LedgerRoutes.HOME) })
 
-    override val settingsEntries = listOf(SettingsEntry("记账", LedgerRoutes.SETTINGS) { LedgerEntryStatus() })
+    override val settingsEntries = listOf(SettingsEntry("记账", LedgerRoutes.SETTINGS, "抓到的通知、多久整理一次、每晚几点对账"))
 
     /** 对账问卡上一笔底下的「＋ 打标签」（设计稿方向 B） */
     @Composable

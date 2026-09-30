@@ -28,7 +28,7 @@ object ShellRoutes {
     const val PROVIDER = "provider"
     /** 记忆管理页（§6.9）。设置首页「记忆」那一行、对话里「记住了」的痕都到这里 */
     const val MEMORY = "memory"
-    /** 权限与监听：体检结论、各模块要的系统权限、通知监听。设置首页「权限与监听」那一行、抓取页和派活页上的状态行都到这里 */
+    /** 权限与监听：体检结论、各模块要的系统权限、通知监听。只从设置首页「权限与监听」那一行进，模块页不往这里跳 */
     const val PERMISSIONS = "permissions"
 }
 

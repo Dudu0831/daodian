@@ -26,7 +26,6 @@ import com.abc.daodian.shared.format.Format
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.YearMonth
-import java.time.ZoneId
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -292,6 +291,10 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
 
     val pendingRaws = dao.observePendingRaws().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    /** 一共抓到几条原始通知，记账设置页「抓到的通知」右边写它。null = 还没读出来 */
+    val rawCount = dao.observeRawCount().map<Int, Int?> { it }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     /** 后台正在跑的 agent（顶栏印章、设置页都看它） */
     val running = AgentActivity.running
 
@@ -311,17 +314,6 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     /** 设置里「整理员自己打标签」，默认关 */
     val organizerTags = LedgerSettings.organizerTagsFlow(app)
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
-
-    /**
-     * 今天收到几条（从进这个 Activity 那天的零点算）。设置首页「记账」那一行、记账设置页写它 ——
-     * 来设置多半是看收到了没有
-     */
-    val capturedToday: StateFlow<Int> = dao.observeCapturedSince(
-        LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-    ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
-    /** 最近收到的那一条 */
-    val latestRaw = dao.observeLatestRaw().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /** 记账听哪些 app（包名，在通知监听层勾）。null = 还没读出来，别先画成「一个都没勾」 */
     val listened: StateFlow<Set<String>?> = Intake.appsFlow(app, LedgerCapture.id)

@@ -64,22 +64,6 @@ interface LedgerDao {
     @Query("SELECT * FROM raw_notification ORDER BY postTime DESC LIMIT :limit")
     fun observeRecentRaws(limit: Int): Flow<List<RawNotification>>
 
-    /** 手动抓一下之后数新存了几条 */
-    @Query("SELECT COUNT(*) FROM raw_notification WHERE capturedAt >= :since")
-    suspend fun countCapturedSince(since: Long): Int
-
-    /** 某个时刻以来收到几条（设置首页「今天收到 6 条」） */
-    @Query("SELECT COUNT(*) FROM raw_notification WHERE capturedAt >= :since")
-    fun observeCapturedSince(since: Long): Flow<Int>
-
-    /** 最近收到的那一条（设置首页「最近 14:02 招商银行」） */
-    @Query("SELECT * FROM raw_notification ORDER BY capturedAt DESC LIMIT 1")
-    fun observeLatestRaw(): Flow<RawNotification?>
-
-    /** 最近一次实时回调收到的时刻：比这更晚的支付没进来，就是实时回调断了 */
-    @Query("SELECT MAX(capturedAt) FROM raw_notification WHERE capturedHow = 'posted'")
-    fun observeLastPosted(): Flow<Long?>
-
     // ---------------- 流水 ----------------
 
     @Insert

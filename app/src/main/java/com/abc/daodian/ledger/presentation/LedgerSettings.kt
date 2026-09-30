@@ -24,15 +24,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.LifecycleResumeEffect
-import com.abc.daodian.intake.Intake
 import com.abc.daodian.ledger.data.LedgerSettings
 import com.abc.daodian.ledger.data.db.AgentRun
-import com.abc.daodian.ledger.data.db.RawNotification
-import com.abc.daodian.shared.apps.AppCatalog
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
@@ -44,38 +38,25 @@ import com.abc.daodian.shared.ui.PaperSwitch
 import com.abc.daodian.shared.ui.ScreenTopBar
 import com.abc.daodian.shared.ui.SettingRow
 import com.abc.daodian.shared.ui.activityViewModel
-import java.text.Collator
-import java.time.Instant
-import java.time.LocalDate
 import java.time.LocalTime
-import java.time.ZoneId
-import java.util.Locale
-
-/*
- * 记账在设置里的两样：自己的设置页（收 / 整理 / 对账），设置首页「记账」那一行上的现状。
- * 通知使用权、监听连没连着在「权限与监听」页（DESIGN.md §2.3）。流程见 DESIGN.md §10。
- * 设计稿方向 A：https://claude.ai/artifact/VFmJaUSSQ4dEjbMN2FRmt2
- */
 
 /**
- * 记账的设置页：收（抓到的通知、听哪些 app）、整理（现在整理一次、整理间隔、整理员自己打标签）、对账（每晚对账）。
- * 「抓到的通知」排第一行 —— 来这里多半是看收到了没有
+ * 记账的设置页：整理（抓到的通知、现在整理一次、整理间隔、整理员自己打标签）、对账（每晚对账）。流程见 DESIGN.md §10。
+ * 和提醒的设置页一个样子：几组、每行右边是值；「抓到的通知」往下走一页看记录，同提醒页的「她发来的」。
+ * 通知的事（使用权、听哪些 app）不在这里，在「权限与监听」页（DESIGN.md §2.3）—— 这一页不放通知的行、不往那边跳
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LedgerSettingsScreen(onBack: () -> Unit, onOpenCapture: () -> Unit, onOpenApps: () -> Unit) {
+fun LedgerSettingsScreen(onBack: () -> Unit, onOpenCapture: () -> Unit) {
     val vm = activityViewModel<LedgerViewModel>()
     val colors = DaodianColors.current
-    val context = LocalContext.current
     val organizeHours by vm.organizeHours.collectAsState()
     val checkTime by vm.checkTime.collectAsState()
     val lastRun by vm.lastRun.collectAsState()
     val pendingRaws by vm.pendingRaws.collectAsState()
+    val rawCount by vm.rawCount.collectAsState()
     val organizing by vm.organizing.collectAsState()
     val organizerTags by vm.organizerTags.collectAsState()
-    val listened by vm.listened.collectAsState()
-    val today by vm.capturedToday.collectAsState()
-    val latest by vm.latestRaw.collectAsState()
     var pickingCheckTime by remember { mutableStateOf(false) }
     var pickingHours by remember { mutableStateOf(false) }
 
@@ -88,39 +69,21 @@ fun LedgerSettingsScreen(onBack: () -> Unit, onOpenCapture: () -> Unit, onOpenAp
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
         ) {
-            GroupLabel("收", top = 12.dp)
+            GroupLabel("整理", top = 12.dp)
             PaperGroup {
+                // 记录：说明写死，只有右边的条数会变 —— 打开时行高不跳
                 SettingRow(
                     title = "抓到的通知",
-                    note = received(context, today, latest) + " · " +
-                        (if (pendingRaws > 0) "待整理 $pendingRaws 条" else "漏了的点进去手动抓"),
+                    note = "付钱的通知原文，后来进了哪一笔。",
                     onClick = onOpenCapture
-                ) { ChevronRightIcon(size = 13.dp, tint = colors.muted) }
-                GroupRule()
-                val names = listened?.let { set ->
-                    val collator = Collator.getInstance(Locale.CHINA)
-                    set.map { AppCatalog.label(context, it) }.sortedWith(collator)
-                }
-                SettingRow(
-                    title = "听哪些 app",
-                    note = when {
-                        names == null -> null
-                        names.isEmpty() -> "一个都没勾，记不了账 —— 点进来勾上付了钱会发通知的 app"
-                        else -> names.joinToString("、")
-                    },
-                    noteColor = if (names?.isEmpty() == true) colors.red else colors.muted,
-                    onClick = onOpenApps
                 ) {
-                    if (!names.isNullOrEmpty()) {
-                        Text("${names.size} 个", style = DaodianType.settingValue, color = colors.ink)
+                    rawCount?.takeIf { it > 0 }?.let {
+                        Text("$it 条", style = DaodianType.settingValue, color = colors.ink)
                         Spacer(Modifier.width(10.dp))
                     }
                     ChevronRightIcon(size = 13.dp, tint = colors.muted)
                 }
-            }
-
-            GroupLabel("整理")
-            PaperGroup {
+                GroupRule()
                 SettingRow(
                     title = if (organizing) "正在整理……" else "现在整理一次",
                     note = runNote(lastRun, pendingRaws, organizing),
@@ -199,61 +162,6 @@ fun LedgerSettingsScreen(onBack: () -> Unit, onOpenCapture: () -> Unit, onOpenAp
             text = { TimePicker(state = state) }
         )
     }
-}
-
-/**
- * 设置首页「记账」那一行的现状。好着：第一行「今天收到 6 条 · 最近 14:02 招商银行」，第二行待整理几条、几点对账；
- * 收不进来（没勾 app、没开使用权、监听断了）：第一行换成红字说从几点起进不来，收到的挪到第二行
- */
-@Composable
-fun LedgerEntryStatus() {
-    val vm = activityViewModel<LedgerViewModel>()
-    val colors = DaodianColors.current
-    val context = LocalContext.current
-    val listened by vm.listened.collectAsState()
-    val today by vm.capturedToday.collectAsState()
-    val latest by vm.latestRaw.collectAsState()
-    val pendingRaws by vm.pendingRaws.collectAsState()
-    val checkTime by vm.checkTime.collectAsState()
-    val listener by Intake.listener.collectAsState()
-    // 从系统设置开完通知使用权回来，这一行要当场变
-    var granted by remember { mutableStateOf(Intake.granted(context)) }
-    LifecycleResumeEffect(Unit) {
-        granted = Intake.granted(context)
-        onPauseOrDispose { }
-    }
-    val problem = when {
-        listened?.isEmpty() == true -> "一个 app 都没勾，记不了账"
-        !granted -> "没开通知使用权，记不了账"
-        !listener.connected -> listener.since?.let { "监听断了 · ${clock(it)} 以后付的钱进不来" } ?: "监听没连上，付的钱进不来"
-        else -> null
-    }
-    val got = received(context, today, latest)
-    if (problem != null) {
-        Line(problem, colors.red)
-        Line(got, colors.muted)
-    } else {
-        Line(got, colors.ink2)
-        Line((if (pendingRaws > 0) "待整理 $pendingRaws 条" else "没有待整理的") + " · ${checkTime.toString().take(5)} 对账", colors.muted)
-    }
-}
-
-/** 「今天收到 6 条 · 最近 14:02 招商银行」「今天还没收到 · 上一条 9月29日 21:10 支付宝」「还没收到过」 */
-private fun received(context: android.content.Context, today: Int, latest: RawNotification?): String {
-    latest ?: return "还没收到过"
-    val last = "${clock(latest.capturedAt)} ${AppCatalog.label(context, latest.pkg)}"
-    return if (today > 0) "今天收到 $today 条 · 最近 $last" else "今天还没收到 · 上一条 $last"
-}
-
-/** 今天的写钟点，别的日子带上日期 */
-private fun clock(millis: Long): String {
-    val day = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
-    return if (day == LocalDate.now()) Format.clock(millis) else Format.humanDateTimeShort(millis)
-}
-
-@Composable
-private fun Line(text: String, color: Color) {
-    Text(text, style = DaodianType.settingNote, color = color)
 }
 
 /** 「上次 14:05 整理 · 看了 12 条，记了 5 笔 · 还有 3 条等下一轮」 */

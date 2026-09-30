@@ -1,27 +1,20 @@
 package com.abc.daodian.agent.shell
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -32,7 +25,6 @@ import com.abc.daodian.agent.memory.presentation.MemoryViewModel
 import com.abc.daodian.agent.model.provider.ApiState
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
-import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.ui.ChevronRightIcon
 import com.abc.daodian.shared.ui.GroupLabel
 import com.abc.daodian.shared.ui.GroupRule
@@ -43,12 +35,11 @@ import com.abc.daodian.shared.ui.SettingRow
 import com.abc.daodian.shared.ui.activityViewModel
 
 /**
- * 设置首页：一列入口，每行写着自己的现状，点进去才是设置。见 DESIGN.md §08
- * 设计稿方向 A：<https://claude.ai/artifact/VFmJaUSSQ4dEjbMN2FRmt2>
+ * 设置首页：一列入口，点进去才是设置。见 DESIGN.md §08
  *
- * 三组：助手（模型服务、记忆）、模块（各模块给的行，[FeatureUi.settingsEntries]）、系统（权限与监听）。
- * 体检结论不在这里，在「权限与监听」页（[PermissionsScreen]）；这里只在那一行上写一句，缺了就红。
- * 来设置多半是看「收到了没有」，所以模块那几行写的是现状（今天收到几条、最近一条几点），不是说明。
+ * 三组：助手（模型服务、记忆）、模块（一个模块一行，[FeatureUi.settingsEntries]）、系统（权限与监听）。
+ * 只往下走：每一页只链到自己底下的页，子页之间不互相跳。通知使用权、谁听哪些 app 只在「权限与监听」里，
+ * 模块页里不放通知的行。体检结论在「权限与监听」页（[PermissionsScreen]），这里只在那一行上写一句，缺了就红。
  */
 @Composable
 fun SettingsScreen(
@@ -107,14 +98,16 @@ fun SettingsScreen(
                 ) { ChevronRightIcon(size = 13.dp, tint = colors.muted) }
             }
 
-            // ---- 模块：每行写现状，点进模块自己的设置页 ----
+            // ---- 模块：一个模块一行，点进模块自己的设置页 ----
             val entries = uis.flatMap { it.settingsEntries }
             if (entries.isNotEmpty()) {
                 GroupLabel("模块")
                 PaperGroup {
                     entries.forEachIndexed { i, e ->
                         if (i > 0) GroupRule()
-                        EntryRow(e, onClick = { open(e.route) })
+                        SettingRow(title = e.title, note = e.note, onClick = { open(e.route) }) {
+                            ChevronRightIcon(size = 13.dp, tint = colors.muted)
+                        }
                     }
                 }
             }
@@ -142,27 +135,3 @@ fun SettingsScreen(
 /** 查得到、又没开的体检项，名字 */
 private fun missingHealth(context: android.content.Context): List<String> =
     FeatureRegistry.health(context).filter { it.ok == false }.map { it.label }
-
-/** 模块的一行：标题（带小标）、底下模块自己画的现状，行尾箭头 */
-@Composable
-private fun EntryRow(entry: SettingsEntry, onClick: () -> Unit) {
-    val colors = DaodianColors.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(start = 18.dp, end = 16.dp, top = 15.dp, bottom = 15.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(entry.title, style = DaodianType.rowTitle, color = colors.ink)
-                entry.tag?.let { Text(it, style = DaodianType.sectionLabel, color = colors.muted) }
-            }
-            // 一两行现状，行间同标题和第一行之间一样空 4dp（设计稿里是一列 gap 4）
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { entry.status() }
-        }
-        Spacer(Modifier.width(14.dp))
-        ChevronRightIcon(size = 13.dp, tint = colors.muted)
-    }
-}

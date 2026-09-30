@@ -19,9 +19,8 @@ interface FeatureUi {
     fun DrawerCard(open: (String) -> Unit) {}
 
     /**
-     * 设置首页「模块」那一组里的行，每行点进模块自己的设置页（一个模块可以给几行：提醒给「提醒」「派活」）。
-     * 行上写的是现状，不是说明 —— 你来设置多半是看「收到了没有」（设计稿方向 A：
-     * <https://claude.ai/artifact/VFmJaUSSQ4dEjbMN2FRmt2>）
+     * 设置首页「模块」那一组里的行，每行点进模块自己的设置页。一个模块一行，模块里的小功能（提醒里的派活）
+     * 在它自己的设置页里。行上写里面有什么，不写会变的现状 —— 读库的现状打开时会闪、行高会跳（DESIGN.md §08）
      */
     val settingsEntries: List<SettingsEntry> get() = emptyList()
 
@@ -45,16 +44,8 @@ interface FeatureUi {
     fun AskAddon(ref: String) {}
 }
 
-/**
- * 设置首页的一行：[title]（带个小标 [tag]，如「试验」）、底下 [status] 画一两行现状，点了去 [route]。
- * 现状是模块自己读自己的库画的，壳不认识
- */
-class SettingsEntry(
-    val title: String,
-    val route: String,
-    val tag: String? = null,
-    val status: @Composable () -> Unit
-)
+/** 设置首页的一行：[title]、底下一句 [note] 说里面有什么，点了去 [route] */
+class SettingsEntry(val title: String, val route: String, val note: String)
 
 /** 「权限与监听」那一行上的一句：[ok] 为 false 时写红字 */
 data class PermissionStatus(val text: String, val ok: Boolean)

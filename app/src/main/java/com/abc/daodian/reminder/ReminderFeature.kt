@@ -21,8 +21,6 @@ import com.abc.daodian.reminder.delivery.HealthCheck
 import com.abc.daodian.reminder.delivery.Notifier
 import com.abc.daodian.reminder.presentation.DeliveryNote
 import com.abc.daodian.reminder.presentation.ReminderDrawerCard
-import com.abc.daodian.reminder.presentation.RelayEntryStatus
-import com.abc.daodian.reminder.presentation.ReminderEntryStatus
 import com.abc.daodian.reminder.presentation.ReminderSettingsScreen
 import com.abc.daodian.reminder.presentation.ReminderViewModel
 import com.abc.daodian.reminder.presentation.edit.EditReminderScreen
@@ -117,10 +115,7 @@ object ReminderFeature : Feature, FeatureUi {
     @Composable
     override fun DrawerCard(open: (String) -> Unit) = ReminderDrawerCard(onOpen = { open(ReminderRoutes.LIST) })
 
-    override val settingsEntries = listOf(
-        SettingsEntry("提醒", ReminderRoutes.SETTINGS) { ReminderEntryStatus() },
-        SettingsEntry("派活", ReminderRoutes.RELAY, tag = "试验") { RelayEntryStatus() }
-    )
+    override val settingsEntries = listOf(SettingsEntry("提醒", ReminderRoutes.SETTINGS, "当天事项几点提醒、派活、投递日志"))
 
     @Composable
     override fun HealthNote() = DeliveryNote()

@@ -1,17 +1,17 @@
 package com.abc.daodian.ledger
 
 /**
- * 记账页面的路由：三层（总览 → 类别 → 一笔）和抓取页。听哪些 app 在通知监听层（IntakeRoutes.apps）。页面在 [LedgerFeature.routes] 注册；痕、通知要拉起某一页时也用这里的字符串。
+ * 记账页面的路由：三层（总览 → 类别 → 一笔）、抓取页、设置页。听哪些 app 在通知监听层（「权限与监听」页里勾）。页面在 [LedgerFeature.routes] 注册；痕、通知要拉起某一页时也用这里的字符串。
  */
 object LedgerRoutes {
     const val HOME = "ledger"
     const val CATEGORY = "ledger/category/{top}?income={income}&mode={mode}&day={day}"
     const val TXN = "ledger/txn/{id}"
 
-    /** 抓到的通知：监听状态、手动抓一下、原文。从记账设置页、记账总览底下进 */
+    /** 抓到的通知：待整理几条、原文。从记账设置页、记账总览底下「少了一笔？」进 */
     const val CAPTURE = "ledger/capture"
 
-    /** 记账的设置页：收 / 整理 / 对账。设置首页「记账」那一行进 */
+    /** 记账的设置页：整理（含抓到的通知）/ 对账。设置首页「记账」那一行进 */
     const val SETTINGS = "ledger/settings"
 
     /** [mode] 是 PeriodMode 的名字，[day] 是 yyyyMMdd */
