@@ -61,11 +61,11 @@
 
 ## 目录结构
 
-一个 Gradle 模块，包层面分三个模块 + 地基。依赖规则见 DESIGN.md §2.2。
+一个 Gradle 模块，包层面分三个模块、模块下面一层通知监听、最底下是地基。依赖规则见 DESIGN.md §2.2。
 
 ```text
 app/src/main/java/com/abc/daodian/
-├── DaodianApp.kt / MainActivity.kt / Features.kt   装配：模块清单、唯一的宿主 Activity
+├── DaodianApp.kt / MainActivity.kt / Features.kt   装配：模块清单、通知订阅者、唯一的宿主 Activity
 ├── agent/            智能交互。只认识 Feature / FeatureUi 接头，不知道提醒和账是什么
 │   ├── engine/         ReAct 循环、Session、工具接口、ask_user、上下文裁剪、后台 agent 与锁
 │   ├── model/          调一次模型（流式 / 回退 / 停）；provider/ 供应商配置、「测一下」
@@ -83,16 +83,20 @@ app/src/main/java/com/abc/daodian/
 │   ├── delivery/       通知、通知按钮、权限体检
 │   ├── tools/          create_reminder、提醒那段提示词、痕
 │   ├── widget/         桌面小组件
-│   └── presentation/   列表、编辑（逃生舱）、到点全屏页、投递日志
+│   ├── relay/          派活（试验版）：订阅通知，她在微信里说的话交给模型建成提醒
+│   └── presentation/   列表、编辑（逃生舱）、到点全屏页、投递日志、派活页
 ├── ledger/           记账
-│   ├── capture/        通知监听（PaySampler）、听哪几家、监听状态、手动补抓
+│   ├── capture/        订阅通知：勾了的 app 的通知原样存进 raw_notification
 │   ├── organize/       后台整理 agent
 │   ├── reconciliation/ 每晚对账
 │   ├── domain/         流水、类别、护栏
 │   ├── data/           ledger.db
 │   ├── tools/          查账 / 记账 / 改账 / 加类别、记账提示词、痕
 │   └── presentation/   总览、类别、一笔、抓取页
-└── shared/           地基：墨宋色板与字体、动效、手绘图标、通用组件、人话时间、Launch 路由
+├── intake/           通知监听。全 app 唯一的监听，按各模块勾的 app 分通知；只抓、只分，不存、不读懂（DESIGN.md §2.3）
+│   ├── data/           每个订阅者听哪些 app
+│   └── presentation/   「通知监听」页、通用的勾 app 页
+└── shared/           地基：墨宋色板与字体、动效、手绘图标、通用组件、人话时间、装了哪些 app、Launch 路由
 ```
 
 ## 构建
@@ -139,7 +143,7 @@ IDE 的 Android 插件支持的 AGP 上限
 - **应用启动管理** → 本 app → 关掉「自动管理」→ 三个开关全开（自启动 / 关联启动 / 后台活动）。**最关键，而且没有公开 API 能检测。**
 - **电池** → 取消对本 app 的省电策略
 - **最近任务** → 下拉本 app 的卡片 → 加锁
-- 设置页的体检会查另外五项有 API 可查的（精确闹钟、通知、渠道重要性、电池优化白名单、全屏通知），缺的直接给「去开」；记账要的通知使用权在设置页记账那一组。
+- 设置页的体检会查另外五项有 API 可查的（精确闹钟、通知、渠道重要性、电池优化白名单、全屏通知），缺的直接给「去开」；记账、派活要的通知使用权在设置页「通知监听」那一组。
 
 **验收是放置测试，不是「点一下能响」**：排 20 条覆盖未来 48 小时（含凌晨）的提醒，手机正常揣兜里用、别刻意打开 app，48 小时后看投递日志 —— 漂移全部 < 30 秒、来源全是 `ALARM` 才算过。细节见 DESIGN.md §9.3。
 

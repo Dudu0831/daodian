@@ -69,18 +69,29 @@
 |---|---|---|
 | **读懂**（网络） | 当场看得见；账还留在待整理里 | 闸门拦下回去问你、重试、手动兜底；账那一笔退回待整理，下一轮再来。**允许失败** |
 | **触发**（本地） | 三天后才发现房租忘了交 | 四重重排 + 兜底巡检 + 投递日志（§05）。**不允许失败** |
-| **采集**（本地） | 那笔钱永远不在账上 | 实时回调 + 连上 / 解锁 / 整理前扫通知栏 + 抓取页手动抓；原文永不删（§10.2）。**不允许失败** |
+| **采集**（本地） | 那笔钱永远不在账上 | 通知监听层（§2.3）：实时回调 + 连上 / 解锁 / 整理前扫通知栏 + 手动扫；原文永不删（§10.2）。**不允许失败** |
 
 整个 AI 层的风险加起来，都不如「闹钟没响」这一条。工程投入按这个比例分。
 
 ### 2.2 模块与接头
 
-一个 Gradle 模块，包层面分三个模块 + 地基（目录树见 [README](README.md)）：
+一个 Gradle 模块，包层面分三个模块、模块下面一层通知监听、最底下是地基（目录树见 [README](README.md)）：
 
 - **`agent`** 智能交互：循环、调模型、对话页、桌面速记、宿主壳（导航、抽屉、设置页和模型配置页的框）。**只认识接头，不知道提醒和账是什么。**
 - **`reminder`** 提醒：断网、不经过模型也要能用。触发路径全在它的 `scheduling/` 和 `data/` 里。
-- **`ledger`** 记账：自己在后台采集、整理、对账（§10）。
-- **`shared`** 地基：色板、字体、动效、通用组件、人话时间、`Launch`。谁也不依赖。
+- **`ledger`** 记账：自己在后台存通知、整理、对账（§10）。
+- **`intake`** 通知监听：全 app 唯一的通知监听，按你给各模块勾的 app 把通知分下去。只抓、只分，不存、不读懂（§2.3）。
+- **`shared`** 地基：色板、字体、动效、通用组件、人话时间、装了哪些 app、`Launch`。谁也不依赖。
+
+```
+agent            只认接头
+  ↑ 接头
+reminder    ledger     订阅 → 存进自己的库 → 读懂、生成数据
+    ↓ 订阅    ↓
+intake                 授权、连接、抓、按包名分发
+    ↓
+shared                 地基：没有状态
+```
 
 **接头**：模块用一个 object 同时实现两个接口，在 `Features.kt` 里列一行就接上了。加模块 = 新目录 + 一个接头 + 这里一行；抽屉里的纸、设置页的组也按这个顺序摆。
 
@@ -91,22 +102,71 @@
 
 **依赖规则**
 
-1. `agent` 不 import `reminder`、`ledger`，要什么都经接头拿。
+1. `agent` 不 import `reminder`、`ledger`、`intake`，要什么都经接头拿。
 2. `reminder`、`ledger` 互不 import。
-3. 模块的核心层不 import `agent`：提醒的 `domain / data / application / scheduling / delivery`，记账的 `domain / data / capture`。能 import `agent` 的只有接头文件、`tools/`、`presentation/`、`widget/`、`organize/`、`reconciliation/`。
+3. 模块的核心层不 import `agent`：提醒的 `domain / data / application / scheduling / delivery`，记账的 `domain / data / capture`。能 import `agent` 的只有接头文件、`tools/`、`presentation/`、`widget/`、`organize/`、`reconciliation/`，和提醒的 `relay/`（派活，试验版，里面有个后台 agent）。
 4. `shared` 不 import 任何模块。
 5. 跨模块跳转只用路由字符串。模块不 import `MainActivity`，从外面拉起 app 走 `shared/navigation/Launch`（`route` 去哪页、`trigger` 开一轮 app 发起的、`say` 替你发一句话）。
 6. 根目录只做装配。
+7. `intake` 的核心只 import `shared`，**永远**不 import `agent` 和任何模块；只有它的接头文件 `IntakeFeature.kt` 和 `presentation/` 碰界面壳。
+8. `reminder`、`ledger` 可以 import `intake` 的核心（`Notice`、`NoticeSubscriber`、`Intake`、`IntakeRoutes`），不 import 它的页面和接头。
 
-**路由**：agent 用 `chat`、`settings`、`provider`、`memory`；提醒 `reminder/list`、`reminder/edit?id=`、`reminder/log`；记账 `ledger`、`ledger/category/…`、`ledger/txn/{id}`、`ledger/capture`。
-路由常量放在 `ReminderRoutes` / `LedgerRoutes`，不挂在接头上 —— 通知、小组件（核心层）要用，又不该 import 接头。
+**路由**：agent 用 `chat`、`settings`、`provider`、`memory`；提醒 `reminder/list`、`reminder/edit?id=`、`reminder/log`、`reminder/relay`；记账 `ledger`、`ledger/category/…`、`ledger/txn/{id}`、`ledger/capture`；通知监听 `intake`、`intake/apps/{订阅者 id}`。
+路由常量放在 `ReminderRoutes` / `LedgerRoutes` / `IntakeRoutes`，不挂在接头上 —— 通知、小组件（核心层）要用，又不该 import 接头。
 
 **界面归属**：对话的画法（回合、问卡、痕、输入框、速记的纸）归 `agent`；模块自己的页面归各自的 `presentation/`；导航、抽屉、设置页、模型配置页的框归 `agent/shell`，内容由模块塞。
 ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、抽屉、设置组拿到同一份。
 
-**三个库互不牵连**：`reminder.db`（提醒、投递日志）、`chat.db`（对话、记忆、整理记录）、`ledger.db`（账）。对话表、账表出岔子，连累不到闹钟。以后改表都是 version + 1、在各自 `autoMigrations` 里加一条。
+**三个库互不牵连**：`reminder.db`（提醒、投递日志）、`chat.db`（对话、记忆、整理记录）、`ledger.db`（账）。对话表、账表出岔子，连累不到闹钟。以后改表都是 version + 1、在各自 `autoMigrations` 里加一条。通知监听层不落库，只有一个 DataStore 记每个订阅者勾了哪些 app。（派活试验版另有 `relay.db`，转正时再写进来。）
 
-**挪包 = 改全类名**。通知使用权、桌面小组件、已排的闹钟、WorkManager 的 Worker、Room 的 schemas 目录都按全类名记，挪了包的新版本要连数据卸载再装。
+**挪包 = 改全类名**。通知使用权（`intake/NoticeListenerService`）、桌面小组件、已排的闹钟、WorkManager 的 Worker、Room 的 schemas 目录都按全类名记，挪了包的新版本要连数据卸载再装；只挪了通知监听的，覆盖安装后重新开一次通知使用权就行。
+
+### 2.3 通知监听层（intake）
+
+记账要听支付通知，派活要听她的微信 —— 以后可能还有别的。**全 app 只有一个通知监听**：通知使用权按组件授，多一个就得让你再去系统设置里开一次。它放在模块下面一层，谁要听通知就来订阅。
+
+**只抓、只分，不存、不读懂。** 抓通知是「不允许失败」那条路（§2.1），越笨越可靠；读懂要联网、要叫模型，各模块的读法也完全不同（记账攒一批每 3 小时整理，派活来一句办一句），放进来它就得认识业务。它也不存任何内容：通知只进勾了它的那个模块的库。
+
+| | 监听层 | 订阅者（模块） |
+|---|---|---|
+| 通知使用权（按组件查）、连没连着、重连、冷启动催绑 | ✓ | |
+| 实时收 + 连上、解锁、手动扫、整理前扫 | ✓ | 可以喊它扫（`Intake.sweep`） |
+| 正文被遮蔽，5s / 30s / 2min 重读再投 | ✓ 标上 `redacted` | 自己定遮蔽版怎么算（记账：被替代，§10.2） |
+| 每个订阅者听哪些 app（路由表）、勾选页 | ✓ | 给名字、用途、红字、排前面的 |
+| 更细的规则（听谁、暗号、认得哪家银行的格式） | | ✓ |
+| 存原文、去重、读懂、生成数据 | | ✓ |
+
+**订阅**：实现 `intake/NoticeSubscriber`（`id`、`label`、`purpose`、可选的 `warn` / `suggested`、`accept`），在根目录 `Features.kt` 的 `SUBSCRIBERS` 里列一行。`DaodianApp` 启动时装进 `Intake`，比系统来绑监听早。眼下两个：记账 `ledger/capture/LedgerCapture`、派活 `reminder/relay/Relay`。
+
+**路由表**：每个订阅者听哪些 app，是你勾出来的，存在 intake 的 DataStore（`apps.<订阅者 id>`）。来一条通知只按包名查表 —— 包名是唯一一个所有订阅者都用得上、又不用看懂内容就能判断的维度。暗号这类规则留在订阅者：派活要记下她说的每一句（没带暗号的只是不交给模型），监听层先滤掉它就看不到了；而且判断「是不是她」得先认得微信的格式，那是订阅者的知识。
+
+**分发的规矩**（`intake/Router`，单元测试 `RouterTest`）：
+
+- 只交给勾了这个 app 的订阅者；谁都没勾的来了就扔。表里有、代码里没注册的 id 忽略。
+- 每个订阅者同时交、分开交：一个抛错、一个慢，都不耽误别的。
+- 同一条可能投不止一次（实时收一次，解锁、手动扫又扫到），订阅者按指纹去重。
+- `accept` 只做落库这种快事；叫模型的重活订阅者自己另起。扫通知栏要等所有订阅者的 `accept` 都返回才算完 —— 抓取页要报「新存几条」，整理前的扫描扫完才往下走。
+
+**勾选页**（`intake/presentation/AppPickerScreen`，路由 `intake/apps/{id}`，设计稿方向 A：<https://claude.ai/artifact/RyPMu2X4dK4Q9kCM1NfXLu>）：各订阅者共用一页，按 id 分开存。各模块的设置里放一行「听哪些 app」跳过来。
+
+- 列的是桌面上有图标的 app（manifest 里 `<queries>` 声明 MAIN / LAUNCHER，不申请 `QUERY_ALL_PACKAGES`），名字、图标从系统取（`shared/apps/AppCatalog`）。
+- 分两段：进来那一刻在听的在上面，其他在下面（订阅者说要排前面的在前，派活是聊天软件）；这一页里勾勾取取不挪位置，下次进来才排到上面。顶上能搜。
+- 行底下的红字由订阅者给（记账：勾聊天软件、短信会连聊天、验证码一起存下来发给模型）。只提醒，照样能勾。
+- 刚勾上的，当场扫一遍通知栏（`how = picked`）。取消勾选不删订阅者已经存下的。
+- 读不到应用列表时，顶上一行「读取应用列表」+「去开」，只列得出已经勾上的。荣耀不用额外授权就读得到（09-30）。
+
+**「通知监听」页**（`intake/status`，设置 → 通知监听）：使用权、连没连着（「重连」）、扫一遍；底下「谁在听」按模块列（点进勾选页），「按 app 看」列出每个 app 交给谁。同一个 app 两个模块都勾了，一条通知两边各收一份、各存各的。通知使用权**不算进体检结论**（§9.1）。
+
+**实时回调会丢**：真机上监听一直连着，一笔 199.90 的两条通知一条都没收到，约 10%（推测是荣耀冻结了进程）。所以**不能只靠实时回调**：连上时、解锁时、整理前都把通知栏扫一遍。只扫得到还挂在通知栏里的，划掉了的系统不留。
+
+**正文会被系统遮蔽**：招行通知有时收到的是「敏感数据已隐藏」，过几秒再读同一条就是全的。源头是 Android 15 对第三方监听的敏感内容遮蔽，豁免权限 `RECEIVE_SENSITIVE_NOTIFICATIONS` 是 `signature|role`，**我们永远拿不到**。荣耀的 `HnNotificationAssistant` 先用正则判（把「尾号8837的」当成验证码）立刻打上遮蔽，再异步用 TextClassifier 撤掉 —— 线程池满了第二步会被跳过，那条就永远是遮蔽版。对策：有订阅者收了遮蔽版，就隔 5s / 30s / 2min 各重读一次（实测 5 秒那次就拿到了），真正文到了再投一次。遮蔽的那句话直接问 framework 要（`Intake.REDACTED`），跟着系统语言走。
+
+**监听会断，而且断了没人知道**（反编译 Android 15 框架查的，不是猜的）：
+
+- 没绑上时 `getActiveNotifications()` 不报错，返回**空数组** —— 分不出「没连着」和「通知栏里没有」。所以扫之前先看连没连着，由 `NoticeListenerService` 连上 / 断开时报给 `Intake.listener`。
+- 系统只肯重绑「自己请求断开过」的监听（`ManagedServices.setComponentState` 状态没变就直接返回）。连着的要重连：先 `requestUnbind()` 再 `requestRebind()`；进程被杀后系统没自动绑回来的，app 里请了没用，只能去系统设置把通知使用权关掉再打开。冷启动时 `requestRebind` 催一下（`IntakeFeature.onAppStart`）。
+- **不用「禁用再启用组件」那一招**：Android 15 收到组件变化会清掉「查不到服务」的授权（`trimApprovedListsForInvalidServices`，查的时候不带 `MATCH_DISABLED_COMPONENTS`），一禁用使用权就没了。
+- 「通知使用权开没开」按组件查（`isNotificationListenerAccessGranted`），不按包名：挪包后旧组件名的授权还挂在包名下，按包名查会误报开着。
 
 ---
 
@@ -674,7 +734,7 @@ debug 包可以慢放看接缝：`adb shell run-as com.abc.daodian.debug sh -c '
 | 电池优化白名单 | `PowerManager.isIgnoringBatteryOptimizations()` |
 | 全屏 intent | `NotificationManager.canUseFullScreenIntent()` |
 
-体检项由各模块的 `Feature.health` 给，眼下只有提醒在给。记账的通知使用权在设置页记账那一组，不算进体检 —— 它挂了不影响提醒响。
+体检项由各模块的 `Feature.health` 给，眼下只有提醒在给。通知使用权在设置页「通知监听」那一组（§2.3），不算进体检 —— 它挂了记账、派活收不到，但不影响提醒响。
 
 ### 9.2 系统层面要手动设的
 
@@ -707,8 +767,8 @@ MagicOS 各版本菜单名有出入，按关键词找：
 
 ```
 ① 采集（一直在跑）
-   通知到达 → PaySampler → raw_notification（待整理）
-   实时回调会丢：连上时、解锁时、整理前都扫一遍通知栏，抓取页能手动抓（§10.2）
+   通知到达 → 通知监听层（§2.3）→ 记账勾了这个 app → LedgerCapture → raw_notification（待整理）
+   实时回调会丢：监听层连上时、解锁时、整理前都扫一遍通知栏，抓取页能手动抓
 ② 整理（默认每 3 小时，设置里可改）
    代码先数待整理的（不算最近 10 分钟到的）：0 条 → 睡，不花一分钱
    有 → 整理 agent 后台跑一轮：这批原始通知 + 类别表 + 商户记忆 + 关于你的记忆 + 最近 7 天的流水（最多 200 笔：花钱大多按周重复，看得到上周同一天那笔；也用来去重、找退款的原笔）
@@ -757,13 +817,9 @@ MagicOS 各版本菜单名有出入，按关键词找：
 
 ### 10.2 采集：通知给得出什么、会被遮蔽、会漏
 
-**听哪些 app 全由你勾**（设置 → 记账 →「听哪些 app」，`presentation/ListenAppsScreen`，设计稿方向 A：<https://claude.ai/artifact/RyPMu2X4dK4Q9kCM1NfXLu>）。没有内置的，新装默认一个都不听；监听收得到所有 app 的通知，没勾的来了就扔，一条都不存。
+抓通知、听哪些 app、连接、遮蔽后重读都归通知监听层（§2.3）。记账是它的一个订阅者（`capture/LedgerCapture`）：你给记账勾的 app 的通知交过来，**原样**存进 `raw_notification`，不解析。
 
-- 列的是桌面上有图标的 app（manifest 里 `<queries>` 声明 MAIN / LAUNCHER，不申请 `QUERY_ALL_PACKAGES`），名字、图标从系统取（`capture/AppCatalog`）。抓到的通知写哪家也用系统给的名字，卸载了的退回包名。
-- 页面分两段：进来那一刻在听的在上面，其他在下面；这一页里勾勾取取不挪位置，下次进来才排到上面。顶上能搜。
-- 勾上聊天软件（微信、QQ、钉钉、飞书）或默认短信 app 时，那一行写一句红字：聊天消息 / 验证码也会原样存下来、发给模型。只提醒，照样能勾 —— 付款通知和聊天是同一个 app 发的，代码分不开。
-- 刚勾上的，当场扫一遍通知栏，已经挂着的也收一份。取消勾选不删已经存下的原文（原文永不删）。
-- 读不到应用列表（系统不让看）时，页面顶上一行「读取应用列表」+「去开」，只列得出已经勾上的。荣耀会不会拦还没在真机上看过。
+**听哪些 app 全由你勾**（设置 → 记账 →「听哪些 app」，进监听层的勾选页 `intake/apps/ledger`）。没有内置的，新装默认一个都不听；没勾的来了就扔，一条都不存。勾上聊天软件（微信、QQ、钉钉、飞书）或默认短信 app 时，那一行写一句红字：聊天消息 / 验证码也会原样存下来、发给模型 —— 付款通知和聊天是同一个 app 发的，代码分不开。取消勾选不删已经存下的原文（原文永不删）。抓到的通知写哪家用系统给的名字，卸载了的退回包名。
 
 下面这张表是作者手机上那几家实测给得出什么（整理员的提示词里也写着，勾上了模型就认得）：
 
@@ -777,19 +833,11 @@ MagicOS 各版本菜单名有出入，按关键词找：
 - **商户名只有掌上生活给**。招行信用卡每一笔都会**同时**来招行 + 掌生两条（间隔 0.2~0.6 秒、金额一字不差）→ 必须合并成一笔。建行储蓄卡永远拿不到商户，只能靠模型猜或者问。
 - 营销噪音不少（立减金、优惠券、「咖啡爱好者看这里」），还有标题正文全空的分组汇总通知 —— 空的代码直接标忽略，其余交给模型。
 
-**正文会被系统遮蔽**：招行通知有时收到的是「敏感数据已隐藏」，过几秒再读同一条就是全的。源头是 Android 15 对第三方监听的敏感内容遮蔽，豁免权限 `RECEIVE_SENSITIVE_NOTIFICATIONS` 是 `signature|role`，**我们永远拿不到**。荣耀的 `HnNotificationAssistant` 先用正则判（把「尾号8837的」当成验证码）立刻打上遮蔽，再异步用 TextClassifier 撤掉 —— 线程池满了第二步会被跳过，那条就永远是遮蔽版。
-对策：遮蔽的隔 5s / 30s / 2min 各重读一次（实测 5 秒那次就拿到了）；同一个 `key + postTime` 真正文到了，**代码**把遮蔽版标「被替代」，不劳模型；只剩遮蔽版的，模型标「看不清」，对账时直接问你金额，不猜。
+**正文会被系统遮蔽**（为什么见 §2.3，重读由监听层做）：记账这边，同一个 `key + postTime` 真正文到了，**代码**把遮蔽版标「被替代」，不劳模型；只剩遮蔽版的，模型标「看不清」，对账时直接问你金额，不猜。
 
-**实时回调会丢**：真机上监听一直连着，一笔 199.90 的两条通知一条都没收到，约 10%（推测是荣耀冻结了进程）。所以**不能只靠实时回调**：连上时、解锁时、整理前都把通知栏扫一遍，去重按 `key | postTime | 正文` 指纹。只扫得到还挂在通知栏里的，划掉了的系统不留。
+**会漏、会重复**（为什么见 §2.3）：监听层实时收、连上 / 解锁 / 整理前扫，同一条可能交来好几次，记账按 `key | postTime | 正文` 指纹只存一次。只扫得到还挂在通知栏里的，划掉了的系统不留。
 
-**监听会断，而且断了没人知道**（反编译 Android 15 框架查的，不是猜的）：
-
-- 没绑上时 `getActiveNotifications()` 不报错，返回**空数组** —— 分不出「没连着」和「通知栏里没有」。所以扫之前先问 `isBound()`，连没连着由 `PaySampler` 连上 / 断开时报给 `PaySources.listener`。
-- 系统只肯重绑「自己请求断开过」的监听（`ManagedServices.setComponentState` 状态没变就直接返回）。连着的要重连：先 `requestUnbind()` 再 `requestRebind()`；进程被杀后系统没自动绑回来的，app 里请了没用，只能去系统设置把通知使用权关掉再打开。冷启动时 `requestRebind` 催一下。
-- **不用「禁用再启用组件」那一招**：Android 15 收到组件变化会清掉「查不到服务」的授权（`trimApprovedListsForInvalidServices`，查的时候不带 `MATCH_DISABLED_COMPONENTS`），一禁用使用权就没了。
-- 「通知使用权开没开」按组件查（`isNotificationListenerAccessGranted`），不按包名：挪包后旧组件名的授权还挂在包名下，按包名查会误报开着。
-
-**抓取页**（`ledger/capture` + `presentation/CaptureScreen`，设置 → 记账 →「抓到的通知」，或记账总览底下「少了一笔？」）：使用权、监听连没连着（「重连」）、最近一次实时收到、待整理几条；「现在抓一下」扫通知栏、等存完、报「挂着几条、新存几条」，没连着先请系统重绑；下面是最近 100 条原文，写着怎么抓到的、后来进了哪一笔。
+**抓取页**（`presentation/CaptureScreen`，设置 → 记账 →「抓到的通知」，或记账总览底下「少了一笔？」）：一行通知监听的状态（点了去「通知监听」页重连）、最近一次实时收到、待整理几条；「现在抓一下」让监听层扫通知栏、等存完、报「挂着几条、新存几条」，没连着先请系统重绑；下面是最近 100 条原文，写着怎么抓到的、后来进了哪一笔。
 
 ### 10.3 口径
 
