@@ -1,4 +1,4 @@
-package com.abc.daodian.ledger.presentation
+package com.abc.daodian.intake.presentation
 
 import android.content.Intent
 import android.net.Uri
@@ -61,11 +61,12 @@ import com.abc.daodian.shared.ui.SearchIcon
 import com.abc.daodian.shared.ui.SettingRow
 
 /**
- * 听哪些 app：上面一段是在听的，下面一段是其他装着的，顶上能搜。没有内置的，全由你勾（DESIGN.md §10.2）。
+ * 某个订阅者听哪些 app：上面一段是在听的，下面一段是其他装着的，顶上能搜。没有内置的，全由你勾（DESIGN.md §2.3）。
+ * 各订阅者共用这一页，按路由里的 id 分开存；顶上那句、行底下的红字、排在前面的由订阅者给。
  * 设计稿方向 A：https://claude.ai/artifact/RyPMu2X4dK4Q9kCM1NfXLu
  */
 @Composable
-fun ListenAppsScreen(vm: ListenAppsViewModel, onBack: () -> Unit) {
+fun AppPickerScreen(vm: AppPickerViewModel, onBack: () -> Unit) {
     val colors = DaodianColors.current
     val context = LocalContext.current
     val state by vm.state.collectAsState()
@@ -88,7 +89,7 @@ fun ListenAppsScreen(vm: ListenAppsViewModel, onBack: () -> Unit) {
                 checked = checked,
                 note = when {
                     a.pkg in state?.gone.orEmpty() -> "这台手机上找不到了"
-                    checked -> vm.alsoCaptures(a.pkg)
+                    checked -> vm.warn(a.pkg)
                     else -> null
                 },
                 warn = a.pkg !in state?.gone.orEmpty(),
@@ -97,8 +98,18 @@ fun ListenAppsScreen(vm: ListenAppsViewModel, onBack: () -> Unit) {
         }
     }
 
+    val subscriber = vm.subscriber
     Column(Modifier.fillMaxSize().background(colors.paper)) {
-        ScreenTopBar("听哪些 app", onBack)
+        ScreenTopBar(subscriber?.let { "${it.label}听哪些 app" } ?: "听哪些 app", onBack)
+        if (subscriber == null) {
+            Text(
+                "没有这个模块了。",
+                style = DaodianType.bodySmall,
+                color = colors.muted,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 28.dp)
+            )
+            return@Column
+        }
         LazyColumn(
             Modifier.weight(1f),
             contentPadding = WindowInsets.ime.union(WindowInsets.navigationBars).asPaddingValues()
@@ -106,7 +117,7 @@ fun ListenAppsScreen(vm: ListenAppsViewModel, onBack: () -> Unit) {
             item(key = "head") {
                 Column(Modifier.padding(horizontal = 16.dp)) {
                     Text(
-                        "勾上的 app 发的通知，原样存下来交给模型整理；没勾的，一条都不存。",
+                        subscriber.purpose,
                         style = DaodianType.settingNote,
                         color = colors.muted,
                         modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 2.dp)
@@ -160,7 +171,7 @@ fun ListenAppsScreen(vm: ListenAppsViewModel, onBack: () -> Unit) {
                         PaperGroup {
                             if (s.top.isEmpty()) {
                                 Text(
-                                    "还一个都没勾。银行、支付宝这类付了钱会发通知的 app 勾上，记账才收得到。",
+                                    "还一个都没勾。",
                                     style = DaodianType.settingNote,
                                     color = colors.muted,
                                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 15.dp)

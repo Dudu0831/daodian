@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
@@ -18,7 +17,8 @@ import com.abc.daodian.agent.feature.TraceView
 import com.abc.daodian.agent.feature.Trigger
 import com.abc.daodian.agent.shell.AppNav
 import com.abc.daodian.agent.shell.FeatureUi
-import com.abc.daodian.ledger.capture.PaySources
+import com.abc.daodian.intake.IntakeRoutes
+import com.abc.daodian.ledger.capture.LedgerCapture
 import com.abc.daodian.ledger.data.LedgerStore
 import com.abc.daodian.ledger.domain.LedgerDays
 import com.abc.daodian.ledger.domain.LedgerText
@@ -33,7 +33,6 @@ import com.abc.daodian.ledger.presentation.LedgerOverviewScreen
 import com.abc.daodian.ledger.presentation.LedgerSettingsSection
 import com.abc.daodian.ledger.presentation.LedgerTxnScreen
 import com.abc.daodian.ledger.presentation.LedgerViewModel
-import com.abc.daodian.ledger.presentation.ListenAppsScreen
 import com.abc.daodian.ledger.presentation.Period
 import com.abc.daodian.ledger.presentation.PeriodMode
 import com.abc.daodian.ledger.reconciliation.LedgerCheck
@@ -51,7 +50,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
- * 记账接到 agent 上的接头。记账自己在后台转：听通知（capture）、定期整理（organize）、每晚对账（reconciliation）；
+ * 记账接到 agent 上的接头。记账自己在后台转：存通知（capture，通知是监听层分过来的）、定期整理（organize）、每晚对账（reconciliation）；
  * 这里把它交给对话 agent 和界面壳：查 / 记 / 改 / 加类别四个工具和那段提示词、痕、每晚对账那一轮、三层页面、抽屉卡、设置组。
  */
 object LedgerFeature : Feature, FeatureUi {
@@ -112,7 +111,6 @@ object LedgerFeature : Feature, FeatureUi {
 
     override fun onAppStart(context: Context) {
         val app = context.applicationContext
-        PaySources.rebind(app)
         // 排上定期整理、排上每晚对账
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             runCatching { OrganizeWorker.schedule(app) }
@@ -120,7 +118,7 @@ object LedgerFeature : Feature, FeatureUi {
         }
     }
 
-    // ---------------- 界面：总览 → 类别 → 一笔，只看不改，改账回对话；外加抓取页、听哪些 app ----------------
+    // ---------------- 界面：总览 → 类别 → 一笔，只看不改，改账回对话；外加抓取页 ----------------
 
     override fun NavGraphBuilder.routes(nav: AppNav) {
         composable(LedgerRoutes.HOME) {
@@ -180,13 +178,9 @@ object LedgerFeature : Feature, FeatureUi {
             CaptureScreen(
                 vm = activityViewModel<CaptureViewModel>(),
                 onBack = nav::back,
-                onOpenTxn = { nav.open(LedgerRoutes.txn(it)) }
+                onOpenTxn = { nav.open(LedgerRoutes.txn(it)) },
+                onOpenListener = { nav.open(IntakeRoutes.STATUS) }
             )
-        }
-
-        // 按这一页取 ViewModel（不是按 Activity）：每次进来重新分「在听的 / 其他」两段
-        composable(LedgerRoutes.APPS) {
-            ListenAppsScreen(vm = viewModel(), onBack = nav::back)
         }
     }
 
@@ -196,7 +190,7 @@ object LedgerFeature : Feature, FeatureUi {
     @Composable
     override fun SettingsSection(open: (String) -> Unit) = LedgerSettingsSection(
         onOpenCapture = { open(LedgerRoutes.CAPTURE) },
-        onOpenApps = { open(LedgerRoutes.APPS) }
+        onOpenApps = { open(IntakeRoutes.apps(LedgerCapture.id)) }
     )
 
     /** 对账问卡上一笔底下的「＋ 打标签」（设计稿方向 B） */

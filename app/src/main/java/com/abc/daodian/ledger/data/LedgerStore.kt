@@ -3,8 +3,8 @@ package com.abc.daodian.ledger.data
 import android.content.Context
 import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
+import com.abc.daodian.intake.Notice
 import com.abc.daodian.shared.apps.AppCatalog
-import com.abc.daodian.ledger.capture.PaySources
 import com.abc.daodian.ledger.data.db.Account
 import com.abc.daodian.ledger.data.db.Allocation
 import com.abc.daodian.ledger.data.db.Category
@@ -69,28 +69,20 @@ class LedgerStore private constructor(
      * 遮蔽版和真正文的关系在这里就理清，不劳模型：真正文到了，之前的遮蔽版标 SUPERSEDED；
      * 真正文已经在库里了才来的遮蔽版，直接存成 SUPERSEDED。
      */
-    suspend fun ingest(
-        pkg: String,
-        key: String,
-        postTime: Long,
-        title: String?,
-        text: String?,
-        extra: String?,
-        extras: String,
-        how: String,
-        capturedAt: Long = System.currentTimeMillis()
-    ): Boolean = db.withTransaction {
-        val redacted = text?.contains(PaySources.REDACTED) == true
+    suspend fun ingest(n: Notice, capturedAt: Long = System.currentTimeMillis()): Boolean = db.withTransaction {
+        val key = n.key
+        val postTime = n.postTime
+        val redacted = n.redacted
         val state = when {
-            title.isNullOrBlank() && text.isNullOrBlank() -> RawState.IGNORED
+            n.title.isNullOrBlank() && n.text.isNullOrBlank() -> RawState.IGNORED
             redacted && dao.countReal(key, postTime) > 0 -> RawState.SUPERSEDED
             else -> RawState.PENDING
         }
         val id = dao.insertRaw(
             RawNotification(
-                pkg = pkg, notifKey = key, postTime = postTime, title = title, text = text, extra = extra,
-                extras = extras, capturedAt = capturedAt, capturedHow = how,
-                fingerprint = "$key|$postTime|${text.orEmpty()}",
+                pkg = n.pkg, notifKey = key, postTime = postTime, title = n.title, text = n.text, extra = n.extra,
+                extras = n.extras, capturedAt = capturedAt, capturedHow = n.how,
+                fingerprint = "$key|$postTime|${n.text.orEmpty()}",
                 redacted = redacted, state = state,
                 stateNote = if (state == RawState.IGNORED) "空通知（分组汇总）" else null,
                 processedAt = if (state == RawState.PENDING) null else capturedAt

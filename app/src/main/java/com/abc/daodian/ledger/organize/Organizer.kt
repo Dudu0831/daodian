@@ -13,7 +13,7 @@ import com.abc.daodian.agent.memory.MemoryBook
 import com.abc.daodian.agent.model.ResponsesClient
 import com.abc.daodian.agent.model.provider.ApiHealth
 import com.abc.daodian.agent.model.provider.ProviderStore
-import com.abc.daodian.ledger.capture.PaySources
+import com.abc.daodian.intake.Intake
 import com.abc.daodian.ledger.data.LedgerSettings
 import com.abc.daodian.ledger.data.LedgerStore
 import com.abc.daodian.ledger.data.db.AgentRun
@@ -33,7 +33,6 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
@@ -92,9 +91,8 @@ object Organizer {
         val store = LedgerStore.get(context)
         val dao = store.dao
 
-        // 先让采集器把通知栏扫一遍：丢了的实时回调、遮蔽后还没补回来的，趁这时候捞一把
-        PaySources.sweep(context)
-        delay(1500)
+        // 先让监听把通知栏扫一遍：丢了的实时回调、遮蔽后还没补回来的，趁这时候捞一把。扫完、存完才往下走
+        Intake.sweep("organize")
 
         val before = System.currentTimeMillis() - if (respectCooldown) COOLDOWN_MILLIS else 0
         if (dao.countPendingRaws(before) == 0) return Result.Idle

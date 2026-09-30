@@ -1,6 +1,5 @@
 package com.abc.daodian.ledger.presentation
 
-import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,13 +33,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import com.abc.daodian.shared.apps.AppCatalog
-import com.abc.daodian.ledger.capture.PaySources
+import com.abc.daodian.intake.Intake
 import com.abc.daodian.ledger.data.db.RawState
+import com.abc.daodian.shared.apps.AppCatalog
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
-import com.abc.daodian.shared.ui.FixLink
+import com.abc.daodian.shared.ui.ChevronRightIcon
 import com.abc.daodian.shared.ui.GroupRule
 import com.abc.daodian.shared.ui.Marker
 import com.abc.daodian.shared.ui.PaperGroup
@@ -51,7 +50,8 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 /*
- * 抓到的通知（抓取页）：监听连没连着、手动抓一下、存下来的原文，一条条看。
+ * 抓到的通知（抓取页）：手动抓一下、存下来的原文，一条条看。监听本身（使用权、连没连着、重连）
+ * 归通知监听层，这里只写一行状态，点了去那一页（DESIGN.md §2.3）。
  *
  * 调研时有过一个临时采样页，记账转正时删了；09-24 用户发现通知还是会漏抓，放回来。
  * 为什么会漏见 DESIGN.md §10.2：实时回调会丢（荣耀冻进程），监听也会断（系统不一定绑回来）。
@@ -59,7 +59,7 @@ import java.time.ZoneId
  */
 
 @Composable
-fun CaptureScreen(vm: CaptureViewModel, onBack: () -> Unit, onOpenTxn: (Long) -> Unit) {
+fun CaptureScreen(vm: CaptureViewModel, onBack: () -> Unit, onOpenTxn: (Long) -> Unit, onOpenListener: () -> Unit) {
     val colors = DaodianColors.current
     val context = LocalContext.current
     val listener by vm.listener.collectAsState()
@@ -69,18 +69,14 @@ fun CaptureScreen(vm: CaptureViewModel, onBack: () -> Unit, onOpenTxn: (Long) ->
     val lastPosted by vm.lastPosted.collectAsState()
     val organizing by vm.organizing.collectAsState()
     val action by vm.action.collectAsState()
-    var granted by remember { mutableStateOf(PaySources.granted(context)) }
+    var granted by remember { mutableStateOf(Intake.granted(context)) }
     // 从系统设置开完通知使用权回来，当场变
     LifecycleResumeEffect(Unit) {
-        granted = PaySources.granted(context)
+        granted = Intake.granted(context)
         onPauseOrDispose { }
     }
     var expanded by remember { mutableStateOf(emptySet<Long>()) }
-    val busy = action == CaptureAction.Grabbing || action == CaptureAction.Reconnecting
-
-    fun openGrant() {
-        runCatching { context.startActivity(PaySources.grantIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-    }
+    val busy = action == CaptureAction.Grabbing
 
     Column(Modifier.fillMaxSize().background(colors.paper)) {
         ScreenTopBar("抓到的通知", onBack)
@@ -88,32 +84,17 @@ fun CaptureScreen(vm: CaptureViewModel, onBack: () -> Unit, onOpenTxn: (Long) ->
             item(key = "status") {
                 Column(Modifier.padding(horizontal = 16.dp)) {
                     PaperGroup {
+                        val ok = granted && listener.connected
                         SettingRow(
-                            title = "通知使用权",
-                            note = if (granted) null else "没开，一条都抓不到 —— 点这里去系统设置里打开「到点」",
-                            noteColor = colors.red,
-                            onClick = ::openGrant,
-                            leading = { Marker(granted) }
+                            title = "通知监听",
+                            note = if (granted) listenerNote(listener) else "没开通知使用权，一条都抓不到 —— 点进去打开",
+                            noteColor = if (ok) colors.muted else colors.red,
+                            onClick = onOpenListener,
+                            leading = { Marker(ok) }
                         ) {
-                            if (granted) Text("开着", style = DaodianType.settingValue, color = colors.muted) else FixLink()
+                            ChevronRightIcon(size = 13.dp, tint = colors.muted)
                         }
                         if (granted) {
-                            GroupRule()
-                            SettingRow(
-                                title = "监听",
-                                note = listenerNote(listener),
-                                noteColor = if (listener.connected) colors.muted else colors.red,
-                                leading = { Marker(listener.connected) }
-                            ) {
-                                Text(
-                                    if (action == CaptureAction.Reconnecting) "在重连……" else "重连",
-                                    style = DaodianType.caption,
-                                    color = if (busy) colors.hint else colors.accent,
-                                    modifier = Modifier
-                                        .clickable(enabled = !busy) { vm.reconnect() }
-                                        .padding(start = 12.dp, top = 6.dp, bottom = 6.dp)
-                                )
-                            }
                             GroupRule()
                             SettingRow(
                                 title = "最近一次实时收到",
@@ -143,7 +124,7 @@ fun CaptureScreen(vm: CaptureViewModel, onBack: () -> Unit, onOpenTxn: (Long) ->
                             .height(50.dp)
                             .alpha(if (busy) 0.55f else 1f)
                             .background(colors.solid, RoundedCornerShape(25.dp))
-                            .clickable(enabled = !busy) { if (granted) vm.grab() else openGrant() },
+                            .clickable(enabled = !busy) { if (granted) vm.grab() else onOpenListener() },
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -156,7 +137,7 @@ fun CaptureScreen(vm: CaptureViewModel, onBack: () -> Unit, onOpenTxn: (Long) ->
                             color = colors.onSolid
                         )
                     }
-                    ActionResult(action, onFix = ::openGrant)
+                    ActionResult(action, onFix = onOpenListener)
                     Text(
                         "只抓勾上的 app（设置 → 记账 → 听哪些 app），而且只抓得到还挂在通知栏里的；从通知栏划掉了的，系统不留，抓不回来。",
                         style = DaodianType.caption,
@@ -216,13 +197,13 @@ fun CaptureScreen(vm: CaptureViewModel, onBack: () -> Unit, onOpenTxn: (Long) ->
 }
 
 /** 「连着 · 今天 09:12 起」「断了 · 今天 10:30」「这次打开 app 以来还没连上过」 */
-private fun listenerNote(l: PaySources.Listener): String = when {
+private fun listenerNote(l: Intake.Listener): String = when {
     l.connected -> "连着" + (l.since?.let { " · ${LedgerFormat.recent(it)} 起" } ?: "")
-    l.since != null -> "断了 · ${LedgerFormat.recent(l.since)} —— 点「重连」，或者直接「现在抓一下」"
-    else -> "这次打开 app 以来还没连上过 —— 点「重连」，或者直接「现在抓一下」"
+    l.since != null -> "断了 · ${LedgerFormat.recent(l.since)} —— 点进去重连，或者直接「现在抓一下」"
+    else -> "这次打开 app 以来还没连上过 —— 点进去重连，或者直接「现在抓一下」"
 }
 
-/** 按钮下面一行：刚才抓 / 重连的结果 */
+/** 按钮下面一行：刚才抓的结果 */
 @Composable
 private fun ActionResult(action: CaptureAction, onFix: () -> Unit) {
     val colors = DaodianColors.current
@@ -235,9 +216,8 @@ private fun ActionResult(action: CaptureAction, onFix: () -> Unit) {
             }
             (if (action.reconnected) "监听断了，重连上了。" else "") + "${Format.clock(action.at)} 抓了一次：$what" to false
         }
-        is CaptureAction.Reconnected -> "${Format.clock(action.at)} 重连上了" to false
         is CaptureAction.NotConnected ->
-            "${Format.clock(action.at)} 监听没连上，系统不肯把它绑回来。去系统设置把「到点」的通知使用权关掉再打开 ›" to true
+            "${Format.clock(action.at)} 监听没连上，系统不肯把它绑回来。去把「到点」的通知使用权关掉再打开 ›" to true
         else -> return
     }
     Text(

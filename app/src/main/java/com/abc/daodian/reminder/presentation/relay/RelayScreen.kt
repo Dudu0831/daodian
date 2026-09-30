@@ -1,7 +1,5 @@
 package com.abc.daodian.reminder.presentation.relay
 
-import android.content.Intent
-import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,10 +18,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
@@ -36,21 +32,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.abc.daodian.intake.IntakeRoutes
 import com.abc.daodian.reminder.ReminderRoutes
+import com.abc.daodian.reminder.relay.Relay
 import com.abc.daodian.reminder.relay.RelayMessage
 import com.abc.daodian.reminder.relay.RelayStatus
 import com.abc.daodian.reminder.relay.state
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
-import com.abc.daodian.shared.ui.CheckIcon
 import com.abc.daodian.shared.ui.ChevronRightIcon
-import com.abc.daodian.shared.ui.FixLink
 import com.abc.daodian.shared.ui.GroupLabel
 import com.abc.daodian.shared.ui.GroupRule
 import com.abc.daodian.shared.ui.Marker
@@ -59,18 +52,17 @@ import com.abc.daodian.shared.ui.ScreenTopBar
 import com.abc.daodian.shared.ui.SettingRow
 
 /**
- * 派活（试验版）：听哪个 app、听谁、暗号，底下是她发来的每一句和办成了什么。
+ * 派活（试验版）：听谁、暗号，底下是她发来的每一句和办成了什么。通知监听、听哪些 app 各一行，点了去监听层那两页。
  * 还没出设计稿，版式照设置页的纸凑的；验下来要留再按设计稿重画。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RelayScreen(vm: RelayViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) {
     val colors = DaodianColors.current
-    val context = LocalContext.current
     val settings by vm.settings.collectAsState()
     val messages by vm.messages.collectAsState()
     val seen by vm.seen.collectAsState()
-    val connected by vm.connected.collectAsState()
+    val listener by vm.listener.collectAsState()
     val apps by vm.apps.collectAsState()
     var granted by rememberSaveable { mutableStateOf(true) }
     LifecycleResumeEffect(Unit) {
@@ -91,7 +83,6 @@ fun RelayScreen(vm: RelayViewModel, onBack: () -> Unit, onOpen: (String) -> Unit
         var who by rememberSaveable { mutableStateOf(s.who) }
         var code by rememberSaveable { mutableStateOf(s.code) }
         var trial by rememberSaveable { mutableStateOf("") }
-        var showAll by rememberSaveable { mutableStateOf(false) }
 
         LazyColumn(
             Modifier.weight(1f),
@@ -103,66 +94,32 @@ fun RelayScreen(vm: RelayViewModel, onBack: () -> Unit, onOpen: (String) -> Unit
                         "试验版。她在微信里给你发一句，这里接住，交给模型建成提醒。她那边什么都不用装。\n" +
                             "微信里要开「新消息通知 → 通知显示消息详情」；开着和她的聊天窗口时微信不发通知，那几句接不到。"
                     )
-                    GroupLabel("通知监听")
+                    GroupLabel("通知")
                     PaperGroup {
-                        if (!granted || !connected) {
-                            SettingRow(
-                                title = if (!granted) "没给通知使用权" else "监听没连着",
-                                note = if (!granted) "和记账用的是同一个，去系统设置里打开「到点」"
-                                else "去系统设置把「到点」的通知使用权关掉再打开",
-                                noteColor = colors.red,
-                                onClick = {
-                                    runCatching {
-                                        context.startActivity(
-                                            Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        )
-                                    }
-                                },
-                                leading = { Marker(false) }
-                            ) { FixLink() }
-                        } else {
-                            SettingRow(
-                                title = "连着",
-                                note = vm.sweepNote ?: "漏了的话点右边，把通知栏里挂着的再过一遍",
-                                leading = { Marker(true) }
-                            ) {
-                                Text(
-                                    "扫一遍", style = DaodianType.caption, color = colors.accent,
-                                    modifier = Modifier.clickable { vm.sweep() }.padding(horizontal = 6.dp, vertical = 8.dp)
-                                )
-                            }
-                        }
-                    }
-
-                }
-            }
-
-            item(key = "apps-label") {
-                Column(Modifier.padding(horizontal = 16.dp)) {
-                    GroupLabel("听哪个 app · ${s.apps.size}")
-                }
-            }
-            val list = apps
-            if (list == null) {
-                item(key = "apps-loading") { Note("在看手机上装了哪些 app……", Modifier.padding(horizontal = 20.dp)) }
-            } else {
-                val shown = if (showAll) list else list.filter { it.pkg in s.apps || vm.isChat(it.pkg) }
-                item(key = "apps") {
-                    Column(Modifier.padding(horizontal = 16.dp)) {
-                        PaperGroup {
-                            shown.forEachIndexed { i, a ->
-                                if (i > 0) GroupRule()
-                                AppLine(a.label, checked = a.pkg in s.apps) { vm.setApp(a.pkg, it) }
-                            }
-                            if (!showAll) {
-                                if (shown.isNotEmpty()) GroupRule()
-                                SettingRow(title = "别的 app", note = "只列了聊天软件和短信", onClick = { showAll = true }) {
-                                    ChevronRightIcon(size = 13.dp, tint = colors.muted)
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        Note("和记账勾的分开：这里勾上微信，记账不会因此存微信的通知。")
+                        val ok = granted && listener.connected
+                        SettingRow(
+                            title = "通知监听",
+                            note = when {
+                                !granted -> "没开通知使用权，一句都收不到 —— 点进去打开"
+                                !listener.connected -> "监听没连着 —— 点进去重连"
+                                else -> "连着 · 和记账共用一个监听"
+                            },
+                            noteColor = if (ok) colors.muted else colors.red,
+                            onClick = { onOpen(IntakeRoutes.STATUS) },
+                            leading = { Marker(ok) }
+                        ) { ChevronRightIcon(size = 13.dp, tint = colors.muted) }
+                        GroupRule()
+                        val names = apps
+                        SettingRow(
+                            title = "听哪些 app",
+                            note = when {
+                                names == null -> null
+                                names.isEmpty() -> "一个都没勾 —— 点进来勾上微信"
+                                else -> names.joinToString("、")
+                            },
+                            noteColor = if (names?.isEmpty() == true) colors.red else colors.muted,
+                            onClick = { onOpen(IntakeRoutes.apps(Relay.id)) }
+                        ) { ChevronRightIcon(size = 13.dp, tint = colors.muted) }
                     }
                 }
             }
@@ -182,9 +139,9 @@ fun RelayScreen(vm: RelayViewModel, onBack: () -> Unit, onOpen: (String) -> Unit
                                         Chip(name, on = name == who) { who = name; vm.setWho(name) }
                                     }
                                 }
-                            } else if (s.apps.isEmpty()) {
+                            } else if (apps?.isEmpty() == true) {
                                 Spacer(Modifier.height(8.dp))
-                                Note("先在下面勾上微信，她再发一句（或者通知栏里挂着她的消息），这里就有名字可挑。")
+                                Note("先在上面「听哪些 app」里勾上微信，她再发一句（或者通知栏里挂着她的消息），这里就有名字可挑。")
                             }
                         }
                     }
@@ -293,26 +250,6 @@ private fun MessageLine(m: RelayMessage, onOpen: (String) -> Unit, onRetry: () -
                 Text(detail, style = DaodianType.settingNote, color = colors.muted, modifier = Modifier.weight(1f))
                 if (state == RelayStatus.CREATED) ChevronRightIcon(size = 12.dp, tint = colors.muted)
             }
-        }
-    }
-}
-
-@Composable
-private fun AppLine(label: String, checked: Boolean, onToggle: (Boolean) -> Unit) {
-    val colors = DaodianColors.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .toggleable(value = checked, role = Role.Checkbox, onValueChange = onToggle)
-            .padding(start = 18.dp, end = 16.dp, top = 13.dp, bottom = 13.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label, style = DaodianType.rowTitle, color = colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        Box(
-            Modifier.size(20.dp).border(1.3.dp, if (checked) colors.accent else colors.rule2, RoundedCornerShape(4.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            if (checked) CheckIcon(size = 13.dp, tint = colors.accent, strokeWidth = 1.6.dp)
         }
     }
 }

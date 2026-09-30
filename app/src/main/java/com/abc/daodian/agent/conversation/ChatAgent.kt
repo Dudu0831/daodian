@@ -31,9 +31,9 @@ import com.abc.daodian.agent.prompt.BasePrompt
  */
 object ChatAgent {
 
-    /** 各段都是常量，拼起来逐字节稳定（前缀缓存） */
+    /** 各段都是常量，拼起来逐字节稳定（前缀缓存）。没有提示词的模块（通知监听层）不占位置 */
     val system: String
-        get() = (listOf(BasePrompt.SYSTEM) + FeatureRegistry.features.map { it.prompt }).joinToString("\n\n")
+        get() = (listOf(BasePrompt.SYSTEM) + FeatureRegistry.features.map { it.prompt }.filter { it.isNotBlank() }).joinToString("\n\n")
 
     fun tools(context: Context): List<Tool> =
         listOf(AskUserTool(), EditMemoryTool(MemoryBook.get(context))) +

@@ -96,6 +96,7 @@ internal object LedgerFormat {
         how == "unlock" -> "解锁时扫到"
         how == "organize" || how == "manual" -> "整理前扫到"
         how == "tap" -> "手动抓"
+        how == "picked" -> "勾上时扫到"
         how.startsWith("retry+") -> "遮蔽后重读"
         how == "import" -> "导入"
         else -> how

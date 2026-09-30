@@ -15,7 +15,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!--
-      记账「听哪些 app」要列出手机上装了哪些 app（DESIGN.md §10.2）。只要桌面上有图标的，
+      通知监听层的「听哪些 app」要列出手机上装了哪些 app（DESIGN.md §2.3）。只要桌面上有图标的，
       用 <queries> 声明就够，不申请 QUERY_ALL_PACKAGES
     -->
     <queries>
@@ -128,14 +128,14 @@
         </receiver>
 
         <!--
-            记账：支付通知原样存进 ledger.db，由整理 agent 读懂（DESIGN.md §10）。类名还叫 PaySampler ——
-            「通知使用权」按组件名授，改名要重新授权。
+            通知监听层：全 app 唯一的通知监听，按你给各模块勾的 app 把通知分给记账、派活（DESIGN.md §2.3）。
+            「通知使用权」按组件名授，这个类改名、挪包都要重新授权。
             exported 必须 true（系统来绑），BIND_NOTIFICATION_LISTENER_SERVICE 保证只有系统绑得上。
         -->
         <service
-            android:name=".ledger.capture.PaySampler"
+            android:name=".intake.NoticeListenerService"
             android:exported="true"
-            android:label="到点 · 支付通知采样"
+            android:label="到点 · 通知监听"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />

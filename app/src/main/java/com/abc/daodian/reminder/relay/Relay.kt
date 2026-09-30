@@ -6,15 +6,17 @@ import android.app.PendingIntent
 import android.content.Context
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import com.abc.daodian.intake.Notice
+import com.abc.daodian.intake.NoticeSubscriber
 import com.abc.daodian.reminder.ReminderRoutes
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase
 import com.abc.daodian.reminder.data.dueDate
 import com.abc.daodian.reminder.domain.ReminderText
 import com.abc.daodian.reminder.domain.Rrule
+import com.abc.daodian.shared.apps.AppCatalog
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.navigation.Launch
-import com.abc.daodian.shared.notify.NoticeHub
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,11 +31,21 @@ import kotlinx.coroutines.sync.withLock
 /**
  * 派活（试验版）：她在微信里给你发一句，这里接住，交给模型建成提醒。
  *
- * 通知从 [NoticeHub] 来（记账那个监听分过来的）。只认你勾的 app、通知标题是她名字的那些；
+ * 它是通知监听层的一个订阅者（DESIGN.md §2.3）：你在「通知监听」里给派活勾的 app（微信），通知才会交到这里。
+ * 更细的规则是这里自己的：只认通知标题是她名字的那些，微信的「[3条]」「备注名: 」自己剥；
  * 她说的每一句都记进 `relay.db`，设了暗号的只把暗号开头的交给模型（[RelayAgent]），没设就句句都交。
- * 建成了弹一条通知告诉你，点开是那条提醒。
+ * 叫模型是重活，[accept] 只落库，模型另起一个协程办。建成了弹一条通知告诉你，点开是那条提醒。
  */
-object Relay : NoticeHub.Sink {
+object Relay : NoticeSubscriber {
+
+    override val id = "relay"
+
+    override val label = "派活"
+
+    override val purpose = "勾上的 app 里，「听谁」那个人发来的话记下来，交给模型建成提醒。别人发的只记名字（在内存里，给你挑人），不存、不发给模型。"
+
+    /** 派活听的是聊天：聊天软件、短信排前面 */
+    override fun suggested(context: Context, pkg: String): Boolean = AppCatalog.isChat(pkg) || AppCatalog.isSms(context, pkg)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -45,9 +57,9 @@ object Relay : NoticeHub.Sink {
     /** 最近在勾上的 app 里发过消息的人（通知标题），「听谁」那一栏给你挑。只在内存里、只记名字 */
     val seen: StateFlow<List<String>> = _seen.asStateFlow()
 
-    override suspend fun take(context: Context, notice: NoticeHub.Notice) {
+    /** 监听层只会交来给派活勾了的 app 的通知，包名不用再看 */
+    override suspend fun accept(context: Context, notice: Notice) {
         val s = RelaySettings.read(context)
-        if (notice.pkg !in s.apps) return
         val title = notice.title?.let(::cleanTitle)?.takeIf { it.isNotBlank() } ?: return
         _seen.update { (listOf(title) + it).distinct().take(SEEN_MAX) }
         if (s.who.isBlank() || title != s.who) return

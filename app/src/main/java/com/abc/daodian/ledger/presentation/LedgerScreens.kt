@@ -42,7 +42,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.abc.daodian.ledger.capture.PaySources
+import com.abc.daodian.intake.Intake
 import com.abc.daodian.ledger.domain.Actor
 import com.abc.daodian.ledger.domain.Direction
 import com.abc.daodian.ledger.domain.ExpenseQuery
@@ -291,7 +291,7 @@ fun LedgerOverviewScreen(
             if (slices.isEmpty() && data != null) {
                 Text(
                     when {
-                        !PaySources.granted(context) -> "没开通知使用权，记不了账 —— 设置里打开"
+                        !Intake.granted(context) -> "没开通知使用权，记不了账 —— 设置 → 通知监听"
                         listened?.isEmpty() == true -> "一个 app 都没勾，记不了账 —— 设置 → 记账 → 听哪些 app"
                         else -> "这段时间还没有账"
                     },

@@ -42,7 +42,7 @@ class ReminderViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 派活听谁（试验版）。设置页那一行写它 */
     val relay = RelaySettings.flow(app)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RelaySettings.Values(emptySet(), "", ""))
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RelaySettings.Values("", ""))
 
     fun setDayCheckTime(time: LocalTime) = viewModelScope.launch { Reminders.setDayCheckTime(getApplication(), time) }
 
