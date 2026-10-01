@@ -19,7 +19,7 @@
 
 **不做**
 
-- 多用户、账号、云同步、跨设备 —— 没有后端，一行服务端代码都不写
+- 多用户、账号、云同步、跨设备 —— 没有后端，一行服务端代码都不写（内测的检查更新只是官网服务器上的两个静态文件，§11.2）
 - 上架应用商店 —— 所以不受 Google Play 的权限政策约束（§5.2）
 - 日历同步、分享、协作、项目管理
 
@@ -956,3 +956,33 @@ MagicOS 各版本菜单名有出入，按关键词找：
 | 币种列 | 只记人民币；真遇到外币再加一列 |
 | 预算 | 没提需求 |
 | 界面上改账 | 改账一律走对话，账本页只读。**标签例外**：账单页、对账问卡上直接挂、取下 —— 只是贴个签，不动钱和类别，走一趟对话太重 |
+
+---
+
+## 11 内测：签名、发版、更新、诊断
+
+10-01 开始发给别人用。原则：**别人手机上的数据只能往前升、不能丢；出了问题，不靠 adb 也拿得到证据。**
+
+### 11.1 签名与包
+
+- release 包用 `daodian-release.keystore` 签（根目录，和 `keystore.properties` 里的密码一起 gitignored，另有备份）。证书 SHA-256 `19be2f07…4f4eb8`，发版脚本核这个指纹，对不上不发。**签名文件丢了 = 发出去的包再也覆盖不上，所有人只能卸载重装、丢数据。**
+- release 包的模型配置**留空**（`buildTypes.release` 把 `LLM_*` 盖成空串），装上后在配置页自己填 key。不把谁的 key 编进包：费用是谁的说不清，key 也能从包里解出来。`secrets.properties` 只进 debug 包。
+- debug 包是 `com.abc.daodian.debug`，release 是 `com.abc.daodian`：两个 app，数据不互通。同时装着会响两遍、抓两份。
+- **发出去之后就不能再「连数据卸载」**：组件的全类名（通知监听、小组件、Worker、`AlarmActivity`）不再挪；改表只走 Room 的 migration，不许 destructive；包名 `com.abc.daodian` 不改。
+
+### 11.2 发版与检查更新
+
+- 版本号：每发一个包 versionCode +1（同号、降号覆盖不上），versionName 走 `0.1.x`。每发一版打一个 `v<versionName>` 的 tag。
+- 新包放在官网那台服务器的 `/srv/daodian-app`，网址 `https://104-168-64-160.sslip.io/app/`：`daodian-<版本>.apk` 加一份 `latest.json`（versionCode、versionName、url、size、notes）。和官网分目录，官网部署的 `rsync --delete` 碰不到；Caddy 那段在 `daodian-web/deploy/Caddyfile`，`latest.json` 不缓存、不进访问统计。
+- 发版用 `scripts/publish.sh "这一版改了什么"`：打 release → 核签名指纹 → 确认 versionCode 比线上大 → **先传包、再换 `latest.json`**（app 看到新版时包一定已经在）。脚本里有服务器地址和 root 登录，**gitignored、只在本机**。
+- app 这边（`agent/update/Updates.kt`）：开 app 时查一次，回到设置页再查（一小时内不重复），点「版本」那行马上查；查不到就当没有，不打扰。有新版：设置「版本」那行朱砂字 + 这一版的 notes，抽屉「设置」那行写「有新版本」（体检缺项时让位给红字）。点了交给系统 DownloadManager 下（离开 app 也接着下，通知栏有进度），下完交给系统安装器 —— 同签名、更大的 versionCode，就是覆盖升级，数据都在。第一次要去系统里许「安装未知应用」，回来再点一次。debug 包不查。
+- 服务器在洛杉矶，大陆下 85MB 要一会儿。嫌慢就把包挪到国内对象存储，只改 `latest.json` 里的 url，app 不用动。
+
+### 11.3 崩溃记录与导出诊断
+
+内测的人手机上 logcat 看不到（这台 ROM 屏蔽第三方）、release 包不能 `run-as`、trace 文件只在 debug 包写 —— CLAUDE.md「怎么拿证据」那套全失效。所以：
+
+- **崩溃记录**（`agent/diagnostics/CrashLog`）：`DaodianApp.onCreate` 第一件事装上；崩了先把版本、机型、线程、堆栈写进 `files/crash/`，再交还系统原来的处理（照样弹「已停止运行」）。留最近 10 份。
+- **导出诊断**（设置 → 系统 →「导出诊断」，`agent/diagnostics/Diagnostics`）：生成一份 txt，交给系统分享（发微信）。7 天内崩过，这一行变红写次数。内容：版本、机型、ROM、时区、电池优化、精确闹钟、系统下一个闹钟是谁排的；模型服务（模型名、网关主机名、key 填没填）；体检；各模块一段；最近 5 次崩溃。
+- **只写状态和数，不写内容**：没有对话、记忆、提醒标题、金额、商户、通知原文、key。各模块那一段由 `Feature.diagnostics` 交上来（提醒：各状态条数、排着的下次时刻、最近 30 次响的漂移、派活收到的结果；记账：近 7 天每个 app 抓了几条、账的状态、最近 10 次整理 / 对账；通知监听：使用权、连没连着、谁听哪些包名）。加模块、加段的时候守这条；读库用 `rows()` 只数数、看状态列。
+
