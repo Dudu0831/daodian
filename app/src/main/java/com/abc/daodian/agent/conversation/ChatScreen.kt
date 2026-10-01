@@ -13,6 +13,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,9 +47,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -58,7 +61,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -78,6 +83,9 @@ private val ordinals = listOf("一", "二", "三", "四", "五", "六", "七", "
 
 /** 流停了之后再贴底跟一小段：等卡片落印、下面几行错峰展开完 */
 private const val FOLLOW_TAIL_NANOS = 900_000_000L
+
+/** 发出去之后等键盘收起、先不贴底跟随，最多等这么久（荣耀上键盘收起那段 inset 动画四百来毫秒） */
+private const val IME_HOLD_NANOS = 700_000_000L
 
 /**
  * 对话页 —— app 主屏。见 DESIGN.md §08 界面，视觉稿 Main / Parsing / Clarify / Failed 四块画板
@@ -110,6 +118,10 @@ fun ChatScreen(
 
     // 贴底跟随。一个回合在原地长大时条数不变，只盯条数的话新长出来的部分会掉到屏幕外
     var follow by remember { mutableStateOf(true) }
+    // 键盘还开着就发出去了：到这个时刻之前、键盘没收完就先不跟（见 send）
+    val ime = WindowInsets.ime
+    val density = LocalDensity.current
+    var imeHoldUntil by remember { mutableLongStateOf(0L) }
 
     // 麦克风：和桌面速记同一套本地识别（VoiceInput，见 DESIGN.md 决策 8.3）。
     // 边说边把字写进输入框，接在已经打了的字后面；说完不自动发 —— 这里是能改字的地方，改好了自己按发送
@@ -184,9 +196,11 @@ fun ChatScreen(
         val tailUntil = System.nanoTime() + FOLLOW_TAIL_NANOS
         while (vm.aiBusy || System.nanoTime() < tailUntil) {
             withFrameNanos { }
-            if (!listState.canScrollForward) continue
+            if (ime.getBottom(density) > 0 && System.nanoTime() < imeHoldUntil) continue
+            val gap = listState.distanceToEnd()
+            if (gap <= 0) continue
             try {
-                listState.scrollBy(1_000_000f)
+                listState.scrollBy(gap.toFloat())
             } catch (e: CancellationException) {
                 // 你的手指优先级更高，会把这一下挤掉 —— 只有这个协程本身被取消才往外抛
                 if (!isActive) throw e
@@ -204,7 +218,7 @@ fun ChatScreen(
             lastHeight = height
             if (shrink <= 0 || height == 0) return@collect
             try {
-                listState.scrollBy(if (follow) 1_000_000f else shrink.toFloat())
+                listState.scrollBy((if (follow) listState.distanceToEnd() else shrink).toFloat())
             } catch (e: CancellationException) {
                 if (!isActive) throw e
             }
@@ -214,6 +228,10 @@ fun ChatScreen(
     fun send(text: String) {
         if (text.isBlank()) return
         if (vm.aiBusy && asking == null) return
+        // 发出去输入框就压暗、键盘跟着收（问卡在等时输入框还能打字，键盘不收）。气泡和墨条加在末尾、
+        // 还压在输入框后面：这时贴底跟随会先把列表往上推，紧接着整页又跟着键盘往下落一大截，一上一下。
+        // 等键盘收完再跟 —— 收的这一路它们自己从输入框后面露出来，列表只往下落
+        if (asking == null && ime.getBottom(density) > 0) imeHoldUntil = System.nanoTime() + IME_HOLD_NANOS
         vm.sendMessage(text)
         cancelListening()
         input = ""
@@ -225,6 +243,14 @@ fun ChatScreen(
         follow = true
         vm.startTrigger(p.key)
     }
+
+    // 挪位动画只给有条目进出的那一帧（发一句、喊停撤回、重试抹掉、对账那段虚线来去），下一帧就收回。
+    // 库把「滚动」以外的位移全当挪位：键盘收放、输入框变高变矮、回合原地长大、贴底跟随滚得和实际差一点，
+    // 都会让每一条拖在后面慢慢追 —— 键盘收起时整屏消息抖动变形就是这么来的。这些变化一律直接到位
+    val itemKeys = remember(messages, pending?.key) { messages.map { it.id } + listOfNotNull(pending?.key) }
+    var placedKeys by remember { mutableStateOf(itemKeys) }
+    val placement: FiniteAnimationSpec<IntOffset>? = if (itemKeys != placedKeys) Motion.flow() else null
+    SideEffect { placedKeys = itemKeys }
 
     val running by vm.running.collectAsState()
     val manualEntry = remember { FeatureRegistry.manualEntry }
@@ -271,7 +297,7 @@ fun ChatScreen(
                     ) {
                         items(messages, key = { it.id }) { msg ->
                             // 进场各自有戏（气泡升起、回合展开），这里只管挪位和退场
-                            Box(Modifier.animateItem(fadeInSpec = null, placementSpec = Motion.flow(), fadeOutSpec = Motion.exit())) {
+                            Box(Modifier.animateItem(fadeInSpec = null, placementSpec = placement, fadeOutSpec = Motion.exit())) {
                                 when (msg) {
                                     is ChatMessage.UserText -> if (msg.trigger) TriggerDivider(msg) else UserBubble(msg)
                                     is ChatMessage.AssistantTurn -> {
@@ -296,7 +322,7 @@ fun ChatScreen(
                         }
                         pending?.let { p ->
                             item(key = "pending:${p.key}") {
-                                Box(Modifier.animateItem(fadeInSpec = Motion.flow(), placementSpec = Motion.flow(), fadeOutSpec = Motion.exit())) {
+                                Box(Modifier.animateItem(fadeInSpec = Motion.flow(), placementSpec = placement, fadeOutSpec = Motion.exit())) {
                                     PendingTriggerBlock(p, onGo = { startPending(p) }, onDismiss = { vm.dismissTrigger(p.key) })
                                 }
                             }
@@ -369,6 +395,18 @@ fun ChatScreen(
             )
         }
     }
+}
+
+/**
+ * 按上一次排版，离贴底还差多少像素；最后一条还没排进来就先算一屏，下一帧接着滚。
+ * 贴底不能 scrollBy 一个大数了事：这一帧内容要是变矮了（墨条收起、「在记账」那行换上来），列表实际得往回滚，
+ * 库却把请求的整个数当成「滚过了」交给挪位动画 —— 每一条都被挪到一百万像素外再慢慢拉回来，整屏白一下
+ */
+private fun LazyListState.distanceToEnd(): Int {
+    val info = layoutInfo
+    val last = info.visibleItemsInfo.lastOrNull() ?: return 0
+    if (last.index < info.totalItemsCount - 1) return info.viewportSize.height
+    return (last.offset + last.size - (info.viewportEndOffset - info.afterContentPadding)).coerceAtLeast(0)
 }
 
 /**
