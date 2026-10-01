@@ -37,7 +37,7 @@ export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 
 真机是荣耀 LGE-AN10（Android 15），一直连着 USB。`adb devices` 偶尔连不上，`adb kill-server && adb start-server` 能救。
 
-**内测发版**：`scripts/publish.sh "这一版改了什么"`。先在 `app/build.gradle.kts` 把 versionCode +1、改 versionName（同号、降号脚本会拒）。脚本打 release、核签名指纹、把包和 `latest.json` 传到官网服务器的 `/srv/daodian-app`（`https://104-168-64-160.sslip.io/app/`），装了旧版的人在设置 →「版本」那行看到、点一下就覆盖升级。release 签名靠根目录的 `keystore.properties` + `daodian-release.keystore`（都 gitignored，另有备份）；**签名文件丢了，发出去的包再也覆盖不上**。release 包的模型配置是空的，装上自己填。debug 包不查更新。
+**内测发版**：`scripts/publish.sh "这一版改了什么"`（脚本里有服务器地址和 root 登录，gitignored、只在本机，换电脑要自己拷）。先在 `app/build.gradle.kts` 把 versionCode +1、改 versionName（同号、降号脚本会拒）。脚本打 release、核签名指纹、把包和 `latest.json` 传到官网服务器的 `/srv/daodian-app`（`https://104-168-64-160.sslip.io/app/`），装了旧版的人在设置 →「版本」那行看到、点一下就覆盖升级。release 签名靠根目录的 `keystore.properties` + `daodian-release.keystore`（都 gitignored，另有备份）；**签名文件丢了，发出去的包再也覆盖不上**。release 包的模型配置是空的，装上自己填。debug 包不查更新。
 
 `secrets.properties`（gitignored）只是模型配置的种子（只进 debug 包）；里面那个 `gpt-5.6-sol` 旧网关已经 503，app 里要在配置页换成火山方舟（`https://ark.cn-beijing.volces.com/api/plan/v3`，模型 `deepseek-v4.1-flash`）。
 
