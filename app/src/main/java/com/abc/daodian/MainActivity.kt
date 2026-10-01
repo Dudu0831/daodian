@@ -39,8 +39,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        request = Launch.requestOf(intent)
-        WidgetFrame.remember(this, intent)
+        // 只在头一次创建时读：切深色、转屏重建时 intent 还是上一个，再读一遍会把速记交过来的那句话重发一次
+        if (savedInstanceState == null) {
+            request = Launch.requestOf(intent)
+            WidgetFrame.remember(this, intent)
+        }
         // 全屏绘制：窗口不再为键盘自己缩一次，inset 只有 Compose 这一个来源。
         // 少了这行，键盘弹起时窗口缩一遍、imePadding 再顶一遍，输入框会飞到半空。
         enableEdgeToEdge()

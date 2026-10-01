@@ -64,9 +64,10 @@ fun AppNavHost(
 ) {
     val uis = remember { FeatureRegistry.features.filterIsInstance<FeatureUi>() }
 
-    fun toChat() = navController.navigate(ShellRoutes.CHAT) {
-        popUpTo(ShellRoutes.CHAT) { inclusive = true }
-        launchSingleTop = true
+    // 回对话页：把上面的页弹掉，对话页还是原来那一个。以前是连对话页一起弹掉再新建一个，
+    // 已经在对话页时也会新旧两页叠着淡变一遍、滚动位置不同，整屏内容叠影跳动（速记交话、对账通知「现在」都走这里）
+    fun toChat() {
+        if (!navController.popBackStack(ShellRoutes.CHAT, inclusive = false)) navController.navigate(ShellRoutes.CHAT)
     }
 
     val nav = remember(navController) {
