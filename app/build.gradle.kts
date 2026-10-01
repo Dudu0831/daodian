@@ -15,6 +15,12 @@ val secrets = Properties().apply {
 fun secret(key: String, fallback: String = ""): String =
     (secrets.getProperty(key) ?: fallback).replace("\\", "\\\\").replace("\"", "\\\"")
 
+// release 签名。keystore.properties 和签名文件都不进 git（见 .gitignore）；缺了就打不签名的包，不挡构建。
+// 签名文件丢了 = 发出去的包再也覆盖不上，内测的人只能卸载重装、丢数据。务必另外备份
+val keystoreProps = Properties().apply {
+    rootProject.file("keystore.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+
 android {
     namespace = "com.abc.daodian"
     compileSdk = 35
@@ -27,8 +33,9 @@ android {
         applicationId = "com.abc.daodian"
         minSdk = 34          // 见 README「minSdk 从 33 改到 34」。34 才是真正的「零版本分支」边界
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.0.1"
+        // 发出去的每个包 versionCode 都要 +1：同号、降号覆盖不上
+        versionCode = 2
+        versionName = "0.1.0"
 
         // 本地语音识别（sherpa-onnx）的 native 库四个 ABI 加起来 70MB+，真机只要 arm64 那份
         ndk { abiFilters += "arm64-v8a" }
@@ -36,6 +43,20 @@ android {
         buildConfigField("String", "LLM_BASE_URL",  "\"${secret("LLM_BASE_URL")}\"")
         buildConfigField("String", "LLM_API_KEY",   "\"${secret("LLM_API_KEY")}\"")
         buildConfigField("String", "LLM_MODEL",     "\"${secret("LLM_MODEL")}\"")
+
+        // 内测的检查更新（agent/update/Updates.kt）：新包和 latest.json 在官网服务器的 /app/ 下，scripts/publish.sh 传
+        buildConfigField("String", "UPDATE_FEED", "\"https://104-168-64-160.sslip.io/app/latest.json\"")
+    }
+
+    signingConfigs {
+        if (keystoreProps.getProperty("storeFile") != null) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
@@ -49,6 +70,11 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfigs.findByName("release")?.let { signingConfig = it }
+            // 发给别人的包不带任何人的 key：模型配置留空，装上后在配置页自己填
+            buildConfigField("String", "LLM_BASE_URL", "\"\"")
+            buildConfigField("String", "LLM_API_KEY",  "\"\"")
+            buildConfigField("String", "LLM_MODEL",    "\"\"")
         }
     }
 

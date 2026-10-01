@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import com.abc.daodian.agent.update.Updates
 import com.abc.daodian.agent.conversation.ChatViewModel
 import com.abc.daodian.agent.entry.quick.WidgetFrame
 import com.abc.daodian.agent.shell.AppNavHost
@@ -43,6 +44,8 @@ class MainActivity : ComponentActivity() {
         // 全屏绘制：窗口不再为键盘自己缩一次，inset 只有 Compose 这一个来源。
         // 少了这行，键盘弹起时窗口缩一遍、imePadding 再顶一遍，输入框会飞到半空。
         enableEdgeToEdge()
+        // 内测的检查更新：开 app 时查一次，有新版本抽屉的「设置」那行就写出来
+        Updates.check()
 
         // POST_NOTIFICATIONS 是唯一需要运行时申请的权限，见设计文档 §5.2
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)

@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 内测的检查更新：下完新包交给系统安装器（agent/update/Updates.kt） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- 桌面速记的语音输入（本地识别，自己录音）。只在第一次点小组件墨印时才弹授权，见 DESIGN.md §8.3 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
@@ -155,5 +157,15 @@
             </intent-filter>
         </receiver>
 
+        <!-- 「导出诊断」生成的文本交给分享（agent/diagnostics/Diagnostics.kt），只开放 cache/diag 这一个目录 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.diag"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/diag_paths" />
+        </provider>
     </application>
 </manifest>

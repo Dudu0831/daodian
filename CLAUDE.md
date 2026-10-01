@@ -37,7 +37,9 @@ export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 
 真机是荣耀 LGE-AN10（Android 15），一直连着 USB。`adb devices` 偶尔连不上，`adb kill-server && adb start-server` 能救。
 
-`secrets.properties`（gitignored）只是模型配置的种子；里面那个 `gpt-5.6-sol` 旧网关已经 503，app 里要在配置页换成火山方舟（`https://ark.cn-beijing.volces.com/api/plan/v3`，模型 `deepseek-v4.1-flash`）。
+**内测发版**：`scripts/publish.sh "这一版改了什么"`。先在 `app/build.gradle.kts` 把 versionCode +1、改 versionName（同号、降号脚本会拒）。脚本打 release、核签名指纹、把包和 `latest.json` 传到官网服务器的 `/srv/daodian-app`（`https://104-168-64-160.sslip.io/app/`），装了旧版的人在设置 →「版本」那行看到、点一下就覆盖升级。release 签名靠根目录的 `keystore.properties` + `daodian-release.keystore`（都 gitignored，另有备份）；**签名文件丢了，发出去的包再也覆盖不上**。release 包的模型配置是空的，装上自己填。debug 包不查更新。
+
+`secrets.properties`（gitignored）只是模型配置的种子（只进 debug 包）；里面那个 `gpt-5.6-sol` 旧网关已经 503，app 里要在配置页换成火山方舟（`https://ark.cn-beijing.volces.com/api/plan/v3`，模型 `deepseek-v4.1-flash`）。
 
 云端会话（claude.ai/code）默认拉不到 `dl.google.com`，AGP / androidx 装不上，app 编不了。要在那边编译，得在环境的网络设置里放行 `dl.google.com`。
 
@@ -50,6 +52,7 @@ export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
   - 响没响、准不准：app 内「投递日志」页 / `fire_log` 表
   - 语音：debug 包 `files/quick_trace.txt` 里 `voice ←` 那几行
   - 库：`adb exec-out run-as com.abc.daodian.debug cat databases/<名字>.db > <名字>.db`（连 `-wal`、`-shm` 一起拷），再 `sqlite3`
+- **内测的人那边**（release 包，不能 run-as、没有 trace 文件）：让对方点设置 →「导出诊断」发过来。里面是版本、机型、体检、闹钟排期和最近 30 次响的漂移、派活收到的、各 app 抓了几条、整理 / 对账成没成、最近 5 次崩溃的堆栈（崩溃记在 `files/crash/`，`agent/diagnostics/CrashLog`）。只有状态和数，不带对话、标题、金额、通知原文；各模块的那一段在 `Feature.diagnostics`，加的时候守这条
 - **到点全屏页只能靠肉眼或录屏**：`AlarmActivity` 是 `exported=false`，`am start` 起不来；关屏后隔几十秒截图只拍到黑屏（用户已经关掉了）；`appops` 里那条 `USE_FULL_SCREEN_INTENT rejectTime` 也不能当证据。
 - `adb install -r` 在这台机器上**不一定重启 app 进程**，装完用 `ps` 看启动时间，不然跑的还是旧代码。
 - adb 打不了中文，用 adb 测的句子都是英文。
@@ -105,6 +108,7 @@ export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 - **储蓄卡的退款是「收入」**：整理员记成收入，对话里挂不上原笔（方向改不了）。现在 `update_expenses` 能改方向（§10.3、§10.6 第 15 条）。
 - **记账总览切日月季年闪一下**：一切就扔掉上一份数据，先画成 0 再弹回来。现在新的读回来之前接着画上一份，一帧换掉（`LedgerOverviewScreen`）。
 - **清账本要连对话一起清**，不然模型以为清单上的几笔已经处理过（§10.7 第 9 条）。
+- **点快了进错页、连退两层**：切页动画那段时间旧页还接得到点击（库默认淡变 700ms，页面最外层的 `background` 不拦点击）。现在切页改成 180ms，当前页没到 `RESUMED` 之前在 NavHost 上面盖一层吞掉点击（§8.1）。
 - **打开 app 先闪一下空对话**：记录读回来之前不画空状态、开屏按住（§6.1）。
 - **09-30 之前的版本升上来，记账先一条都不收**：听哪些 app 改成全由你勾、默认一个不听，装完去设置 →「权限与监听」→ 谁在听 → 记账，把支付宝、招商银行、掌上生活、建设银行勾上（§10.2）。
 - **挪包之后装新包要连数据卸载**：通知使用权、小组件、闹钟、WorkManager 都按全类名记（§2.2）。

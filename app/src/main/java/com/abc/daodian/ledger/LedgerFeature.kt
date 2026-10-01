@@ -1,5 +1,6 @@
 package com.abc.daodian.ledger
 
+import kotlinx.coroutines.withContext
 import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -109,6 +110,9 @@ object LedgerFeature : Feature, FeatureUi {
         val names = tags.joinToString("、")
         return AskNote(short = names, told = "这笔挂着标签「$names」（他在问卡上点的也在里面），已经挂好了，别再打")
     }
+
+    override suspend fun diagnostics(context: Context): String =
+        withContext(Dispatchers.IO) { LedgerDiagnostics.build(context) }
 
     override fun onAppStart(context: Context) {
         val app = context.applicationContext

@@ -1,5 +1,6 @@
 package com.abc.daodian.reminder
 
+import kotlinx.coroutines.withContext
 import android.content.Context
 import android.util.Log
 import androidx.compose.runtime.Composable
@@ -67,6 +68,9 @@ object ReminderFeature : Feature, FeatureUi {
     )
 
     override val manualEntry = ReminderRoutes.NEW
+
+    override suspend fun diagnostics(context: Context): String =
+        withContext(Dispatchers.IO) { ReminderDiagnostics.build(context) }
 
     override fun health(context: Context): List<HealthItem> =
         HealthCheck.run(context).map { HealthItem(it.label, it.ok, it.detail, it.fixIntent) } +

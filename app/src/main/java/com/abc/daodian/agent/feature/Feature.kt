@@ -70,6 +70,12 @@ interface Feature {
     /** 体检项：挂了会让这个模块的核心功能失效的系统权限 */
     fun health(context: Context): List<HealthItem> = emptyList()
 
+    /**
+     * 「导出诊断」里这个模块的一段（`agent/diagnostics/Diagnostics`）。内测的人发给开发者看的，
+     * **只写状态和数**：响得准不准、排没排上、收了几条、整理成没成。提醒标题、金额、商户、通知原文都不写。没有就是 null
+     */
+    suspend fun diagnostics(context: Context): String? = null
+
     /** 冷启动（包括被闹钟、广播拉起的进程）要做的事。在主线程上调，耗时的自己开协程 */
     fun onAppStart(context: Context) {}
 }

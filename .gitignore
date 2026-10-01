@@ -12,3 +12,11 @@ build/
 .cxx
 *.apk
 *.keystore
+
+# release 签名的密码
+keystore.properties
+*.jks
+scripts/publish.sh
+
+# 发版脚本里有服务器地址和 root 登录，只留在本机
+scripts/publish.sh

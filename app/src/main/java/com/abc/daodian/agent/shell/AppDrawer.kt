@@ -17,10 +17,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.abc.daodian.agent.update.Updates
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.ui.SettingsIcon
@@ -29,7 +32,7 @@ import com.abc.daodian.shared.ui.SettingsIcon
  * 左边的抽屉（设计稿方向 B「两张纸」：<https://claude.ai/artifact/PRk3CWeu24V4tKZgxkGLwn>）。
  *
  * 壳只画框：顶上「到点 · 回到对话」，中间每个模块一张纸（[FeatureUi.DrawerCard]，不点进去也看得到要紧的），
- * 设置压在最底下，右边一句体检结论。加模块就多一张纸。
+ * 设置压在最底下，右边一句体检结论；体检没事、有新版本时写「有新版本」。加模块就多一张纸。
  */
 @Composable
 fun AppDrawer(
@@ -79,10 +82,20 @@ fun AppDrawer(
         ) {
             SettingsIcon(tint = colors.ink2)
             Text("设置", style = DaodianType.body, color = colors.ink2, modifier = Modifier.weight(1f))
+            val update by Updates.state.collectAsState()
+            val fresh = update is Updates.State.Available
             Text(
-                if (healthMissing == 0) "一切正常" else "还差 $healthMissing 项",
+                when {
+                    healthMissing > 0 -> "还差 $healthMissing 项"
+                    fresh -> "有新版本"
+                    else -> "一切正常"
+                },
                 style = DaodianType.caption,
-                color = if (healthMissing == 0) colors.muted else colors.red
+                color = when {
+                    healthMissing > 0 -> colors.red
+                    fresh -> colors.accent
+                    else -> colors.muted
+                }
             )
         }
     }

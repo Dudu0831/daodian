@@ -55,6 +55,19 @@ object FeatureRegistry {
             }
         }
 
+    /** 各模块的诊断段（模块名 to 那一段）。哪个模块读库出错就把错写进去，不连累别的 */
+    suspend fun diagnostics(context: Context): List<Pair<String, String>> =
+        features.mapNotNull { f ->
+            val text = try {
+                f.diagnostics(context)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                "读不出来：${e.javaClass.simpleName} ${e.message}"
+            }
+            text?.takeIf { it.isNotBlank() }?.let { f.label to it }
+        }
+
     /** [key] 形如 `ledger:check`：冒号前是模块 id */
     suspend fun trigger(context: Context, key: String): Trigger? {
         val id = key.substringBefore(':')
