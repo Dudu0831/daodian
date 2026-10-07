@@ -1,9 +1,11 @@
 package com.abc.daodian.reminder.presentation
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -21,11 +23,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.abc.daodian.reminder.ReminderRoutes
-import com.abc.daodian.reminder.presentation.relay.RelayCodeDialog
-import com.abc.daodian.reminder.presentation.relay.RelayWhoDialog
+import com.abc.daodian.reminder.presentation.relay.RelayAddSheet
+import com.abc.daodian.reminder.presentation.relay.RelayViewModel
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
@@ -33,8 +36,10 @@ import com.abc.daodian.shared.ui.ChevronRightIcon
 import com.abc.daodian.shared.ui.GroupLabel
 import com.abc.daodian.shared.ui.GroupRule
 import com.abc.daodian.shared.ui.PaperGroup
+import com.abc.daodian.shared.ui.PlusIcon
 import com.abc.daodian.shared.ui.ScreenTopBar
 import com.abc.daodian.shared.ui.SettingRow
+import com.abc.daodian.shared.ui.UndoBar
 import com.abc.daodian.shared.ui.activityViewModel
 import java.time.LocalTime
 import kotlin.math.abs
@@ -44,87 +49,92 @@ import kotlin.math.abs
  */
 
 /**
- * 提醒的设置页：当天事项（收尾时刻）、派活（听谁、暗号、她发来的）、准不准（投递日志）。
+ * 提醒的设置页：当天事项（收尾时刻）、派活（名单，一人一行）、准不准（投递日志）。
  * 和记账的设置页一个样子：几组、每行右边是值，点了弹框改或者往下走一页。
+ * 派活是设计稿方向 C「一人一页」（https://claude.ai/artifact/AbLfPQLYAAGQGY3LNUF37D）：点一个人进这个人那一页，
+ * 「加一个人」从底下弹纸；在那一页上点了「不听了」退回来，撤销条画在这一页。
  * 派活要的通知使用权、听哪些 app 不在这里，在「权限与监听」页（DESIGN.md §2.3）—— 这一页不放通知的行、不往那边跳。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReminderSettingsScreen(onBack: () -> Unit, open: (String) -> Unit) {
     val vm = activityViewModel<ReminderViewModel>()
+    val relayVm = activityViewModel<RelayViewModel>()
     val colors = DaodianColors.current
     val logs by vm.logs.collectAsState()
     val checkTime by vm.dayCheckTime.collectAsState()
-    val relay by vm.relay.collectAsState()
-    val relayCount by vm.relayCount.collectAsState()
-    val seen by vm.relaySeen.collectAsState()
+    val people by relayVm.people.collectAsState()
+    val counts by relayVm.counts.collectAsState()
+    val seen by relayVm.seen.collectAsState()
+    val forgotten by relayVm.forgotten.collectAsState()
     var pickingCheckTime by remember { mutableStateOf(false) }
-    var pickingWho by remember { mutableStateOf(false) }
-    var pickingCode by remember { mutableStateOf(false) }
+    var adding by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().background(colors.paper)) {
-        ScreenTopBar("提醒", onBack)
-        Column(
-            Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp)
-        ) {
-            // 当天事项（只说了哪天、没说几点的）统一在这个钟点提醒一次。见 DESIGN.md §4.3
-            GroupLabel("当天事项", top = 12.dp)
-            PaperGroup {
-                SettingRow(
-                    title = "收尾时刻",
-                    note = "只说了哪天、没说几点的事，在这个钟点提醒一次；没做完顺延到第二天。",
-                    onClick = { pickingCheckTime = true }
-                ) {
-                    Text(checkTime.toString().take(5), style = DaodianType.settingValue, color = colors.ink)
-                }
-            }
-
-            // 派活（试验版）：她在微信里说一句，这里接住交给模型建成提醒。说明写死，只有右边的值会变 —— 打开时行高不跳
-            GroupLabel("派活 · 试验")
-            PaperGroup {
-                SettingRow(
-                    title = "听谁",
-                    note = "她在微信里说一句，这里接住，交给模型建成提醒。",
-                    onClick = { pickingWho = true }
-                ) {
-                    relay?.let { Value(it.who) }
-                }
-                GroupRule()
-                SettingRow(
-                    title = "暗号",
-                    note = "设了只接这几个字开头的；空着句句都交给模型。",
-                    onClick = { pickingCode = true }
-                ) {
-                    relay?.let { Value(it.code) }
-                }
-                GroupRule()
-                SettingRow(
-                    title = "她发来的",
-                    note = "每一句办成了什么；在里面可以试一句。",
-                    onClick = { open(ReminderRoutes.RELAY) }
-                ) {
-                    relayCount?.takeIf { it > 0 }?.let {
-                        Text("$it 句", style = DaodianType.settingValue, color = colors.ink)
-                        Spacer(Modifier.width(10.dp))
+    Box(Modifier.fillMaxSize().background(colors.paper)) {
+        Column(Modifier.fillMaxSize()) {
+            ScreenTopBar("提醒", onBack)
+            Column(
+                Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding()
+                    .padding(horizontal = 20.dp)
+            ) {
+                // 当天事项（只说了哪天、没说几点的）统一在这个钟点提醒一次。见 DESIGN.md §4.3
+                GroupLabel("当天事项", top = 12.dp)
+                PaperGroup {
+                    SettingRow(
+                        title = "收尾时刻",
+                        note = "只说了哪天、没说几点的事，在这个钟点提醒一次；没做完顺延到第二天。",
+                        onClick = { pickingCheckTime = true }
+                    ) {
+                        Text(checkTime.toString().take(5), style = DaodianType.settingValue, color = colors.ink)
                     }
-                    ChevronRightIcon(size = 13.dp, tint = colors.muted)
                 }
-            }
 
-            GroupLabel("准不准")
-            PaperGroup {
-                SettingRow(
-                    title = "投递日志",
-                    note = if (logs.isEmpty()) "还没有投递记录"
-                    else "${logs.size} 条 · 最大漂移 ${drift(logs.maxOf { it.driftMillis })}",
-                    onClick = { open(ReminderRoutes.LOG) }
-                ) { ChevronRightIcon(size = 13.dp, tint = colors.muted) }
+                // 派活：名单上的人在微信里说一句，这里接住交给模型建成提醒。一人一行，点进去是这个人那一页
+                GroupLabel("派活")
+                PaperGroup {
+                    people?.forEach { p ->
+                        SettingRow(
+                            title = p.name,
+                            note = if (p.code.isEmpty()) "句句都交给模型" else "只接「${p.code}」开头的",
+                            onClick = { open(ReminderRoutes.relay(p.id)) }
+                        ) {
+                            counts[p.name]?.takeIf { it > 0 }?.let {
+                                Text("$it 句", style = DaodianType.settingValue, color = colors.ink)
+                                Spacer(Modifier.width(10.dp))
+                            }
+                            ChevronRightIcon(size = 13.dp, tint = colors.muted)
+                        }
+                        GroupRule()
+                    }
+                    SettingRow(
+                        title = "加一个人",
+                        note = "他们在微信里说一句，这里接住，建成提醒。",
+                        onClick = { adding = true }
+                    ) { PlusIcon(tint = colors.ink2) }
+                }
+
+                GroupLabel("准不准")
+                PaperGroup {
+                    SettingRow(
+                        title = "投递日志",
+                        note = if (logs.isEmpty()) "还没有投递记录"
+                        else "${logs.size} 条 · 最大漂移 ${drift(logs.maxOf { it.driftMillis })}",
+                        onClick = { open(ReminderRoutes.LOG) }
+                    ) { ChevronRightIcon(size = 13.dp, tint = colors.muted) }
+                }
+                // 给撤销条留出地方，最后一组不被它盖住
+                Spacer(Modifier.height(96.dp))
             }
         }
+
+        UndoBar(
+            label = forgotten?.let { "不听${it.person.name}了" },
+            onUndo = relayVm::undoForget,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 
     if (pickingCheckTime) {
@@ -142,34 +152,14 @@ fun ReminderSettingsScreen(onBack: () -> Unit, open: (String) -> Unit) {
         )
     }
 
-    val r = relay
-    if (pickingWho && r != null) {
-        RelayWhoDialog(
-            current = r.who,
-            seen = seen,
-            onSave = { vm.setRelayWho(it); pickingWho = false },
-            onDismiss = { pickingWho = false }
+    if (adding) {
+        RelayAddSheet(
+            // 已经在名单上的不用再挑
+            seen = seen.filter { s -> people.orEmpty().none { it.name == s } },
+            onAdd = relayVm::add,
+            onDismiss = { adding = false }
         )
     }
-    if (pickingCode && r != null) {
-        RelayCodeDialog(
-            current = r.code,
-            onSave = { vm.setRelayCode(it); pickingCode = false },
-            onDismiss = { pickingCode = false }
-        )
-    }
-}
-
-/** 行右边的值；空着写淡淡的「没设」 */
-@Composable
-private fun Value(text: String) {
-    val colors = DaodianColors.current
-    Text(
-        text.ifBlank { "没设" },
-        style = DaodianType.settingValue,
-        color = if (text.isBlank()) colors.hint else colors.ink,
-        maxLines = 1
-    )
 }
 
 /** 「权限与监听」页体检结论底下那一行：最近投递准不准。走了兜底补发就是主闹钟在被掐，写红字 */

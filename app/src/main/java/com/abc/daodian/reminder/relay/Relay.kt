@@ -29,11 +29,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * 派活（试验版）：她在微信里给你发一句，这里接住，交给模型建成提醒。
+ * 派活：名单上的人在微信里给你发一句，这里接住，交给模型建成提醒。
  *
  * 它是通知监听层的一个订阅者（DESIGN.md §2.3）：你给派活勾的 app（微信），通知才会交到这里。
- * 更细的规则是这里自己的：只认通知标题是她名字的那些，微信的「[3条]」「备注名: 」自己剥；
- * 她说的每一句都记进 `relay.db`，设了暗号的只把暗号开头的交给模型（[RelayAgent]），没设就句句都交。
+ * 更细的规则是这里自己的：只认通知标题是名单（[RelaySettings]）上某个人名字的那些，微信的「[3条]」「备注名: 」自己剥；
+ * 这些人说的每一句都记进 `relay.db`，那个人设了暗号的只把暗号开头的交给模型（[RelayAgent]），没设就句句都交。
  * 叫模型是重活，[accept] 只落库，模型另起一个协程办。建成了弹一条通知告诉你，点开是那条提醒。
  */
 object Relay : NoticeSubscriber {
@@ -42,7 +42,7 @@ object Relay : NoticeSubscriber {
 
     override val label = "派活"
 
-    override val purpose = "勾上的 app 里，「听谁」那个人发来的话记下来，交给模型建成提醒。别人发的只记名字（在内存里，给你挑人），不存、不发给模型。"
+    override val purpose = "勾上的 app 里，派活名单上的人发来的话记下来，交给模型建成提醒。别人发的只记名字（在内存里，给你挑人），不存、不发给模型。"
 
     /** 派活听的是聊天：聊天软件、短信排前面 */
     override fun suggested(context: Context, pkg: String): Boolean = AppCatalog.isChat(pkg) || AppCatalog.isSms(context, pkg)
@@ -54,24 +54,16 @@ object Relay : NoticeSubscriber {
 
     private val _seen = MutableStateFlow<List<String>>(emptyList())
 
-    /** 最近在勾上的 app 里发过消息的人（通知标题），「听谁」那一栏给你挑。只在内存里、只记名字 */
+    /** 最近在勾上的 app 里发过消息的人（通知标题），加人、改名字时给你挑。只在内存里、只记名字 */
     val seen: StateFlow<List<String>> = _seen.asStateFlow()
 
     /** 监听层只会交来给派活勾了的 app 的通知，包名不用再看 */
     override suspend fun accept(context: Context, notice: Notice) {
-        val s = RelaySettings.read(context)
         val title = notice.title?.let(::cleanTitle)?.takeIf { it.isNotBlank() } ?: return
         _seen.update { (listOf(title) + it).distinct().take(SEEN_MAX) }
-        if (s.who.isBlank() || title != s.who) return
+        val person = RelaySettings.read(context).firstOrNull { it.name == title } ?: return
         val text = cleanText(notice.text, title) ?: return
-        receive(context, notice.pkg, title, text, notice.at, notice.how, s.code)
-    }
-
-    /** 页面上「假装她发了一句」：不经通知，别的都一样（暗号照样看） */
-    suspend fun simulate(context: Context, text: String) {
-        val s = RelaySettings.read(context)
-        val said = text.trim().ifBlank { return }
-        receive(context, "test", s.who.ifBlank { "她" }, said, System.currentTimeMillis(), "test", s.code)
+        receive(context, notice.pkg, title, text, notice.at, notice.how, person.code)
     }
 
     private suspend fun receive(context: Context, pkg: String, who: String, text: String, at: Long, how: String, code: String) {
@@ -92,14 +84,17 @@ object Relay : NoticeSubscriber {
         scope.launch { work(app, id, code) }
     }
 
-    /** 没办成的、办到一半进程没了的，再交一次 */
+    /** 没办成的、办到一半进程没了的，再交一次。暗号按那个人眼下设的算 */
     fun retry(context: Context, id: Long) {
         val app = context.applicationContext
         scope.launch {
-            val code = RelaySettings.read(app).code
-            work(app, id, code)
+            val m = RelayDatabase.get(app).dao().byId(id) ?: return@launch
+            work(app, id, personOf(app, m.who)?.code.orEmpty())
         }
     }
+
+    private suspend fun personOf(context: Context, who: String): RelaySettings.Person? =
+        RelaySettings.read(context).firstOrNull { it.name == who }
 
     private suspend fun work(context: Context, id: Long, code: String) = lock.withLock {
         val dao = RelayDatabase.get(context).dao()
@@ -118,8 +113,11 @@ object Relay : NoticeSubscriber {
             }
             is RelayAgent.Outcome.NotTask -> m.copy(status = RelayStatus.NOT_TASK.name, detail = outcome.reply)
             is RelayAgent.Outcome.Failed -> {
-                // 用了暗号还没接住，得让你知道；没暗号的闲聊办不成就算了，不吵你
-                if (coded) notify(context, m, "${m.who}派的事没接住", outcome.why, Launch.intent(context, route = ReminderRoutes.RELAY))
+                // 用了暗号还没接住，得让你知道；没暗号的闲聊办不成就算了，不吵你。点开是这个人那一页
+                if (coded) {
+                    val route = personOf(context, m.who)?.let { ReminderRoutes.relay(it.id) } ?: ReminderRoutes.SETTINGS
+                    notify(context, m, "${m.who}派的事没接住", outcome.why, Launch.intent(context, route = route))
+                }
                 m.copy(status = RelayStatus.FAILED.name, detail = outcome.why)
             }
         }
@@ -143,7 +141,7 @@ object Relay : NoticeSubscriber {
         if (!nm.areNotificationsEnabled()) return
         context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "别人派的事", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "她在微信里派了事、建成了提醒时告诉你"
+                description = "名单上的人在微信里派了事、建成了提醒时告诉你"
             }
         )
         val pi = PendingIntent.getActivity(

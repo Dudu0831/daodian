@@ -5,11 +5,13 @@ import com.abc.daodian.agent.diagnostics.Diagnostics.time
 import com.abc.daodian.agent.diagnostics.rows
 import com.abc.daodian.reminder.data.ReminderDatabase
 import com.abc.daodian.reminder.relay.RelayDatabase
+import com.abc.daodian.reminder.relay.RelaySettings
 
 /** 「导出诊断」里提醒那一段：排了几条、下一次什么时候、最近响得准不准、派活收到的。不写标题、不写原话 */
 internal object ReminderDiagnostics {
 
-    fun build(context: Context): String = buildString {
+    suspend fun build(context: Context): String = buildString {
+        val people = RelaySettings.read(context)
         val db = ReminderDatabase.get(context).openHelper.readableDatabase
         val now = System.currentTimeMillis()
 
@@ -34,6 +36,8 @@ internal object ReminderDiagnostics {
             appendLine("  #$id · ${time(sch?.toLongOrNull())} · ${time(fired?.toLongOrNull())} · ${drift}ms · $src")
         }
 
+        // 只写人数，不写名字
+        appendLine("派活名单：${people.size} 个人，${people.count { it.code.isNotEmpty() }} 个设了暗号")
         val relay = RelayDatabase.get(context).openHelper.readableDatabase
         val got = relay.rows("SELECT pkg, at, receivedAt, how, status FROM relay_message ORDER BY id DESC LIMIT 20")
         if (got.isNotEmpty()) {

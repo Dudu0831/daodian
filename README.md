@@ -83,8 +83,8 @@ app/src/main/java/com/abc/daodian/
 │   ├── delivery/       通知、通知按钮、权限体检
 │   ├── tools/          create_reminder、提醒那段提示词、痕
 │   ├── widget/         桌面小组件
-│   ├── relay/          派活（试验版）：订阅通知，她在微信里说的话交给模型建成提醒
-│   └── presentation/   列表、编辑（逃生舱）、到点全屏页、投递日志、提醒设置页（含派活）、她发来的
+│   ├── relay/          派活：订阅通知，名单上的人在微信里说的话交给模型建成提醒
+│   └── presentation/   列表、编辑（逃生舱）、到点全屏页、投递日志、提醒设置页（含派活名单）、派活某个人的那一页
 ├── ledger/           记账
 │   ├── capture/        订阅通知：勾了的 app 的通知原样存进 raw_notification
 │   ├── organize/       后台整理 agent

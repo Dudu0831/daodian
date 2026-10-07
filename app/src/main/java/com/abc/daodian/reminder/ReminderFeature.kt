@@ -4,7 +4,6 @@ import kotlinx.coroutines.withContext
 import android.content.Context
 import android.util.Log
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
@@ -27,8 +26,7 @@ import com.abc.daodian.reminder.presentation.ReminderViewModel
 import com.abc.daodian.reminder.presentation.edit.EditReminderScreen
 import com.abc.daodian.reminder.presentation.list.ReminderListScreen
 import com.abc.daodian.reminder.presentation.log.FireLogScreen
-import com.abc.daodian.reminder.presentation.relay.RelayScreen
-import com.abc.daodian.reminder.presentation.relay.RelayViewModel
+import com.abc.daodian.reminder.presentation.relay.RelayPersonScreen
 import com.abc.daodian.reminder.scheduling.Rescheduler
 import com.abc.daodian.reminder.scheduling.SweepWorker
 import com.abc.daodian.reminder.tools.CreateReminderTool
@@ -111,8 +109,15 @@ object ReminderFeature : Feature, FeatureUi {
         composable(ReminderRoutes.SETTINGS) {
             ReminderSettingsScreen(onBack = nav::back, open = nav::open)
         }
-        composable(ReminderRoutes.RELAY) {
-            RelayScreen(vm = viewModel<RelayViewModel>(), onBack = nav::back, onOpen = nav::open)
+        composable(
+            ReminderRoutes.RELAY,
+            arguments = listOf(navArgument("id") { type = NavType.LongType })
+        ) { entry ->
+            RelayPersonScreen(personId = entry.arguments?.getLong("id") ?: -1L, onBack = nav::back, onOpen = nav::open)
+        }
+        // 只听一个人那一版，「没接住」的通知拉起的是这个不带人的路由。升级前弹的还挂在通知栏里的话，点了落到提醒设置页，别崩
+        composable("reminder/relay") {
+            ReminderSettingsScreen(onBack = nav::back, open = nav::open)
         }
     }
 
