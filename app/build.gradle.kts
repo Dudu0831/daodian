@@ -34,8 +34,8 @@ android {
         minSdk = 34          // 见 README「minSdk 从 33 改到 34」。34 才是真正的「零版本分支」边界
         targetSdk = 35
         // 发出去的每个包 versionCode 都要 +1：同号、降号覆盖不上
-        versionCode = 4
-        versionName = "0.1.2"
+        versionCode = 5
+        versionName = "0.1.3"
 
         // 本地语音识别（sherpa-onnx）的 native 库四个 ABI 加起来 70MB+，真机只要 arm64 那份
         ndk { abiFilters += "arm64-v8a" }
