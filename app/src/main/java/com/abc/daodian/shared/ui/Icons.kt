@@ -46,6 +46,54 @@ fun MicIcon(modifier: Modifier = Modifier, size: Dp = 19.dp, tint: Color, stroke
     }
 }
 
+/** 键盘 —— 圆角方框里一排键、一根空格。对话页「按住说话」时点它换回打字 */
+@Composable
+fun KeyboardIcon(modifier: Modifier = Modifier, size: Dp = 20.dp, tint: Color, strokeWidth: Dp = 1.2.dp) {
+    Canvas(modifier.size(size)) {
+        val k = this.size.width / 20f
+        val sw = strokeWidth.toPx()
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(2.4f * k, 4.8f * k),
+            size = Size(15.2f * k, 10.4f * k),
+            cornerRadius = CornerRadius(2.2f * k, 2.2f * k),
+            style = strokeOf(sw)
+        )
+        for (x in floatArrayOf(5.85f, 8.55f, 11.45f, 14.15f)) {
+            drawCircle(tint, radius = sw * 0.6f, center = Offset(x * k, 8.2f * k))
+        }
+        drawLine(tint, Offset(7.2f * k, 11.8f * k), Offset(12.8f * k, 11.8f * k), strokeWidth = sw, cap = StrokeCap.Round)
+    }
+}
+
+/** 两道向上的折线 ——「往上滑」。画在 18x14 的格子里，[width] 是宽 */
+@Composable
+fun ChevronsUpIcon(modifier: Modifier = Modifier, width: Dp = 18.dp, tint: Color, strokeWidth: Dp = 1.4.dp) {
+    Canvas(modifier.size(width = width, height = width * 14 / 18)) {
+        val k = this.size.width / 18f
+        val stroke = strokeOf(strokeWidth.toPx())
+        for (top in floatArrayOf(2f, 7.5f)) {
+            val path = Path().apply {
+                moveTo(4f * k, (top + 4f) * k)
+                lineTo(9f * k, top * k)
+                lineTo(14f * k, (top + 4f) * k)
+            }
+            drawPath(path, tint, style = stroke)
+        }
+    }
+}
+
+/** 叉 */
+@Composable
+fun CloseIcon(modifier: Modifier = Modifier, size: Dp = 12.dp, tint: Color, strokeWidth: Dp = 1.4.dp) {
+    Canvas(modifier.size(size)) {
+        val k = this.size.width / 20f
+        val sw = strokeWidth.toPx()
+        drawLine(tint, Offset(4.5f * k, 4.5f * k), Offset(15.5f * k, 15.5f * k), strokeWidth = sw, cap = StrokeCap.Round)
+        drawLine(tint, Offset(15.5f * k, 4.5f * k), Offset(4.5f * k, 15.5f * k), strokeWidth = sw, cap = StrokeCap.Round)
+    }
+}
+
 /** 发送 —— 一支向上的箭头，不是纸飞机 */
 @Composable
 fun SendIcon(modifier: Modifier = Modifier, size: Dp = 16.dp, tint: Color, strokeWidth: Dp = 1.4.dp) {

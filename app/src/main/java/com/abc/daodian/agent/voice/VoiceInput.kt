@@ -28,7 +28,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * 桌面速记的语音输入：自己录音，在手机上用 sherpa-onnx 流式识别。见 DESIGN.md 决策 8.3
+ * 语音输入：自己录音，在手机上用 sherpa-onnx 流式识别。见 DESIGN.md 决策 8.3
+ *
+ * 两处在用，收法不一样：桌面速记停顿够了自己收；对话页是按住说话（[start] 的 `hold`），
+ * 不看停顿，松手（[stop]）才收。
  *
  * 为什么不用系统的：`RecognizerIntent` 在荣耀 MagicOS 上没有 Activity 接；`SpeechRecognizer`
  * 倒是绑得上默认服务 MagicVoice（YOYO），它也真把麦克风打开了 —— 状态栏同时挂着「到点」和 YOYO ——
@@ -65,9 +68,18 @@ class VoiceInput(private val context: Context) {
     private var job: Job? = null
     @Volatile private var finishing = false
 
-    fun start(onEvent: (Event) -> Unit) {
+    /** 先把模型加载上：对话页切到「按住说话」时调，第一次按下去就不用等那一两秒 */
+    fun warmUp() {
+        if (available && engine == null) engine = scope.async(Dispatchers.Default) { load() }
+    }
+
+    /**
+     * 开始收音。[hold] 是按住说话：不看停顿，一直收到 [stop]，最长 [HOLD_MAX_SECONDS] 秒；
+     * 否则停顿够了自己收。
+     */
+    fun start(hold: Boolean = false, onEvent: (Event) -> Unit) {
         cancel()
-        QuickTrace.log(context, "voice start")
+        QuickTrace.log(context, if (hold) "voice start (hold)" else "voice start")
         finishing = false
         val loading = engine ?: scope.async(Dispatchers.Default) { load() }.also { engine = it }
         // 音量一秒十次，不记；其余每一个事件都落进调试流水账
@@ -78,7 +90,7 @@ class VoiceInput(private val context: Context) {
             }
         }
         job = scope.launch(Dispatchers.IO) {
-            session.withLock { listen(loading, emit) }
+            session.withLock { listen(loading, hold, emit) }
         }
     }
 
@@ -106,7 +118,11 @@ class VoiceInput(private val context: Context) {
         }
     }
 
-    private suspend fun listen(loading: Deferred<Result<OnlineRecognizer>>, emit: suspend (Event) -> Unit) {
+    private suspend fun listen(
+        loading: Deferred<Result<OnlineRecognizer>>,
+        hold: Boolean,
+        emit: suspend (Event) -> Unit
+    ) {
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             return emit(Event.Error("没有麦克风权限"))
         }
@@ -133,11 +149,18 @@ class VoiceInput(private val context: Context) {
             emit(Event.Ready)
             val chunk = ShortArray(CHUNK)
             var said = ""
+            var heard = 0
             while (!finishing) {
                 coroutineContext.ensureActive()
                 val n = record.read(chunk, 0, chunk.size)
-                if (n < 0) return emit(Event.Error("录音出错了（$n），点一下再试"))
+                if (n < 0) return emit(Event.Error("录音出错了（$n），再试一次"))
                 if (n == 0) continue
+                heard += n
+                // 按住不放也有个头：手机揣兜里压着了，不能一直录下去
+                if (hold && heard > RATE * HOLD_MAX_SECONDS) {
+                    QuickTrace.log(context, "voice hold limit")
+                    break
+                }
                 val samples = FloatArray(n) { chunk[it] / 32768f }
                 emit(Event.Level(levelOf(samples)))
                 if (dec == null) {
@@ -152,12 +175,13 @@ class VoiceInput(private val context: Context) {
                     said = text
                     emit(Event.Partial(text))
                 }
-                if (dec.atEndpoint) {
+                // 按住说话不看停顿：什么时候收由手指定，旁边一直有人说话也不会收不了
+                if (!hold && dec.atEndpoint) {
                     QuickTrace.log(context, "voice endpoint")
                     break
                 }
             }
-            // 停顿够了，或者点了印。先把麦克风放了，再把尾巴解完
+            // 停顿够了、点了印，或者松手了。先把麦克风放了，再把尾巴解完
             record.stop()
             val d = dec ?: open() ?: return emit(Event.Error(LOAD_FAILED))
             dec = d
@@ -211,6 +235,8 @@ class VoiceInput(private val context: Context) {
         const val RATE = 16_000
         /** 一次读 100ms */
         const val CHUNK = RATE / 10
+        /** 按住说话最长收这么久 */
+        const val HOLD_MAX_SECONDS = 60
         const val MODEL_DIR = "asr"
         const val MODEL_FILE = "model.int8.onnx"
         const val MIC_BUSY = "麦克风打不开，可能正被别的 app 占着"
