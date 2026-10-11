@@ -11,7 +11,11 @@ import com.abc.daodian.reminder.domain.ReminderText
 import com.abc.daodian.reminder.domain.Rrule
 import com.abc.daodian.shared.format.Format
 
-/** 建提醒在对话里留的痕：「✓ 提醒 9月24日 周四 08:00 · 带伞 ›」，点了去编辑页。见 DESIGN.md §6.6 */
+/**
+ * 建提醒在对话里留的痕：「✓ 提醒 9月24日 周四 08:00 · 带伞 ›」，点了去编辑页。见 DESIGN.md §6.6
+ *
+ * 轻提醒的多一截，写在标题前面：「每天 14:00 · 轻提醒 · 喝水」—— 痕只有一行，标题长了被截断时它还在。
+ */
 object ReminderTrace {
 
     fun of(call: ToolTrace): TraceView? {
@@ -22,7 +26,8 @@ object ReminderTrace {
             settled = if (call.failed) "没建成" else "提醒",
             text = when {
                 call.failed -> TraceText.reasonOf(call.output, "没建。")
-                plan != null -> "${whenOf(plan)} · ${plan.title}"
+                plan != null ->
+                    listOfNotNull(whenOf(plan), "轻提醒".takeIf { plan.gentle && !plan.allDay }, plan.title).joinToString(" · ")
                 else -> PartialArgs.text(call.arguments, "title").orEmpty()
             },
             route = call.ref?.takeIf { call.ok }?.let { ReminderRoutes.edit(it) }

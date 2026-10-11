@@ -59,6 +59,7 @@ object Notifier {
     /** 到点了，响。返回是否真的送达用户 —— false 表示通知没出现在屏幕上。[lateBy] > 0 表示这是补发 */
     fun fire(context: Context, reminder: Reminder, lateBy: Long): Boolean {
         if (reminder.isAllDay) return fireDayTask(context, reminder, lateBy)
+        if (reminder.gentle) return fireGentle(context, reminder, lateBy)
         ensureChannel(context)
 
         val open = PendingIntent.getActivity(
@@ -79,18 +80,7 @@ object Notifier {
             .addAction(0, "完成", actionIntent(context, reminder.id, NotificationActionReceiver.ACTION_DONE))
             .addAction(0, "稍后 10 分钟", actionIntent(context, reminder.id, NotificationActionReceiver.ACTION_SNOOZE))
 
-        // 视觉稿的通知形态：标题是提醒本身，副行交代「什么时候的事」。
-        // 迟到必须写在脸上 —— 补发假装准时，用户下次就不敢信这个 app 了。
-        val body = buildString {
-            reminder.note?.let { append(it) }
-            if (isEmpty()) {
-                if (lateBy > 60_000) append("应在 ${Format.clock(reminder.nextTriggerAt)}")
-                else append(Format.humanDateTime(reminder.nextTriggerAt))
-            }
-            if (lateBy > 60_000) {
-                append(" · 补发，迟了 ${lateBy / 60_000} 分钟")
-            }
-        }
+        val body = timedBody(reminder, lateBy)
         if (body.isNotEmpty()) builder.setContentText(body)
 
         // Android 14+ 收紧了全屏 intent，拿不到就安静降级成 heads-up，不要崩。
@@ -138,6 +128,84 @@ object Notifier {
         NotificationManagerCompat.from(context).cancel(reminderId.toInt())
         // 可能是一组当天事项里的一条：组头的「还有 N 件」跟着改，最后一条没了组头也收掉
         refreshDaySummary(context, alert = false)
+    }
+
+    /**
+     * 带钟点的提醒，通知上的副行（响铃的、轻提醒共用）。
+     * 视觉稿的通知形态：标题是提醒本身，副行交代「什么时候的事」。
+     * 迟到必须写在脸上 —— 补发假装准时，用户下次就不敢信这个 app 了。
+     */
+    private fun timedBody(reminder: Reminder, lateBy: Long): String = buildString {
+        reminder.note?.let { append(it) }
+        if (isEmpty()) {
+            if (lateBy > 60_000) append("应在 ${Format.clock(reminder.nextTriggerAt)}")
+            else append(Format.humanDateTime(reminder.nextTriggerAt))
+        }
+        if (lateBy > 60_000) {
+            append(" · 补发，迟了 ${lateBy / 60_000} 分钟")
+        }
+    }
+
+    // ---------------- 轻提醒：到点只发一条通知 ----------------
+
+    /**
+     * 轻提醒自己的渠道：普通通知的声音（走通知音量）加一下震动，不弹全屏、不循环。见 DESIGN.md §5.6
+     *
+     * 直接请求 DEFAULT：MagicOS 会把新渠道从 HIGH 静默降到 DEFAULT，横幅本来也保证不了，写的和实际的一致。
+     * 不和当天事项共用一个渠道 —— 晚上收尾那一声和下午两点的喝水，系统设置里可以各调各的。
+     *
+     * v2 比 v1 多了震动：真机上头一回到点就没出声 —— 那台手机的通知音量是 0（铃声、闹钟音量都开着），
+     * 轻提醒成了只有画面。加一下震动，通知音量关着时也有个动静。震动是建渠道时定死的，所以换 id；
+     * v1 只在 10-09 当天的本地包里出现过，建新渠道时顺手删掉。
+     */
+    const val GENTLE_CHANNEL_ID = "gentle_v2"
+    private const val GENTLE_CHANNEL_V1 = "gentle_v1"
+
+    private fun ensureGentleChannel(context: Context) {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        if (nm.getNotificationChannel(GENTLE_CHANNEL_ID) == null) nm.deleteNotificationChannel(GENTLE_CHANNEL_V1)
+        // 已经有了也再调一次：只会更新名字和说明（10-11 从「只发通知的提醒」改叫「轻提醒」），你在系统里调过的声音、震动不会被盖掉
+        nm.createNotificationChannel(
+            NotificationChannel(GENTLE_CHANNEL_ID, "轻提醒", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "设成「轻提醒」的那些：到点只发一条通知，响一声、震一下，不响铃、不弹全屏。在这里换声音，响铃的提醒不受影响。"
+                enableVibration(true)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+        )
+    }
+
+    /**
+     * 和响铃那一档比，少四样：全屏 intent、[Notification.FLAG_INSISTENT]、闹钟音量、「完成」按钮。
+     * 它不等人确认，送到了就算完（FireHandler）；重复的点「完成」还会把整条停掉，留着是坑。只留「稍后 10 分钟」。
+     * 别的照旧 —— 一样准点（排期不分档）、补发一样写在脸上。点开进列表。
+     */
+    private fun fireGentle(context: Context, reminder: Reminder, lateBy: Long): Boolean {
+        ensureGentleChannel(context)
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.e(TAG, "通知权限被拒，轻提醒 id=${reminder.id}「${reminder.title}」没能送达用户！去「体检」页处理")
+            return false
+        }
+
+        val builder = NotificationCompat.Builder(context, GENTLE_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentTitle(reminder.title)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setContentIntent(openList(context))
+            .addAction(0, "稍后 10 分钟", actionIntent(context, reminder.id, NotificationActionReceiver.ACTION_SNOOZE))
+        val body = timedBody(reminder, lateBy)
+        if (body.isNotEmpty()) builder.setContentText(body)
+
+        return try {
+            NotificationManagerCompat.from(context).notify(reminder.id.toInt(), builder.build())
+            true
+        } catch (e: SecurityException) {
+            Log.e(TAG, "发通知被系统拒绝，轻提醒 id=${reminder.id}", e)
+            false
+        }
     }
 
     // ---------------- 当天事项：晚上收尾时安静地提一次 ----------------

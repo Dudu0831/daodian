@@ -1,5 +1,6 @@
 package com.abc.daodian.reminder.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -52,6 +53,15 @@ data class Reminder(
      * 重复的当天事项例外：一次不做就翻到下一次，dueDay 跟着走。见 DESIGN.md §4.3
      */
     val dueDay: String? = null,
+
+    /**
+     * 轻提醒：到点只发一条通知，响一声，不响铃、不弹全屏（[com.abc.daodian.reminder.delivery.Notifier] 里分叉）。false = 响铃，默认。
+     *
+     * 只管响法：排期照旧只看 [nextTriggerAt]，调度层不知道这一档，和它不知道当天事项一样。
+     * 当天事项不看它（本来就只发通知）。见 DESIGN.md §5.6
+     */
+    @ColumnInfo(defaultValue = "0")
+    val gentle: Boolean = false,
 
     val createdAt: Long,
     val updatedAt: Long

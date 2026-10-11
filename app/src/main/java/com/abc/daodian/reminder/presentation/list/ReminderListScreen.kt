@@ -509,7 +509,7 @@ private fun EntryRow(e: Line.Entry, now: Long, onClick: () -> Unit, onComplete: 
                     style = DaodianType.caption, color = colors.muted,
                     modifier = Modifier.padding(top = 4.dp)
                 )
-                EntryNotes(rrule = rrule, armed = e.armed)
+                EntryNotes(rrule = rrule, armed = e.armed, gentle = r.gentle)
             }
         }
 
@@ -572,25 +572,29 @@ private fun EntryRow(e: Line.Entry, now: Long, onClick: () -> Unit, onComplete: 
                             modifier = Modifier.padding(top = 3.dp)
                         )
                     }
-                    EntryNotes(rrule = rrule, armed = e.armed)
+                    EntryNotes(rrule = rrule, armed = e.armed, gentle = r.gentle)
                 }
             }
         }
     }
 }
 
-/** 标题下面那一行小字：重复规则、没排上的告警。都没有就什么也不画 */
+/**
+ * 标题下面那一行小字：重复规则、轻提醒、没排上的告警。都没有就什么也不画。
+ * [gentle]（轻提醒：到点只发一条通知、不响铃）接在重复规则后面：「每天 · 轻提醒」；不重复的自己占一行。当天事项不传
+ */
 @Composable
-private fun EntryNotes(rrule: String?, armed: Boolean) {
+private fun EntryNotes(rrule: String?, armed: Boolean, gentle: Boolean = false) {
     val colors = DaodianColors.current
-    rrule?.let {
+    val how = listOfNotNull(rrule, "轻提醒".takeIf { gentle }).joinToString(" · ")
+    if (how.isNotEmpty()) {
         Row(
             Modifier.padding(top = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
-            RepeatIcon(tint = colors.muted)
-            Text(it, style = DaodianType.caption, color = colors.muted)
+            if (rrule != null) RepeatIcon(tint = colors.muted)
+            Text(how, style = DaodianType.caption, color = colors.muted)
         }
     }
     if (!armed) {

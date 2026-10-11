@@ -14,5 +14,7 @@ data class ReminderPlan(
      * 当天事项：只说了哪天、没说几点。这时 [firstTriggerAt] 只取日期，钟点换成设置里的收尾时刻。
      * 见 DESIGN.md §4.3
      */
-    val allDay: Boolean = false
+    val allDay: Boolean = false,
+    /** 轻提醒：到点只发一条通知，响一声，不响铃、不弹全屏。只有他明说了才是 true；当天事项不看它。见 DESIGN.md §5.6 */
+    val gentle: Boolean = false
 )

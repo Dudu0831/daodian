@@ -58,6 +58,7 @@ import com.abc.daodian.shared.ui.ChevronRightIcon
 import com.abc.daodian.shared.ui.GroupLabel
 import com.abc.daodian.shared.ui.GroupRule
 import com.abc.daodian.shared.ui.PaperGroup
+import com.abc.daodian.shared.ui.PaperSwitch
 import com.abc.daodian.shared.ui.RepeatBadge
 import com.abc.daodian.shared.ui.ScreenTopBar
 import java.time.DayOfWeek
@@ -117,6 +118,7 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
     var wallClockAnchored by rememberSaveable(existing) {
         mutableStateOf(existing?.wallClockAnchored ?: false)
     }
+    var gentle by rememberSaveable(existing) { mutableStateOf(existing?.gentle ?: false) }
 
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimeSheet by remember { mutableStateOf(false) }
@@ -141,7 +143,8 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
             triggerAt = triggerAt,
             rrule = buildRrule(),
             wallClockAnchored = wallClockAnchored,
-            dueDay = if (allDay) date else null
+            dueDay = if (allDay) date else null,
+            gentle = gentle && !allDay
         )
         onBack()
     }
@@ -210,6 +213,16 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
                             Spacer(Modifier.width(8.dp))
                             ChevronRightIcon(size = 13.dp, tint = colors.muted)
                         }
+                        // 到点怎么叫：默认响铃，这一条可以改成轻提醒（DESIGN.md §5.6）。当天事项本来就只发通知，没得选。
+                        // 名字是用户定的（10-11）：标题只叫「轻提醒」，它是什么写在底下两行小字里，开着关着都是这两行。
+                        // 第二行不能再长：真机上一行放 20 个字，多了会把最后一两个字单独甩下去。
+                        // 设计稿方向 B（稿子上还叫「到点只发通知」）：https://claude.ai/artifact/W5GHdm3T7XxGRP2c7DnizJ
+                        GroupRule()
+                        FormRow(
+                            title = "轻提醒",
+                            note = "到点只发一条通知，不响铃、不弹全屏。\n响一声、震一下，声音跟通知音量走。",
+                            onClick = { gentle = !gentle }
+                        ) { PaperSwitch(checked = gentle, onCheckedChange = { gentle = it }) }
                     }
                 }
 

@@ -34,6 +34,8 @@ object HealthCheck {
         val pkg = context.packageName
 
         val channel = nm.getNotificationChannel(Notifier.CHANNEL_ID)
+        // 轻提醒那一档的渠道，头一次响过才有
+        val gentle = nm.getNotificationChannel(Notifier.GENTLE_CHANNEL_ID)
 
         return listOf(
             Item(
@@ -80,6 +82,20 @@ object HealthCheck {
                 detail = "没有就降级成普通横幅，不影响响铃",
                 fixIntent = Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:$pkg"))
             )
+        ) + listOfNotNull(
+            // 只查关没关：调成静音是你自己的选择，不算毛病；整个关掉的话那些提醒到点什么都不出现，和漏了没两样
+            gentle?.let {
+                val on = it.importance > NotificationManager.IMPORTANCE_NONE
+                Item(
+                    label = "轻提醒",
+                    ok = on,
+                    detail = if (on) "渠道开着。声音在系统设置里单独调，不影响响铃的提醒"
+                    else "这个渠道被关掉了 —— 设成轻提醒的那些，到点什么都不会出现",
+                    fixIntent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, pkg)
+                        .putExtra(Settings.EXTRA_CHANNEL_ID, Notifier.GENTLE_CHANNEL_ID)
+                )
+            }
         )
     }
 }

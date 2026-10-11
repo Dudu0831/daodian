@@ -86,7 +86,10 @@ object FireHandler {
             return
         }
 
-        db.reminderDao().setStatus(reminder.id, ReminderStatus.FIRED, firedAt)
+        // 轻提醒不等人确认：送到了就算完，列表里直接落成过去的一行（DESIGN.md §5.6）。
+        // 没送到的（通知权限、渠道被关）留在 FIRED —— 列表上那行「响过了，还没点完成」至少还看得见
+        val settled = if (reminder.gentle && delivered) ReminderStatus.DONE else ReminderStatus.FIRED
+        db.reminderDao().setStatus(reminder.id, settled, firedAt)
         // 4. 桌面上那条得跟着消失/翻到下一次。漏了只是显示旧数据，不影响触发
         WidgetUpdater.refresh(context)
     }

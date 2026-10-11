@@ -1,6 +1,7 @@
 package com.abc.daodian.reminder.data
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -8,11 +9,12 @@ import androidx.room.TypeConverters
 
 @Database(
     entities = [Reminder::class, FireLog::class],
-    version = 1,
+    version = 2,
     exportSchema = true,
     // 每次改表都得在这儿加一条 AutoMigration(from = N, to = N + 1)，否则覆盖安装后一打开就崩
     // （库里已经是真实的提醒了，不能 destructive）。纯加列用 AutoMigration；改名 / 删列要写 spec，见 Room 文档
-    autoMigrations = []
+    // 1 → 2：reminders 加 gentle（轻提醒），老数据一律 0 = 响铃
+    autoMigrations = [AutoMigration(from = 1, to = 2)]
 )
 @TypeConverters(Converters::class)
 abstract class ReminderDatabase : RoomDatabase() {

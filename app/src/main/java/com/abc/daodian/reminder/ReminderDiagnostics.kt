@@ -19,15 +19,16 @@ internal object ReminderDiagnostics {
             .joinToString("、") { "${it[0]} ${it[1]}" }.ifEmpty { "一条没有" })
 
         val due = db.rows(
-            "SELECT id, nextTriggerAt, rrule IS NOT NULL, dueDay IS NOT NULL FROM reminders " +
+            "SELECT id, nextTriggerAt, rrule IS NOT NULL, dueDay IS NOT NULL, gentle FROM reminders " +
                 "WHERE status = 'SCHEDULED' ORDER BY nextTriggerAt LIMIT 30"
         )
-        appendLine("排着的（最近 30 条，#id · 下次 · 重复 / 当天事项；过点没响的打 !）：")
-        due.forEach { (id, next, repeat, day) ->
+        appendLine("排着的（最近 30 条，#id · 下次 · 重复 / 当天事项 / 轻提醒；过点没响的打 !）：")
+        due.forEach { (id, next, repeat, day, gentle) ->
             val at = next?.toLongOrNull()
             val late = at != null && at < now - 60_000
             appendLine("  ${if (late) "!" else " "} #$id · ${time(at)}" +
-                (if (repeat == "1") " · 重复" else "") + (if (day == "1") " · 当天" else ""))
+                (if (repeat == "1") " · 重复" else "") + (if (day == "1") " · 当天" else "") +
+                (if (gentle == "1" && day != "1") " · 轻提醒" else ""))
         }
 
         appendLine("最近响的（30 次，#提醒 · 该响 · 实际 · 晚了多少 · 来路）：")

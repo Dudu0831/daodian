@@ -45,9 +45,13 @@ class CreateReminderTool(private val commit: suspend (ReminderPlan, ToolContext)
                     "BYDAY（仅 WEEKLY）、BYMONTHDAY（仅 MONTHLY）、COUNT、UNTIL"
             ),
             "wallClockAnchored" to boolean("重复类（每天早上 8 点）填 true，跟着用户所在时区走；一次性的具体约会填 false"),
-            "allDay" to boolean("当天事项（只说了哪天、没说几点）填 true；说了具体钟点填 false")
+            "allDay" to boolean("当天事项（只说了哪天、没说几点）填 true；说了具体钟点填 false"),
+            "gentle" to boolean(
+                "轻提醒：到点只发一条通知（响一声，不响铃、不弹全屏）填 true。只有用户明说了才填 true（「轻提醒」「不用响铃」「发个通知就行」），" +
+                    "没提、拿不准一律 false"
+            )
         ),
-        "required" to listOf("title", "firstTriggerAt", "basis", "note", "rrule", "wallClockAnchored", "allDay"),
+        "required" to listOf("title", "firstTriggerAt", "basis", "note", "rrule", "wallClockAnchored", "allDay", "gentle"),
         "additionalProperties" to false
     )
 
@@ -62,7 +66,8 @@ class CreateReminderTool(private val commit: suspend (ReminderPlan, ToolContext)
                 ToolOutcome(
                     output = "已建好（id=$id）：「${p.title}」，" +
                         (if (p.allDay) "当天事项，日期 ${p.firstTriggerAt.take(10)}" else "首次 ${p.firstTriggerAt}") +
-                        "，" + (p.rrule?.let { "重复 $it" } ?: "不重复") + "。",
+                        "，" + (p.rrule?.let { "重复 $it" } ?: "不重复") +
+                        (if (p.gentle && !p.allDay) "，轻提醒（到点只发一条通知、不响铃）" else "") + "。",
                     ok = true,
                     ref = id,
                     payload = Created(id, p)
@@ -88,7 +93,9 @@ class CreateReminderTool(private val commit: suspend (ReminderPlan, ToolContext)
                 note = o.text("note"),
                 rrule = o.text("rrule"),
                 wallClockAnchored = o.path("wallClockAnchored").asBoolean(true),
-                allDay = o.path("allDay").asBoolean(false)
+                allDay = o.path("allDay").asBoolean(false),
+                // 加这个参数之前的历史里没有它：当响铃
+                gentle = o.path("gentle").asBoolean(false)
             )
         }.getOrNull()
 

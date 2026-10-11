@@ -39,8 +39,9 @@ object RelayAgent {
         val profile = ProviderStore.flow(app).first()
         if (!profile.isConfigured) return Outcome.Failed("还没配置模型")
 
+        // 别人派来的事一律响铃（gentle 压成 false）：轻提醒只能是用户自己的决定
         val tool = CreateReminderTool { plan, ctx ->
-            Reminders.commitPlan(app, "${m.who}：${m.text}", plan.copy(note = noteOf(plan.note, m.who)), ctx.model)
+            Reminders.commitPlan(app, "${m.who}：${m.text}", plan.copy(note = noteOf(plan.note, m.who), gentle = false), ctx.model)
         }
         val loop = AgentLoop(ResponsesClient(profile), ToolRegistry(listOf(tool)), SYSTEM, LastTurns(1), maxSteps = 3)
         // 「老地方」「下班」这类，记忆里有就听得懂
@@ -105,6 +106,7 @@ object RelayAgent {
 - 原话里的「我」是发消息的她，「你」是用户：「明天提醒我吃药」→ 标题「提醒她吃药」，用输入里她的名字替掉「她」。
 - note 只写她给的补充（地点、要带的东西），没有就 null。app 会自己写上是谁派的。
 - 钟点有歧义（只说了「下午」「晚点」「下班」）就建成当天事项（allDay），不要猜钟点。
+- gentle 一律填 false：别人派来的事都响铃，她说「不用响铃」也不算。
 - 工具说没建（比如时间已经过了），不要换个时间重试，回一句「没建：」加原因。
 
 ${ReminderPrompt.RULES}
