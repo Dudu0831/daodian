@@ -10,6 +10,7 @@ import com.abc.daodian.agent.engine.ask.AskRequest
 import com.abc.daodian.agent.engine.ask.AskUserTool
 import com.abc.daodian.agent.engine.ask.Pick
 import com.abc.daodian.agent.feature.TraceState
+import com.abc.daodian.agent.model.ImagesRejectedException
 import com.abc.daodian.agent.model.LlmEvent
 
 /**
@@ -30,7 +31,9 @@ sealed interface ChatMessage {
         /** 气泡只在刚发出时从输入框升起一次，列表滚回来重组时不再升 */
         val sentAt: Long = System.currentTimeMillis(),
         /** app 自己发起的一轮（每晚对账）：画成一条分隔线，不是气泡 —— 这句话用户没说过 */
-        val trigger: Boolean = false
+        val trigger: Boolean = false,
+        /** 随这句话发的图片（本机文件路径）。画在气泡上面；只有图没有字时就只画图。见 DESIGN.md §6.10 */
+        val images: List<String> = emptyList()
     ) : ChatMessage
 
     data class AssistantTurn(
@@ -44,6 +47,8 @@ sealed interface ChatMessage {
         val blocks: List<TurnBlock> = emptyList(),
         /** 连不上，挂「手动填一条 / 重试」 */
         val isError: Boolean = false,
+        /** 出错是因为带图的这句被网关退了回来：服务是通的，改挂「换个模型 / 重试」。只在 [isError] 时有意义 */
+        val imagesRejected: Boolean = false,
         /** 这一轮还没跑完 */
         val streaming: Boolean = false,
         /**
@@ -179,6 +184,10 @@ fun ChatMessage.AssistantTurn.patched(event: AgentEvent, traced: Set<String>): C
         streaming = false,
         blocks = blocks.filterNot { it.step == step && it is TurnBlock.Prose } +
             TurnBlock.Prose("broken", step, "后面的话没说完就断了。")
+    ).settleThought() else if (event.cause is ImagesRejectedException) copy(
+        // 说「多半」：app 只看得到带图的请求被退回了，各家网关的报错说法不一样，断定不了就是不支持图
+        streaming = false, isError = true, imagesRejected = true,
+        blocks = listOf(TurnBlock.Prose("error", step, "带图的这句被网关退了回来，多半是现在接的模型看不了图。"))
     ).settleThought() else copy(
         // 第二句「你可以自己填一条」由 UI 补，见 AssistantTurnRow
         streaming = false, isError = true,
@@ -302,7 +311,7 @@ private fun ChatMessage.AssistantTurn.settleThought() =
  * 只剩用户一句话的轮（当时失败了、没重试）只画气泡。
  */
 fun restoredMessages(turns: List<Turn>, traced: Set<String>, newId: () -> Long): List<ChatMessage> = turns.flatMap { turn ->
-    val user = ChatMessage.UserText(newId(), turn.input.text, sentAt = 0, trigger = turn.input.trigger)
+    val user = ChatMessage.UserText(newId(), turn.input.text, sentAt = 0, trigger = turn.input.trigger, images = turn.input.images)
     val results = turn.items.filterIsInstance<Item.ToolResult>().associateBy { it.callId }
     val blocks = mutableListOf<TurnBlock>()
     turn.items.forEach { item ->

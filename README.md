@@ -71,7 +71,7 @@ app/src/main/java/com/abc/daodian/
 │   ├── model/          调一次模型（流式 / 回退 / 停）；provider/ 供应商配置、「测一下」
 │   ├── feature/        接头：Feature、痕、体检项、注册表
 │   ├── prompt/         基础提示词
-│   ├── conversation/   对话页（回合、问卡、痕、Markdown、画图）、ChatAgent、chat.db
+│   ├── conversation/   对话页（回合、问卡、痕、Markdown、画图、随话发的图片）、ChatAgent、chat.db
 │   ├── memory/         记忆、垫在历史前面的那一段、后台整理（DESIGN.md §6.9）
 │   ├── entry/quick/    桌面速记
 │   ├── voice/          本地语音识别

@@ -9,6 +9,8 @@ import com.abc.daodian.agent.engine.ask.Pick
 import com.abc.daodian.agent.engine.FakeWriteTool
 import com.abc.daodian.agent.feature.TraceState
 import com.abc.daodian.agent.model.LlmEvent
+import com.abc.daodian.agent.model.ImagesRejectedException
+import com.abc.daodian.agent.model.LlmException
 import com.abc.daodian.agent.engine.tool.ToolOutcome
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -103,5 +105,26 @@ class ChatMessageTest {
             blocks = listOf(trace("c1", TraceState.FAILED), TurnBlock.Ask("a1", 0, state = AskState.ANSWERED), trace("c2", TraceState.OK))
         )
         assertEquals(listOf("c1", "a1", "c2"), asked.visibleBlocks.map { it.key })
+    }
+
+    @Test
+    fun `a picture the gateway sent back is its own kind of failure`() {
+        val turn = Turn(1, listOf(Item.UserMessage("按这个提醒我", now, images = listOf("a.jpg"))))
+        val rejected = ChatMessage.AssistantTurn(1, streaming = true)
+            .with(AgentEvent.Failed(turn, "400", ImagesRejectedException("400")))
+        assertTrue(rejected.isError && rejected.imagesRejected)
+        assertTrue("看不了图" in (rejected.blocks.single() as TurnBlock.Prose).text)
+
+        // 别的失败还是原来那句「连不上」
+        val down = ChatMessage.AssistantTurn(1, streaming = true).with(AgentEvent.Failed(turn, "timeout", LlmException("timeout")))
+        assertTrue(down.isError && !down.imagesRejected)
+    }
+
+    @Test
+    fun `restored user messages keep their pictures`() {
+        var n = 0L
+        val turn = Turn(1, listOf(Item.UserMessage("", now, images = listOf("/img/a.jpg")), Item.AssistantMessage("取件码 6-2-8815")))
+        val msgs = restoredMessages(listOf(turn), traced, newId = { n++ })
+        assertEquals(listOf("/img/a.jpg"), (msgs[0] as ChatMessage.UserText).images)
     }
 }

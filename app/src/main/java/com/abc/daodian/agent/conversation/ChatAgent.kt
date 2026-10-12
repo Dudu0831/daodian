@@ -7,6 +7,7 @@ import com.abc.daodian.agent.engine.ask.AskUserTool
 import com.abc.daodian.agent.engine.context.Compaction
 import com.abc.daodian.agent.engine.context.ContextPolicy
 import com.abc.daodian.agent.engine.context.FoldDrawings
+import com.abc.daodian.agent.engine.context.FoldImages
 import com.abc.daodian.agent.engine.context.FoldStale
 import com.abc.daodian.agent.engine.context.LastTurns
 import com.abc.daodian.agent.engine.tool.Tool
@@ -45,9 +46,10 @@ object ChatAgent {
 
     /**
      * 每步喂哪些轮：摘要之后的（AgentLoop 按 Recall 给的切）最多 [Compaction.HARD_CAP] 轮 ——
-     * 正常早就压成摘要了，这是压缩一直不成时的兜底；旧查询结果、旧图折成一句（§6.8、§6.9）
+     * 正常早就压成摘要了，这是压缩一直不成时的兜底；旧查询结果、旧图、他早先发来的图片折成一句（§6.8、§6.9、§6.10）
      */
-    private fun policy(stale: Set<String>, inner: ContextPolicy): ContextPolicy = FoldDrawings(FoldStale(stale, inner))
+    private fun policy(stale: Set<String>, inner: ContextPolicy): ContextPolicy =
+        FoldImages(FoldDrawings(FoldStale(stale, inner)))
 
     /** 这几轮喂出去是什么样（不裁轮数）：后台整理估要不要压时用，和真发出去的一致 */
     fun foldView(context: Context, turns: List<Turn>): List<Turn> =

@@ -63,33 +63,45 @@ import com.abc.daodian.shared.theme.Motion
 /** 助手说的话一律缩进这么多，跟上面的「· 到点」标签对齐 */
 private val AssistantIndent = 14.dp
 
-/** 刚发出的气泡从下方升起；列表滚回来重组时不再升 */
+/** 刚发出的气泡从下方升起；列表滚回来重组时不再升。[onOpenImage]：点了第几张图 */
 @Composable
-fun UserBubble(msg: ChatMessage.UserText) = UserBubble(msg.text, msg.sentAt)
+fun UserBubble(msg: ChatMessage.UserText, onOpenImage: (Int) -> Unit = {}) =
+    UserBubble(msg.text, msg.sentAt, msg.images, onOpenImage)
 
+/**
+ * 随话发的图在上、字在下，都靠右，一起升起。只有图的那句没有墨色气泡（DESIGN.md §6.10）
+ */
 @Composable
-fun UserBubble(text: String, sentAt: Long) {
+fun UserBubble(text: String, sentAt: Long, images: List<String> = emptyList(), onOpenImage: (Int) -> Unit = {}) {
     val colors = DaodianColors.current
     val rise = remember { Animatable(if (System.currentTimeMillis() - sentAt < 600) 0f else 1f) }
     LaunchedEffect(Unit) { rise.animateTo(1f, Motion.settle()) }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        Text(
-            text,
-            style = DaodianType.body,
-            color = colors.onSolid,
-            modifier = Modifier
-                .graphicsLayer {
-                    val p = rise.value
-                    translationY = (1f - p) * 26.dp.toPx()
-                    alpha = 0.15f + 0.85f * p
-                    scaleX = 0.97f + 0.03f * p
-                    scaleY = scaleX
-                    transformOrigin = TransformOrigin(1f, 1f)
-                }
-                .widthIn(max = 264.dp)
-                .background(colors.solid, RoundedCornerShape(20.dp, 20.dp, 5.dp, 20.dp))
-                .padding(horizontal = 18.dp, vertical = 12.dp)
-        )
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                val p = rise.value
+                translationY = (1f - p) * 26.dp.toPx()
+                alpha = 0.15f + 0.85f * p
+                scaleX = 0.97f + 0.03f * p
+                scaleY = scaleX
+                transformOrigin = TransformOrigin(1f, 1f)
+            },
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        if (images.isNotEmpty()) BubbleImages(images, tail = text.isBlank(), onOpen = onOpenImage)
+        if (text.isNotBlank()) {
+            Text(
+                text,
+                style = DaodianType.body,
+                color = colors.onSolid,
+                modifier = Modifier
+                    .widthIn(max = 264.dp)
+                    .background(colors.solid, RoundedCornerShape(20.dp, 20.dp, 5.dp, 20.dp))
+                    .padding(horizontal = 18.dp, vertical = 12.dp)
+            )
+        }
     }
 }
 
@@ -129,6 +141,8 @@ interface TurnActions {
     fun submit(callId: String) {}
     fun manualAdd() {}
     fun retry() {}
+    /** 带图的那句被网关退回来了，去模型配置页换一个看得了图的 */
+    fun openProvider() {}
 }
 
 /**
@@ -212,10 +226,19 @@ fun AssistantTurnRow(msg: ChatMessage.AssistantTurn, actions: TurnActions) {
                 if (si == 0) {
                     Reveal(msg.isError) {
                         Column {
-                            Text("你可以自己填一条，跟解析出来的一样能用。", style = DaodianType.prose, color = colors.muted)
-                            Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                                PillButton("手动填一条", PillStyle.OutlineStrong, actions::manualAdd)
-                                PillButton("重试", PillStyle.Outline, actions::retry)
+                            if (msg.imagesRejected) {
+                                // 服务是通的，只是不收图：不劝你手动填，指你去换模型。重试时图不用重选
+                                Text("换一个看得了图的模型再重试，图和这句话都还在。", style = DaodianType.prose, color = colors.muted)
+                                Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                                    PillButton("换个模型", PillStyle.OutlineStrong, actions::openProvider)
+                                    PillButton("重试", PillStyle.Outline, actions::retry)
+                                }
+                            } else {
+                                Text("你可以自己填一条，跟解析出来的一样能用。", style = DaodianType.prose, color = colors.muted)
+                                Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                                    PillButton("手动填一条", PillStyle.OutlineStrong, actions::manualAdd)
+                                    PillButton("重试", PillStyle.Outline, actions::retry)
+                                }
                             }
                         }
                     }

@@ -46,7 +46,8 @@ class AgentLoop(
     /**
      * [asker]：模型要问人时找谁（`ask_user`）。
      * [trigger]：这一轮是 app 自己发起的（见 [Item.UserMessage.trigger]），不是用户说的话。
-     * [background]：历史前面垫什么。对话页垫记忆 + 摘要，桌面速记只垫记忆，后台整理什么都不垫
+     * [background]：历史前面垫什么。对话页垫记忆 + 摘要，桌面速记只垫记忆，后台整理什么都不垫。
+     * [images]：随这句话发来的图片（见 [Item.UserMessage.images]），只有对话页会带
      */
     fun run(
         session: Session,
@@ -54,10 +55,13 @@ class AgentLoop(
         now: ZonedDateTime,
         asker: Asker = Asker.NONE,
         trigger: Boolean = false,
-        background: Background = Background.NONE
+        background: Background = Background.NONE,
+        images: List<String> = emptyList()
     ): Flow<AgentEvent> = flow {
-        session.begin(Item.UserMessage(input, now, trigger))
-        val toolContext = ToolContext(now, input, asker, model = llm.model)
+        session.begin(Item.UserMessage(input, now, trigger, images))
+        // 工具落库时把原话存成「来源」。只发了图没打字的，来源写成这句，别留空
+        val said = input.ifBlank { if (images.isEmpty()) input else "（发了 ${images.size} 张图片，没打字）" }
+        val toolContext = ToolContext(now, said, asker, model = llm.model)
         try {
             for (step in 0 until maxSteps) {
                 val output = try {

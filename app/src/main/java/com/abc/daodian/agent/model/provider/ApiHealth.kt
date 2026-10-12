@@ -1,6 +1,7 @@
 package com.abc.daodian.agent.model.provider
 
 import com.abc.daodian.agent.engine.AgentEvent
+import com.abc.daodian.agent.model.ImagesRejectedException
 import com.abc.daodian.agent.model.LlmException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,7 +43,8 @@ object ApiHealth {
     fun record(end: AgentEvent) {
         when (end) {
             is AgentEvent.Finished -> _state.value = ApiState.Ok
-            is AgentEvent.Failed -> if (end.cause is LlmException) recordDown(end.cause)
+            // 带图被退回不算链路的毛病：服务是通的，只是不收图，印不变灰
+            is AgentEvent.Failed -> if (end.cause is LlmException && end.cause !is ImagesRejectedException) recordDown(end.cause)
             else -> Unit
         }
     }

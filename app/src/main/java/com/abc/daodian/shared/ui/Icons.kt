@@ -258,3 +258,55 @@ fun StopIcon(modifier: Modifier = Modifier, size: Dp = 16.dp, tint: Color) {
         )
     }
 }
+
+/** 相册 —— 一张带山和太阳的画片。对话页加图片的底纸上用 */
+@Composable
+fun GalleryIcon(modifier: Modifier = Modifier, size: Dp = 22.dp, tint: Color, strokeWidth: Dp = 1.2.dp) {
+    Canvas(modifier.size(size)) {
+        val k = this.size.width / 20f
+        val sw = strokeWidth.toPx()
+        val stroke = strokeOf(sw)
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(2.6f * k, 4f * k),
+            size = Size(14.8f * k, 12f * k),
+            cornerRadius = CornerRadius(2f * k, 2f * k),
+            style = stroke
+        )
+        val hills = Path().apply {
+            moveTo(2.8f * k, 13.4f * k)
+            lineTo(7f * k, 9.6f * k)
+            lineTo(10.4f * k, 12.6f * k)
+            lineTo(13f * k, 10.4f * k)
+            lineTo(17.2f * k, 14f * k)
+        }
+        drawPath(hills, tint, style = stroke)
+        drawCircle(tint, radius = 1.1f * k, center = Offset(13.4f * k, 7.6f * k), style = stroke)
+    }
+}
+
+/** 相机 */
+@Composable
+fun CameraIcon(modifier: Modifier = Modifier, size: Dp = 22.dp, tint: Color, strokeWidth: Dp = 1.2.dp) {
+    Canvas(modifier.size(size)) {
+        val k = this.size.width / 20f
+        val stroke = strokeOf(strokeWidth.toPx())
+        val body = Path().apply {
+            moveTo(3f * k, 7.2f * k)
+            cubicTo(3f * k, 6.3f * k, 3.7f * k, 5.6f * k, 4.6f * k, 5.6f * k)
+            lineTo(6.6f * k, 5.6f * k)
+            lineTo(7.8f * k, 4f * k)
+            lineTo(12.2f * k, 4f * k)
+            lineTo(13.4f * k, 5.6f * k)
+            lineTo(15.4f * k, 5.6f * k)
+            cubicTo(16.3f * k, 5.6f * k, 17f * k, 6.3f * k, 17f * k, 7.2f * k)
+            lineTo(17f * k, 14.4f * k)
+            cubicTo(17f * k, 15.3f * k, 16.3f * k, 16f * k, 15.4f * k, 16f * k)
+            lineTo(4.6f * k, 16f * k)
+            cubicTo(3.7f * k, 16f * k, 3f * k, 15.3f * k, 3f * k, 14.4f * k)
+            close()
+        }
+        drawPath(body, tint, style = stroke)
+        drawCircle(tint, radius = 3f * k, center = Offset(10f * k, 10.6f * k), style = stroke)
+    }
+}

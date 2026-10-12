@@ -6,6 +6,7 @@ import com.abc.daodian.agent.engine.Item
 import com.abc.daodian.agent.engine.Turn
 import com.abc.daodian.agent.engine.context.Compaction
 import com.abc.daodian.agent.engine.context.FoldDrawings
+import com.abc.daodian.agent.engine.context.FoldImages
 import com.abc.daodian.agent.engine.context.FoldStale
 import com.abc.daodian.agent.engine.context.Preamble
 import com.abc.daodian.agent.model.LlmRequest
@@ -39,9 +40,12 @@ object ContextTrace {
             val range = if (sent.isEmpty()) "-" else "#${sent.first().id}–#${sent.last().id}"
             val staleFolded = request.input.count { it is Item.ToolResult && it.output == FoldStale.FOLDED }
             val drawingsFolded = request.input.count { it is Item.AssistantMessage && FoldDrawings.FOLDED in it.text }
+            // 他发来的图片：这次原样带了几张、折成一句的有几句
+            val pictures = request.input.sumOf { (it as? Item.UserMessage)?.images?.size ?: 0 }
+            val picturesFolded = request.input.count { it is Item.UserMessage && FoldImages.MARK in it.text }
             val chars = Compaction.chars(sent) + (request.background?.length ?: 0)
             val line = "${LocalTime.now().format(clock)} 背景 $bg · 原样 ${sent.size} 轮 $range · " +
-                "折掉查询 $staleFolded、图 $drawingsFolded · 约 $chars 字"
+                "折掉查询 $staleFolded、图 $drawingsFolded · 带图片 $pictures 张、折掉 $picturesFolded 句 · 约 $chars 字"
             val file = File(context.applicationContext.filesDir, FILE)
             if (file.length() > MAX_BYTES) file.delete()
             file.appendText(line + "\n")

@@ -16,9 +16,16 @@ sealed interface Item {
     /**
      * 一轮的开头。通常是用户说的话；[trigger] 为 true 时是 app 自己发起的（比如每晚对账），
      * 用户没说过这句，界面上画成一条分隔线而不是气泡。
-     * [at] 是这句话的时刻，重放时跟着一起给模型，「明天」才算得对
+     * [at] 是这句话的时刻，重放时跟着一起给模型，「明天」才算得对。
+     * [images] 是随这句话发来的图片（本机文件的路径，存之前缩小过），可以只有图、没有字。
+     * 更早几轮的图喂给模型前会折成一句话，见 [com.abc.daodian.agent.engine.context.FoldImages]
      */
-    data class UserMessage(val text: String, val at: ZonedDateTime, val trigger: Boolean = false) : Item {
+    data class UserMessage(
+        val text: String,
+        val at: ZonedDateTime,
+        val trigger: Boolean = false,
+        val images: List<String> = emptyList()
+    ) : Item {
         /** 喂给模型的样子：`[2026-09-18 21:03 周五 +08:00] 原话`。格式在 HarnessPrompt 里有交代 */
         fun content(): String =
             "[${at.format(STAMP)} ${Format.weekday(at.dayOfWeek)} ${at.offset}] " +

@@ -24,12 +24,13 @@ import com.abc.daodian.agent.memory.data.TidyRunEntity
  * 同理，这个库改表时可以比那边大胆 —— 但照样要写迁移，别 destructive 掉用户的对话。
  *
  * v2：加了记忆（`memories`）和整理记录（`tidy_runs`），见 DESIGN.md §6.9。
+ * v3：`chat_items` 加一列 `images`，随话发来的图片，见 DESIGN.md §6.10。
  */
 @Database(
     entities = [ChatItemEntity::class, MemoryEntity::class, TidyRunEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2)]
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)]
 )
 abstract class ChatDatabase : RoomDatabase() {
     abstract fun chatDao(): ChatDao
@@ -71,7 +72,9 @@ data class ChatItemEntity(
     val toolName: String? = null,
     /** TOOL_RESULT */
     val ok: Boolean? = null,
-    val ref: Long? = null
+    val ref: Long? = null,
+    /** USER：随这句话发来的图片，一行一个文件名（文件在 [ChatImageFiles.dir] 里）。没有图是 null */
+    val images: String? = null
 )
 
 @Dao

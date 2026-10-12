@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="diag" path="diag/" />
+    <!-- 对话页拍照：系统相机把原片写到这儿（agent/conversation/data/ChatImageFiles.kt） -->
+    <cache-path name="camera" path="chat_camera/" />
 </paths>

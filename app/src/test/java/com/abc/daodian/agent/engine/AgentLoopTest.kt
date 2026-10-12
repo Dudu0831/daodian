@@ -12,6 +12,10 @@ import com.abc.daodian.agent.engine.ask.AskUserTool
 import com.abc.daodian.agent.engine.ask.Asker
 import com.abc.daodian.agent.engine.ask.Pick
 import com.abc.daodian.agent.engine.tool.ToolRegistry
+import com.abc.daodian.agent.engine.tool.Tool
+import com.abc.daodian.agent.engine.tool.ToolContext
+import com.abc.daodian.agent.engine.tool.ToolEffect
+import com.abc.daodian.agent.engine.tool.ToolOutcome
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -229,5 +233,30 @@ class AgentLoopTest {
     fun `user message carries its own timestamp`() {
         val content = Item.UserMessage("明天提醒我", now).content()
         assertEquals("[2026-09-18 21:00 周五 +08:00] 明天提醒我", content)
+    }
+
+    @Test
+    fun `pictures ride along with the sentence, and a wordless one still names its source`() = runBlocking {
+        var source = ""
+        val seeing = object : Tool {
+            override val name = "note_source"
+            override val description = "记下这一轮的来源"
+            override val parameters: Map<String, Any?> = mapOf("type" to "object", "properties" to emptyMap<String, Any?>())
+            override val effect = ToolEffect.WRITE
+            override suspend fun execute(arguments: String, context: ToolContext): ToolOutcome {
+                source = context.userInput
+                return ToolOutcome("记了", ok = true)
+            }
+        }
+        val llm = ScriptedLlm(calls(Item.ToolCall("c1", "note_source", "{}")), answer("这是一张小票"))
+        val session = Session()
+
+        AgentLoop(llm, ToolRegistry(listOf(seeing)), "sys").run(session, "", now, images = listOf("/img/a.jpg", "/img/b.jpg")).toList()
+
+        // 图记在这一轮开头那句上，每一步都跟着发给模型
+        assertEquals(listOf("/img/a.jpg", "/img/b.jpg"), session.turns.single().input.images)
+        llm.requests.forEach { assertEquals(2, (it.input.first() as Item.UserMessage).images.size) }
+        // 没打字：工具落库用的「来源」不留空
+        assertEquals("（发了 2 张图片，没打字）", source)
     }
 }

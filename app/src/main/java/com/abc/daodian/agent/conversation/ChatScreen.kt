@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.shrinkVertically
@@ -69,6 +70,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import com.abc.daodian.agent.conversation.data.ChatImageFiles
 import com.abc.daodian.agent.feature.FeatureRegistry
 import com.abc.daodian.agent.feature.PendingTrigger
 import com.abc.daodian.shared.format.Format
@@ -76,6 +78,7 @@ import com.abc.daodian.agent.voice.VoiceInput
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.theme.Motion
+import java.io.File
 import java.time.LocalTime
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -202,6 +205,51 @@ fun ChatScreen(
         }
     }
 
+    // 加图片（DESIGN.md §6.10）：点 ＋ 出底纸，相册走系统的选图页、相机调系统相机，都不用权限。
+    // 选回来的在 ViewModel 里缩小、排进输入框上面那一行；跟下一句话一起发
+    val pendingImages by vm.pendingImages.collectAsState()
+    var attachSheet by remember { mutableStateOf(false) }
+    // 点开全屏看的那几张、从第几张看起
+    var viewing by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
+    val pickOne = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let { vm.addImages(listOf(it)) }
+    }
+    val pickSome = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(ChatImageFiles.MAX_PER_MESSAGE)
+    ) { uris -> if (uris.isNotEmpty()) vm.addImages(uris) }
+    // 相机把原片写到哪儿。拍的那会儿页面可能被系统回收，得存得下来
+    var shot by rememberSaveable { mutableStateOf<String?>(null) }
+    val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
+        shot?.let { vm.addShot(File(it), taken) }
+        shot = null
+    }
+
+    fun openGallery() {
+        val room = ChatImageFiles.MAX_PER_MESSAGE - pendingImages.size
+        val imagesOnly = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        runCatching { if (room > 1) pickSome.launch(imagesOnly) else pickOne.launch(imagesOnly) }
+            .onFailure { voiceNote = "这台手机打不开相册" }
+    }
+
+    fun openCamera() {
+        runCatching {
+            val (file, uri) = ChatImageFiles.cameraTarget(context)
+            shot = file.path
+            takePicture.launch(uri)
+        }.onFailure {
+            shot = null
+            voiceNote = "这台手机打不开相机"
+        }
+    }
+
+    // 加图时要说的一句（读不了、超了张数）：和「没听清」走同一个地方
+    LaunchedEffect(vm.imageNote) {
+        vm.imageNote?.let {
+            voiceNote = it
+            vm.consumeImageNote()
+        }
+    }
+
     // 你一动手拖列表就不再跟；停下来时离底部多远，决定要不要接着跟
     val dragged by listState.interactionSource.collectIsDraggedAsState()
     LaunchedEffect(dragged) { if (dragged) follow = false }
@@ -246,7 +294,8 @@ fun ChatScreen(
 
     /** [typed] = 发的是输入框里打的字，发完清空；说出来的那句不动输入框里还没发的草稿 */
     fun send(text: String, typed: Boolean = true) {
-        if (text.isBlank()) return
+        // 选好了图的话，不打字也能发
+        if (text.isBlank() && pendingImages.isEmpty()) return
         if (vm.aiBusy && asking == null) return
         // 发出去输入框就压暗、键盘跟着收（问卡在等时输入框还能打字，键盘不收）。气泡和墨条加在末尾、
         // 还压在输入框后面：这时贴底跟随会先把列表往上推，紧接着整页又跟着键盘往下落一大截，一上一下。
@@ -378,7 +427,9 @@ fun ChatScreen(
                                     // 进场各自有戏（气泡升起、回合展开），这里只管挪位和退场
                                     Box(Modifier.animateItem(fadeInSpec = null, placementSpec = placement, fadeOutSpec = Motion.exit())) {
                                         when (msg) {
-                                            is ChatMessage.UserText -> if (msg.trigger) TriggerDivider(msg) else UserBubble(msg)
+                                            is ChatMessage.UserText ->
+                                                if (msg.trigger) TriggerDivider(msg)
+                                                else UserBubble(msg, onOpenImage = { viewing = msg.images to it })
                                             is ChatMessage.AssistantTurn -> {
                                                 val actions = remember(msg.id) {
                                                     object : TurnActions {
@@ -392,6 +443,7 @@ fun ChatScreen(
                                                             manualEntry?.let(onOpen)
                                                         }
                                                         override fun retry() = vm.retryLast()
+                                                        override fun openProvider() = onOpenProvider()
                                                     }
                                                 }
                                                 AssistantTurnRow(msg, actions)
@@ -480,7 +532,8 @@ fun ChatScreen(
                     voiceNote = null
                     input = it
                 },
-                onSend = { send(input) },
+                // 说话那一档只有带着图才有发送键：发的就是图，不捎上换档前打了一半、这会儿看不见的草稿
+                onSend = { if (voiceMode) send("", typed = false) else send(input) },
                 enabled = !vm.aiBusy || asking != null,
                 voiceMode = voiceMode,
                 onToggleVoice = {
@@ -500,18 +553,38 @@ fun ChatScreen(
                 onHoldArm = { armed -> if (hold != VoiceHold.Idle) hold = if (armed) VoiceHold.Armed else VoiceHold.Holding },
                 onHoldEnd = ::releaseHold,
                 onStop = { vm.stopStreaming() },
+                images = pendingImages,
+                onAttach = {
+                    voiceNote = null
+                    focus.clearFocus()
+                    attachSheet = true
+                },
+                onRemoveImage = vm::removeImage,
+                attachEnabled = !vm.aiBusy && asking == null,
+                maxImages = ChatImageFiles.MAX_PER_MESSAGE,
                 scope = vm.askScope,
                 placeholder = when {
                     voiceNote != null -> voiceNote.orEmpty()
                     vm.askScope != null -> "说是什么……"
                     asking != null -> if (asking.single) "都不是？直接说……" else "或者直接说……"
                     vm.aiBusy -> "正在说……"
+                    pendingImages.isNotEmpty() -> "说点什么，或者直接发……"
                     messages.isEmpty() -> "说一句话……"
                     else -> "再说点什么……"
                 }
             )
         }
     }
+
+    if (attachSheet) {
+        ImageSourceSheet(
+            room = ChatImageFiles.MAX_PER_MESSAGE - pendingImages.size,
+            onGallery = ::openGallery,
+            onCamera = ::openCamera,
+            onDismiss = { attachSheet = false }
+        )
+    }
+    viewing?.let { (images, at) -> ImageViewer(images, at, onClose = { viewing = null }) }
 }
 
 /**

@@ -67,4 +67,11 @@ class CompactionTest {
         val out = FoldStale(setOf("list_expenses"), LastTurns(10), keep = 1).select(listOf(t, turns(2L..2L).single()))
         assertSame(t, out.first())
     }
+
+    @Test
+    fun `pictures still carried count towards the size`() {
+        val plain = Turn(1, listOf(Item.UserMessage("看", now)))
+        val pictured = Turn(1, listOf(Item.UserMessage("看", now, images = listOf("a.jpg", "b.jpg"))))
+        assertEquals(Compaction.chars(listOf(plain)) + 2 * Compaction.IMAGE_CHARS, Compaction.chars(listOf(pictured)))
+    }
 }

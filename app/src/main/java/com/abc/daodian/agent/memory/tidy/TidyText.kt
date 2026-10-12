@@ -80,6 +80,8 @@ object TidyText {
                         append("\n[${at.monthValue}月${at.dayOfMonth}日 ${Format.weekday(at.dayOfWeek)} %02d:%02d] ".format(at.hour, at.minute))
                         if (item.trigger) append("（app 自动发起，不是他说的）").append(clip(item.text, 300))
                         else append("他：").append(item.text)
+                        // 整理员看不到图，只知道这里有过
+                        if (item.images.isNotEmpty()) append("（附了 ${item.images.size} 张图片）")
                         append('\n')
                     }
                     is Item.AssistantMessage -> append("助手：").append(clip(FoldDrawings.fold(item.text), 800)).append('\n')

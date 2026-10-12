@@ -8,6 +8,7 @@ import com.openai.client.OpenAIClient
 import com.openai.client.okhttp.OpenAIOkHttpClient
 import com.openai.core.JsonValue
 import com.openai.core.http.StreamResponse
+import com.openai.errors.OpenAIServiceException
 import com.openai.models.Reasoning
 import com.openai.models.ReasoningEffort
 import com.openai.models.responses.EasyInputMessage
@@ -15,7 +16,10 @@ import com.openai.models.responses.FunctionTool
 import com.openai.models.responses.Response
 import com.openai.models.responses.ResponseCreateParams
 import com.openai.models.responses.ResponseFunctionToolCall
+import com.openai.models.responses.ResponseInputContent
+import com.openai.models.responses.ResponseInputImage
 import com.openai.models.responses.ResponseInputItem
+import com.openai.models.responses.ResponseInputText
 import com.openai.models.responses.ResponseOutputItem
 import com.openai.models.responses.ResponseStreamEvent
 import com.openai.models.responses.ToolChoiceOptions
@@ -27,6 +31,9 @@ import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.Base64
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -52,7 +59,12 @@ class ResponsesClient(private val profile: ProviderProfile) : LlmClient {
      */
     override fun step(request: LlmRequest): Flow<LlmEvent> = channelFlow {
         if (!profile.isConfigured) throw LlmException("还没配置供应商：${profile.redacted()}")
-        val params = params(request)
+        // 带图的那几句要读文件、转 base64，别在调用方的线程上干
+        val params = withContext(Dispatchers.IO) { params(request) }
+        val withImages = request.input.any { it is Item.UserMessage && it.images.isNotEmpty() }
+        /** 带着图、又是被网关退回来的：单独一种错，界面上另报一句（[ImagesRejectedException]） */
+        fun failure(message: String, cause: Throwable?, rejected: Boolean): LlmException =
+            if (withImages && rejected) ImagesRejectedException(message, cause) else LlmException(message, cause)
         val acc = Accumulator()
         var streamed = false
         /** 流式没跑起来的原因。回退也失败时两个原因一起报，只报后一个会误导 */
@@ -75,7 +87,12 @@ class ResponsesClient(private val profile: ProviderProfile) : LlmClient {
                     runCatching { stream.close() }
                 }
             }
-            if (streamed) acc.output() ?: throw LlmException(acc.failure ?: "流结束了，但没有收到任何完整的输出") else null
+            if (streamed) {
+                acc.output() ?: throw failure(
+                    acc.failure ?: "流结束了，但没有收到任何完整的输出", null,
+                    rejected = acc.failure?.let(::mentionsImages) == true
+                )
+            } else null
         } catch (c: CancellationException) {
             throw c
         } catch (e: LlmException) {
@@ -95,7 +112,7 @@ class ResponsesClient(private val profile: ProviderProfile) : LlmClient {
                 throw c
             } catch (t: Throwable) {
                 val first = streamError ?: "流开了但一个事件都没有"
-                throw LlmException("流式：$first；回退一次性：${t.javaClass.simpleName}: ${t.message}", t)
+                throw failure("流式：$first；回退一次性：${t.javaClass.simpleName}: ${t.message}", t, rejected = isRejection(t))
             }
             send(LlmEvent.Done(outputOf(response.output())))
         }
@@ -210,7 +227,8 @@ class ResponsesClient(private val profile: ProviderProfile) : LlmClient {
         }
 
         private fun wire(item: Item): ResponseInputItem = when (item) {
-            is Item.UserMessage -> message(EasyInputMessage.Role.USER, item.content())
+            is Item.UserMessage ->
+                if (item.images.isEmpty()) message(EasyInputMessage.Role.USER, item.content()) else pictured(item)
             is Item.AssistantMessage -> message(EasyInputMessage.Role.ASSISTANT, item.text)
             is Item.ToolCall -> ResponseInputItem.ofFunctionCall(
                 ResponseFunctionToolCall.builder()
@@ -233,6 +251,41 @@ class ResponsesClient(private val profile: ProviderProfile) : LlmClient {
          */
         private fun background(text: String): ResponseInputItem =
             message(EasyInputMessage.Role.USER, "${Preamble.MARK}\n$text")
+
+        /**
+         * 带图的一句：文字在前、图在后。图读成 base64 的 data URL 直接带在请求里，不依赖网关的文件接口。
+         * 读不到的图（文件没了）换成一句话，别让模型对着一张不存在的图说话
+         */
+        private fun pictured(item: Item.UserMessage): ResponseInputItem {
+            val urls = item.images.mapNotNull(::dataUrl)
+            val missing = item.images.size - urls.size
+            val text = item.content() + if (missing > 0) "\n（有 $missing 张图片读不到了）" else ""
+            val parts = mutableListOf(ResponseInputContent.ofInputText(ResponseInputText.builder().text(text).build()))
+            urls.forEach {
+                parts += ResponseInputContent.ofInputImage(
+                    ResponseInputImage.builder().imageUrl(it).detail(ResponseInputImage.Detail.AUTO).build()
+                )
+            }
+            return ResponseInputItem.ofEasyInputMessage(
+                EasyInputMessage.builder().role(EasyInputMessage.Role.USER).contentOfResponseInputMessageContentList(parts).build()
+            )
+        }
+
+        private fun dataUrl(path: String): String? = runCatching {
+            val file = File(path)
+            val mime = if (file.extension.equals("png", ignoreCase = true)) "image/png" else "image/jpeg"
+            "data:$mime;base64," + Base64.getEncoder().encodeToString(file.readBytes())
+        }.getOrNull()
+
+        /** 网关把请求退了回来：格式不认（400 / 415 / 422）、太大（413）。鉴权、限流、地址不对不算，那是别的毛病 */
+        private fun isRejection(t: Throwable): Boolean = t is OpenAIServiceException && t.statusCode() in REJECTED
+
+        private val REJECTED = setOf(400, 413, 415, 422)
+
+        /** 流里报的错没有状态码，只能看它说没说到图 */
+        private fun mentionsImages(reason: String): Boolean = reason.lowercase().let { r -> IMAGE_WORDS.any { it in r } }
+
+        private val IMAGE_WORDS = listOf("image", "vision", "multimodal", "multi-modal", "图")
 
         private fun message(role: EasyInputMessage.Role, text: String) =
             ResponseInputItem.ofEasyInputMessage(EasyInputMessage.builder().role(role).content(text).build())

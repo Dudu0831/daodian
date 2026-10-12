@@ -38,7 +38,13 @@ sealed interface LlmEvent {
     data class Done(val output: StepOutput) : LlmEvent
 }
 
-class LlmException(message: String, cause: Throwable? = null) : Exception(message, cause)
+open class LlmException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+/**
+ * 带着图发出去，被网关当场退了回来。多半是这个模型看不了图 —— 链路本身是通的，
+ * 所以不算「连不上」：顶栏的印不变灰，对话里单独报一句。见 DESIGN.md §6.10
+ */
+class ImagesRejectedException(message: String, cause: Throwable? = null) : LlmException(message, cause)
 
 /** 只管「调一次模型」。不认识任何具体工具，也不管循环 */
 interface LlmClient {

@@ -66,4 +66,10 @@ class TidyTextTest {
         val many = (1L..(TidyText.MAX_TURNS + 5L)).map { Turn(it, listOf(Item.UserMessage("嗯", at))) }
         assertEquals(TidyText.MAX_TURNS, TidyText.take(many, emptySet()).size)
     }
+
+    @Test
+    fun `pictures are only mentioned, the tidy model cannot see them`() {
+        val t = Turn(7, listOf(Item.UserMessage("这两张小票记一下", at, images = listOf("a.jpg", "b.jpg")), Item.AssistantMessage("记好了")))
+        assertTrue(TidyText.transcript(listOf(t), emptySet(), zone).contains("他：这两张小票记一下（附了 2 张图片）"))
+    }
 }

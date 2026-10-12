@@ -23,6 +23,9 @@ object Compaction {
     /** 压完留几轮原样喂（含当前轮） */
     const val KEEP = 6
 
+    /** 一张还原样带着的图按这么多字算。各家算法不一样，只是个量级 —— 图多了也该早点压 */
+    const val IMAGE_CHARS = 800
+
     /** 压缩一直没成（断网、网关挂了）时的兜底：最多原样喂这么多轮，更早的就丢了 —— 跟以前的 LastTurns 一样 */
     const val HARD_CAP = 24
 
@@ -40,7 +43,7 @@ object Compaction {
     fun chars(turns: List<Turn>): Int = turns.sumOf { t ->
         t.items.sumOf {
             when (it) {
-                is Item.UserMessage -> it.text.length + 30
+                is Item.UserMessage -> it.text.length + 30 + it.images.size * IMAGE_CHARS
                 is Item.AssistantMessage -> it.text.length
                 is Item.ToolCall -> it.name.length + it.arguments.length
                 is Item.ToolResult -> it.output.length

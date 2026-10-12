@@ -3,9 +3,11 @@ package com.abc.daodian.agent.conversation
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -14,8 +16,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -45,6 +49,7 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.abc.daodian.shared.ui.KeyboardIcon
 import com.abc.daodian.shared.ui.MicIcon
+import com.abc.daodian.shared.ui.PlusIcon
 import com.abc.daodian.shared.ui.SendIcon
 import com.abc.daodian.shared.ui.StopIcon
 import com.abc.daodian.shared.theme.DaodianColors
@@ -70,8 +75,10 @@ private val DISARM_DISTANCE = 56.dp
  * 用户必须能喊停，否则只能干等。
  *
  * 最左边那个键在打字和说话之间换：点一下麦克风，中间的输入框换成「按住说话」，图标变成键盘，
- * 再点一下换回来（见 DESIGN.md §8.3「对话页：按住说话」）。说话那一档没有发送键 —— 松手就发；
- * 只有回合在跑的时候「停」才出来。按住时屏幕中间那个文字框不归这里画（[VoiceHoldOverlay]）。
+ * 再点一下换回来（见 DESIGN.md §8.3「对话页：按住说话」）。按住时屏幕中间那个文字框不归这里画（[VoiceHoldOverlay]）。
+ *
+ * 最右那一格：没东西可发时是 ＋（加图片），框里一有字或有图就换成发送，回合在跑时是「停」。
+ * 选好的图排在输入框上面一行（[PendingImages]）。见 DESIGN.md §6.10
  */
 @Composable
 fun ChatInputBar(
@@ -87,6 +94,14 @@ fun ChatInputBar(
     onHoldArm: (armed: Boolean) -> Unit = {},
     onHoldEnd: (cancelled: Boolean) -> Unit = {},
     onStop: (() -> Unit)? = null,
+    /** 选好、还没发的图 */
+    images: List<String> = emptyList(),
+    /** 点了 ＋（最右那一格的，或者缩略图后面虚线那一格） */
+    onAttach: () -> Unit = {},
+    onRemoveImage: (String) -> Unit = {},
+    /** 这会儿能不能加图：回合在跑、问卡等着你答的时候不能，＋ 压暗 */
+    attachEnabled: Boolean = true,
+    maxImages: Int = Int.MAX_VALUE,
     placeholder: String = "说一句话……",
     /**
      * 点了问卡上某一题的「其他…」：句首垫上「¥219.00 是」，描一圈朱砂 ——
@@ -95,118 +110,160 @@ fun ChatInputBar(
     scope: String? = null
 ) {
     val colors = DaodianColors.current
-    val canSend = text.isNotBlank() && enabled
+    val hasImages = images.isNotEmpty()
+    // 有图就能发，不用非得配一句话
+    val canSend = (text.isNotBlank() || hasImages) && enabled
     val shape = RoundedCornerShape(26.dp)
     val dim by animateFloatAsState(if (enabled) 1f else 0.55f, tween(Motion.SHORT), label = "inputDim")
     val edge by animateColorAsState(if (scope != null) colors.accent else colors.rule, tween(Motion.SHORT), label = "inputEdge")
     val stopping = !enabled && onStop != null
 
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .background(colors.surface, shape)
             .border(1.dp, edge, shape)
-            .padding(start = 9.dp, end = 11.dp, top = 11.dp, bottom = 11.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(start = 9.dp, end = 11.dp, top = 11.dp, bottom = 11.dp)
     ) {
-        // 按着的时候不让换档：手指一偏点到它，正说着的话就没了
-        val toggleTint by animateColorAsState(
-            if (hold == VoiceHold.Idle) colors.ink2 else colors.hint, tween(Motion.SHORT), label = "toggleTint"
-        )
-        // 不要按下去那块灰：默认的水波是个方的，罩在这颗小图标上像个灰框。图标自己会换，那就是回应
-        val toggleSource = remember { MutableInteractionSource() }
-        Box(
-            Modifier
-                .size(36.dp)
-                .graphicsLayer { alpha = dim }
-                .clickable(
-                    interactionSource = toggleSource,
-                    indication = null,
-                    enabled = enabled && hold == VoiceHold.Idle,
-                    onClick = onToggleVoice
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Crossfade(voiceMode, animationSpec = tween(Motion.SHORT), label = "voiceToggle") { voice ->
-                if (voice) KeyboardIcon(tint = toggleTint)
-                else MicIcon(size = 20.dp, tint = toggleTint, strokeWidth = 1.2.dp)
-            }
-        }
-
         AnimatedVisibility(
-            visible = scope != null,
-            enter = expandHorizontally(Motion.settle(Motion.SHORT)) + fadeIn(Motion.settle(Motion.SHORT)),
-            exit = shrinkHorizontally(Motion.flow(Motion.SHORT)) + fadeOut(Motion.exit())
+            visible = hasImages,
+            enter = expandVertically(Motion.flow(Motion.SHORT)) + fadeIn(Motion.flow(Motion.SHORT)),
+            exit = shrinkVertically(Motion.flow(Motion.SHORT)) + fadeOut(Motion.exit())
         ) {
-            // 退场那几帧 scope 已经是 null 了，用最后一次的字画完
-            val last = remember { arrayOfNulls<String>(1) }
-            scope?.let { last[0] = it }
-            Text(last[0].orEmpty(), style = DaodianType.body, color = colors.muted, modifier = Modifier.padding(start = 5.dp))
-        }
-
-        if (voiceMode) {
-            HoldToTalk(
-                hold = hold,
-                enabled = enabled,
-                onStart = onHoldStart,
-                onArm = onHoldArm,
-                onEnd = onHoldEnd,
-                modifier = Modifier.weight(1f).padding(start = 5.dp).graphicsLayer { alpha = dim }
+            // 退场那几帧 images 已经空了，用最后一次的画完
+            val last = remember { arrayOfNulls<List<String>>(1) }
+            if (hasImages) last[0] = images
+            val shown = last[0].orEmpty()
+            PendingImages(
+                images = shown,
+                canAdd = attachEnabled && hold == VoiceHold.Idle && shown.size < maxImages,
+                onAdd = onAttach,
+                onRemove = onRemoveImage,
+                modifier = Modifier.padding(start = 5.dp, bottom = 10.dp).graphicsLayer { alpha = dim }
             )
-        } else {
-            Box(Modifier.weight(1f).padding(start = 5.dp, end = 8.dp).graphicsLayer { alpha = dim }) {
-                if (text.isEmpty()) {
-                    Crossfade(targetState = placeholder, animationSpec = tween(Motion.SHORT), label = "placeholder") {
-                        Text(it, style = DaodianType.body, color = colors.hint)
-                    }
-                }
-                BasicTextField(
-                    value = text,
-                    onValueChange = onTextChange,
-                    enabled = enabled,
-                    textStyle = DaodianType.body.copy(color = colors.ink),
-                    cursorBrush = SolidColor(colors.accent),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { if (canSend) onSend() }),
-                    singleLine = false,
-                    maxLines = 4,
-                    // 空的时候它只有光标那么宽 —— 不撑满的话，点在占位字上根本唤不起键盘
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
         }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            // 按着的时候不让换档：手指一偏点到它，正说着的话就没了
+            val toggleTint by animateColorAsState(
+                if (hold == VoiceHold.Idle) colors.ink2 else colors.hint, tween(Motion.SHORT), label = "toggleTint"
+            )
+            // 不要按下去那块灰：默认的水波是个方的，罩在这颗小图标上像个灰框。图标自己会换，那就是回应
+            val toggleSource = remember { MutableInteractionSource() }
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .graphicsLayer { alpha = dim }
+                    .clickable(
+                        interactionSource = toggleSource,
+                        indication = null,
+                        enabled = enabled && hold == VoiceHold.Idle,
+                        onClick = onToggleVoice
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Crossfade(voiceMode, animationSpec = tween(Motion.SHORT), label = "voiceToggle") { voice ->
+                    if (voice) KeyboardIcon(tint = toggleTint)
+                    else MicIcon(size = 20.dp, tint = toggleTint, strokeWidth = 1.2.dp)
+                }
+            }
 
-        // 稿子里空输入框的发送键也是实心带箭头 —— 空心圈只属于「解析中」那一档。
-        // 没字时按钮还在，只是按不动：按钮凭空消失比按了没反应更让人发懵。
-        // 压暗只加在文字和左边那个键上，不加在整条 Row 上 —— alpha 会 clamp 到 1，
-        // 套在父层的话「停」再怎么提也提不回来，看着就像个禁用的按钮。
-        // 说话那一档没有东西可发，这个位置空着；回合在跑时「停」照样得在
-        if (!voiceMode || stopping) {
+            AnimatedVisibility(
+                visible = scope != null,
+                enter = expandHorizontally(Motion.settle(Motion.SHORT)) + fadeIn(Motion.settle(Motion.SHORT)),
+                exit = shrinkHorizontally(Motion.flow(Motion.SHORT)) + fadeOut(Motion.exit())
+            ) {
+                // 退场那几帧 scope 已经是 null 了，用最后一次的字画完
+                val last = remember { arrayOfNulls<String>(1) }
+                scope?.let { last[0] = it }
+                Text(last[0].orEmpty(), style = DaodianType.body, color = colors.muted, modifier = Modifier.padding(start = 5.dp))
+            }
+
+            if (voiceMode) {
+                HoldToTalk(
+                    hold = hold,
+                    enabled = enabled,
+                    onStart = onHoldStart,
+                    onArm = onHoldArm,
+                    onEnd = onHoldEnd,
+                    modifier = Modifier.weight(1f).padding(start = 5.dp).graphicsLayer { alpha = dim }
+                )
+            } else {
+                Box(Modifier.weight(1f).padding(start = 5.dp, end = 8.dp).graphicsLayer { alpha = dim }) {
+                    if (text.isEmpty()) {
+                        Crossfade(targetState = placeholder, animationSpec = tween(Motion.SHORT), label = "placeholder") {
+                            Text(it, style = DaodianType.body, color = colors.hint)
+                        }
+                    }
+                    BasicTextField(
+                        value = text,
+                        onValueChange = onTextChange,
+                        enabled = enabled,
+                        textStyle = DaodianType.body.copy(color = colors.ink),
+                        cursorBrush = SolidColor(colors.accent),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = { if (canSend) onSend() }),
+                        singleLine = false,
+                        maxLines = 4,
+                        // 空的时候它只有光标那么宽 —— 不撑满的话，点在占位字上根本唤不起键盘
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            // 最右那一格（设计稿「甲」）：没东西可发时是 ＋，一有字或有图就换成实心的发送，回合在跑时是空心圈里的「停」。
+            // 实心只属于发送，空心圈只属于「停」，＋ 和左边的麦克风一样只是一根细线图标。
+            // 说话那一档松手就发，没有发送键；只有带着图、又不想说话的时候它才出来。
+            // 压暗只加在文字和左边那个键上，不加在整条 Row 上 —— alpha 会 clamp 到 1，
+            // 套在父层的话「停」再怎么提也提不回来，看着就像个禁用的按钮。
+            val key = when {
+                stopping -> SendKey.Stop
+                !enabled -> SendKey.None
+                canSend && (!voiceMode || hasImages) -> SendKey.Send
+                else -> SendKey.Attach
+            }
+            // 按着说话的时候不让点：手指一偏点到它，正说着的话就没了
+            val canAttach = attachEnabled && hold == VoiceHold.Idle
             if (voiceMode) Spacer(Modifier.width(6.dp))
             val fill by animateColorAsState(
-                if (enabled) colors.solid else colors.solid.copy(alpha = 0f), tween(Motion.SHORT), label = "sendFill"
+                if (key == SendKey.Send) colors.solid else colors.solid.copy(alpha = 0f), tween(Motion.SHORT), label = "sendFill"
             )
-            val ring by animateColorAsState(if (enabled) colors.solid else colors.rule2, tween(Motion.SHORT), label = "sendRing")
+            val ring by animateColorAsState(
+                when (key) {
+                    SendKey.Send -> colors.solid
+                    SendKey.Attach -> colors.rule2.copy(alpha = 0f)
+                    else -> colors.rule2
+                },
+                tween(Motion.SHORT), label = "sendRing"
+            )
             Box(
                 Modifier
                     .size(36.dp)
                     .background(fill, CircleShape)
                     .border(1.5.dp, ring, CircleShape)
-                    .clickable(enabled = canSend || stopping) { if (stopping) onStop!!() else onSend() },
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        // ＋ 没有底，默认那块方的水波罩上去像个灰框（和左边那个键同一个道理）
+                        indication = if (key == SendKey.Attach) null else LocalIndication.current,
+                        enabled = when (key) {
+                            SendKey.Send, SendKey.Stop -> true
+                            SendKey.Attach -> canAttach
+                            SendKey.None -> false
+                        }
+                    ) {
+                        when (key) {
+                            SendKey.Send -> onSend()
+                            SendKey.Stop -> onStop?.invoke()
+                            SendKey.Attach -> onAttach()
+                            SendKey.None -> Unit
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
-                Crossfade(
-                    targetState = when {
-                        enabled -> SendKey.Send
-                        stopping -> SendKey.Stop
-                        else -> SendKey.None
-                    },
-                    animationSpec = tween(Motion.SHORT),
-                    label = "sendKey"
-                ) { key ->
-                    when (key) {
-                        SendKey.Send -> SendIcon(tint = if (canSend) colors.onSolid else colors.onSolid.copy(alpha = 0.45f))
+                Crossfade(targetState = key, animationSpec = tween(Motion.SHORT), label = "sendKey") { k ->
+                    when (k) {
+                        SendKey.Send -> SendIcon(tint = colors.onSolid)
                         SendKey.Stop -> StopIcon(tint = colors.ink2)
+                        SendKey.Attach -> PlusIcon(size = 19.dp, tint = if (canAttach) colors.ink2 else colors.hint, strokeWidth = 1.2.dp)
                         SendKey.None -> Unit
                     }
                 }
@@ -215,7 +272,7 @@ fun ChatInputBar(
     }
 }
 
-private enum class SendKey { Send, Stop, None }
+private enum class SendKey { Send, Stop, Attach, None }
 
 /**
  * 「按住说话」那一块：按下开始，松手结束；按着往上滑过 [ARM_DISTANCE] 是要取消，滑回来接着说。

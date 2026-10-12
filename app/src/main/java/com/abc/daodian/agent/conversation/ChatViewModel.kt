@@ -1,11 +1,13 @@
 package com.abc.daodian.agent.conversation
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.abc.daodian.agent.conversation.data.ChatImageFiles
 import com.abc.daodian.agent.conversation.data.ChatStore
 import com.abc.daodian.agent.engine.AgentEvent
 import com.abc.daodian.agent.engine.AgentLoop
@@ -25,11 +27,13 @@ import com.abc.daodian.agent.model.provider.ApiHealth
 import com.abc.daodian.agent.model.provider.PingResult
 import com.abc.daodian.agent.model.provider.ProviderStore
 import com.abc.daodian.agent.model.provider.ProviderTest
+import java.io.File
 import java.time.ZonedDateTime
 import kotlin.coroutines.cancellation.CancellationException
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
@@ -39,6 +43,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 对话页（和顶栏印章、模型配置页）的状态。见 DESIGN.md §06
@@ -86,6 +91,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
      */
     private val session: Deferred<Session> = viewModelScope.async {
         try {
+            // 以前选好没发的图：那一行早没了，文件别留着
+            withContext(Dispatchers.IO) { ChatImageFiles.clearStale(app) }
             val store = ChatStore.get(app)
             val session = Session(store.load(), store)
             // app 在等你答问卡的时候被杀了：那次调用没拿到结果，补上「没答」—— 缺一个下一次请求就会被网关拒掉
@@ -104,8 +111,21 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     var restoredInput by mutableStateOf<String?>(null)
         private set
 
+    // 随话发的图片（DESIGN.md §6.10）：状态在这儿，怎么加、怎么去掉在 [sendMessage] 后面
+    private val _pendingImages = MutableStateFlow<List<String>>(emptyList())
+
+    /** 选好、还没发的图（本机文件路径），排在输入框上面那一行 */
+    val pendingImages: StateFlow<List<String>> = _pendingImages.asStateFlow()
+
+    /** 加图时要说的一句（读不了、超了张数）。界面取走后调 [consumeImageNote] */
+    var imageNote by mutableStateOf<String?>(null)
+        private set
+
     /** 最后一句用户说的话，失败后「重试」用得上 */
     private var lastUserInput: String? = null
+
+    /** 那句话带的图，重试时原样再带上 */
+    private var lastImages: List<String> = emptyList()
 
     /** 上一轮是 app 自己发起的（对账）：重试时照样按自动发起的一轮重发 */
     private var lastTrigger = false
@@ -146,17 +166,69 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun sendMessage(text: String) {
         val trimmed = text.trim()
-        if (trimmed.isBlank()) return
         if (pendingAsk != null) {
+            if (trimmed.isBlank()) return
             if (askScopeIndex != null) fillAsk(trimmed) else sayToAsk(trimmed)
             return
         }
+        // 选好的图跟这句话一起走；只有图、没打字也能发（DESIGN.md §6.10）
+        if (trimmed.isBlank() && _pendingImages.value.isEmpty()) return
         if (aiBusy) return
 
+        val images = ChatImageFiles.commit(getApplication(), _pendingImages.value)
+        _pendingImages.value = emptyList()
+        // 只有图、图又一张都没挪成（文件没了）：没东西可发
+        if (trimmed.isBlank() && images.isEmpty()) return
         lastUserInput = trimmed
+        lastImages = images
         lastTrigger = false
-        _messages.value = _messages.value + ChatMessage.UserText(newId(), trimmed)
-        runTurn(trimmed)
+        _messages.value = _messages.value + ChatMessage.UserText(newId(), trimmed, images = images)
+        runTurn(trimmed, images = images)
+    }
+
+    // ---------------- 随话发的图片（DESIGN.md §6.10）----------------
+
+    fun consumeImageNote() {
+        imageNote = null
+    }
+
+    /** 相册里选回来的。一张张缩小、存好再排进去；超出 [ChatImageFiles.MAX_PER_MESSAGE] 的不要 */
+    fun addImages(uris: List<Uri>) = viewModelScope.launch {
+        var unreadable = 0
+        var over = 0
+        for (uri in uris) {
+            if (_pendingImages.value.size >= ChatImageFiles.MAX_PER_MESSAGE) {
+                over++
+                continue
+            }
+            val path = ChatImageFiles.import(getApplication(), uri)
+            when {
+                path == null -> unreadable++
+                // 缩图的那一会儿里别处又加满了
+                _pendingImages.value.size >= ChatImageFiles.MAX_PER_MESSAGE -> {
+                    ChatImageFiles.delete(path)
+                    over++
+                }
+                else -> _pendingImages.value = _pendingImages.value + path
+            }
+        }
+        imageNote = when {
+            unreadable > 0 -> if (uris.size == 1) "这张图读不了，没加上" else "有 $unreadable 张图读不了，没加上"
+            over > 0 -> "一句话最多带 ${ChatImageFiles.MAX_PER_MESSAGE} 张，多的没加"
+            else -> imageNote
+        }
+    }
+
+    /** 相机拍回来的原片（[taken] = 真拍了）。缩完就把原片删掉 */
+    fun addShot(shot: File, taken: Boolean) = viewModelScope.launch {
+        if (taken) addImages(listOf(Uri.fromFile(shot))).join()
+        withContext(Dispatchers.IO) { shot.delete() }
+    }
+
+    /** 待发那一行上点了叉 */
+    fun removeImage(path: String) {
+        _pendingImages.value = _pendingImages.value - path
+        ChatImageFiles.delete(path)
     }
 
     /**
@@ -176,6 +248,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             is Trigger.Turn -> {
                 _messages.value = _messages.value + ChatMessage.UserText(newId(), trigger.text, trigger = true)
                 lastUserInput = trigger.text
+                lastImages = emptyList()
                 lastTrigger = true
                 runTurn(trigger.text, trigger = true)
             }
@@ -206,13 +279,13 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val trimmed = lastUserInput ?: return
         if (aiBusy) return
         _messages.value = _messages.value.filterNot { it is ChatMessage.AssistantTurn && it.isError }
-        runTurn(trimmed, retry = true, trigger = lastTrigger)
+        runTurn(trimmed, retry = true, trigger = lastTrigger, images = lastImages)
     }
 
     /**
      * 跑一轮。一个回合**原地长大**：正文、痕、问卡按到货顺序摞，中途不换消息类型。见 DESIGN.md §6.5
      */
-    private fun runTurn(text: String, retry: Boolean = false, trigger: Boolean = false) {
+    private fun runTurn(text: String, retry: Boolean = false, trigger: Boolean = false, images: List<String> = emptyList()) {
         streamJob = viewModelScope.launch {
             val session = session.await()
             if (retry) session.discardLastTurn()
@@ -240,7 +313,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 var finished = false
                 ChatAgent.of(getApplication(), profile.value)
-                    .run(session, text, ZonedDateTime.now(), asker, trigger, Recall.chat(getApplication()))
+                    .run(session, text, ZonedDateTime.now(), asker, trigger, Recall.chat(getApplication()), images)
                     .collect { event ->
                         patchTurn(turnId, event)
                         if (event is AgentEvent.Finished || event is AgentEvent.Failed) ApiHealth.record(event)
@@ -275,7 +348,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                         throw t
                     }
                     _messages.value = msgs.filterNot { it.id == turnId || it.id == takeBackId }
-                    if (takeBackId != null) restoredInput = text
+                    if (takeBackId != null) {
+                        restoredInput = text
+                        // 图跟原话一起退回去：文件还在，回到待发那一行
+                        if (images.isNotEmpty()) _pendingImages.value = images
+                    }
                     session.discardLastTurn()
                 }
                 throw t

@@ -172,6 +172,25 @@ class LiveGatewayTest {
         assertNotNull(s.summary)
     }
 
+    /**
+     * 随话发图（§6.10）：网关认不认 `input_image`、这个模型看不看得了图。
+     * 现画一张写着数字的图发过去，问它图上写的什么 —— 认不出来、或者被网关退回来，这一条就红。
+     */
+    @Test
+    fun `the gateway takes a picture and the model reads it`() = runBlocking {
+        val number = "4729"
+        val file = File.createTempFile("daodian-probe", ".png").apply { deleteOnExit() }
+        file.writeBytes(ProbeImage.digits(number))
+
+        val loop = AgentLoop(ResponsesClient(profile), ToolRegistry(emptyList()), BasePrompt.SYSTEM)
+        val events = loop.run(Session(), "图上写的是什么数字？只回数字", ZonedDateTime.now(), images = listOf(file.path)).onEach(::log).toList()
+        val end = events.last()
+        assertTrue("带图的请求没走通（${profile.model}）：$end", end is AgentEvent.Finished)
+        val reply = (end as AgentEvent.Finished).turn.items.filterIsInstance<Item.AssistantMessage>().joinToString { it.text }
+        println("模型看到的：$reply")
+        assertTrue("没认出图上的 $number：$reply", number in reply)
+    }
+
     private fun log(e: AgentEvent) {
         when (e) {
             is AgentEvent.Model -> when (val m = e.event) {
