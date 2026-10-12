@@ -72,8 +72,10 @@ app/src/main/java/com/abc/daodian/
 │   ├── feature/        接头：Feature、痕、体检项、注册表
 │   ├── prompt/         基础提示词
 │   ├── conversation/   对话页（回合、问卡、痕、Markdown、画图）、ChatAgent、chat.db
+│   ├── memory/         记忆、垫在历史前面的那一段、后台整理（DESIGN.md §6.9）
 │   ├── entry/quick/    桌面速记
 │   ├── voice/          本地语音识别
+│   ├── diagnostics/    崩溃记录、导出诊断（DESIGN.md §11.3）
 │   └── shell/          导航、抽屉、设置页、模型配置页的框
 ├── reminder/         提醒。断网、不经过模型也要能用
 │   ├── scheduling/     调度内核 —— 唯一不允许出错的部分：排期、到点、重排、巡检、当天事项
@@ -96,6 +98,7 @@ app/src/main/java/com/abc/daodian/
 ├── intake/           通知监听。全 app 唯一的监听，按各模块勾的 app 分通知；只抓、只分，不存、不读懂（DESIGN.md §2.3）
 │   ├── data/           每个订阅者听哪些 app
 │   └── presentation/   「权限与监听」页里通知监听那几组、通用的勾 app 页
+├── update/           检查更新（内测）：查新版、下载、交给系统安装器。不依赖 agent 和任何模块（DESIGN.md §11.2）
 └── shared/           地基：墨宋色板与字体、动效、手绘图标、通用组件、人话时间、装了哪些 app、Launch 路由
 ```
 

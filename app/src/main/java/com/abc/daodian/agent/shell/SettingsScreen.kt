@@ -27,7 +27,6 @@ import com.abc.daodian.agent.diagnostics.Diagnostics
 import com.abc.daodian.agent.feature.FeatureRegistry
 import com.abc.daodian.agent.memory.presentation.MemoryViewModel
 import com.abc.daodian.agent.model.provider.ApiState
-import com.abc.daodian.agent.update.Updates
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.ui.ChevronRightIcon
@@ -38,6 +37,7 @@ import com.abc.daodian.shared.ui.PaperGroup
 import com.abc.daodian.shared.ui.ScreenTopBar
 import com.abc.daodian.shared.ui.SettingRow
 import com.abc.daodian.shared.ui.activityViewModel
+import com.abc.daodian.update.Updates
 import kotlinx.coroutines.launch
 
 /**

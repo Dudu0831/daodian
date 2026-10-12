@@ -82,6 +82,7 @@
 - **`ledger`** 记账：自己在后台存通知、整理、对账（§10）。
 - **`intake`** 通知监听：全 app 唯一的通知监听，按你给各模块勾的 app 把通知分下去。只抓、只分，不存、不读懂（§2.3）。
 - **`shared`** 地基：色板、字体、动效、通用组件、人话时间、装了哪些 app、`Launch`。谁也不依赖。
+- **`update`** 检查更新：内测期间查新版、下载、交给系统安装器（§11.2）。只碰 `BuildConfig` 和系统服务，跟智能交互没关系，所以不放在 `agent` 里；根目录开 app 时查一次，`agent/shell` 的设置页和抽屉读它的状态。
 
 ```
 agent            只认接头
@@ -110,6 +111,7 @@ shared                 地基：没有状态
 6. 根目录只做装配。
 7. `intake` 的核心只 import `shared`，**永远**不 import `agent` 和任何模块；只有它的接头文件 `IntakeFeature.kt` 和 `presentation/` 碰界面壳。
 8. `reminder`、`ledger` 可以 import `intake` 的核心（`Notice`、`NoticeSubscriber`、`Intake`、`IntakeRoutes`），不 import 它的页面和接头。
+9. `update` 不 import `agent` 和任何模块。
 
 **路由**：agent 用 `chat`、`settings`、`permissions`、`provider`、`memory`；提醒 `reminder/list`、`reminder/edit?id=`、`reminder/log`、`reminder/settings`、`reminder/relay/{id}`（派活名单上某个人的那一页）；记账 `ledger`、`ledger/category/…`、`ledger/txn/{id}`、`ledger/capture`、`ledger/settings`；通知监听 `intake/apps/{订阅者 id}`。
 路由常量放在 `ReminderRoutes` / `LedgerRoutes` / `IntakeRoutes`，不挂在接头上 —— 通知、小组件（核心层）要用，又不该 import 接头。
@@ -1009,7 +1011,7 @@ MagicOS 各版本菜单名有出入，按关键词找：
 - 版本号：每发一个包 versionCode +1（同号、降号覆盖不上），versionName 走 `0.1.x`。每发一版打一个 `v<versionName>` 的 tag。
 - 新包放在官网那台服务器的 `/srv/daodian-app`，网址 `https://104-168-64-160.sslip.io/app/`：`daodian-<版本>.apk` 加一份 `latest.json`（versionCode、versionName、url、size、notes）。和官网分目录，官网部署的 `rsync --delete` 碰不到；Caddy 那段在 `daodian-web/deploy/Caddyfile`，`latest.json` 不缓存、不进访问统计。
 - 发版用 `scripts/publish.sh "这一版改了什么"`：打 release → 核签名指纹 → 确认 versionCode 比线上大 → **先传包、再换 `latest.json`**（app 看到新版时包一定已经在）。脚本里有服务器地址和 root 登录，**gitignored、只在本机**。
-- app 这边（`agent/update/Updates.kt`）：开 app 时查一次，回到设置页再查（一小时内不重复），点「版本」那行马上查；查不到就当没有，不打扰。有新版：设置「版本」那行朱砂字 + 这一版的 notes，抽屉「设置」那行写「有新版本」（体检缺项时让位给红字）。点了交给系统 DownloadManager 下（离开 app 也接着下，通知栏有进度），下完交给系统安装器 —— 同签名、更大的 versionCode，就是覆盖升级，数据都在。第一次要去系统里许「安装未知应用」，回来再点一次。debug 包不查。
+- app 这边（`update/Updates.kt`）：开 app 时查一次，回到设置页再查（一小时内不重复），点「版本」那行马上查；查不到就当没有，不打扰。有新版：设置「版本」那行朱砂字 + 这一版的 notes，抽屉「设置」那行写「有新版本」（体检缺项时让位给红字）。点了交给系统 DownloadManager 下（离开 app 也接着下，通知栏有进度），下完交给系统安装器 —— 同签名、更大的 versionCode，就是覆盖升级，数据都在。第一次要去系统里许「安装未知应用」，回来再点一次。debug 包不查。
 - 服务器在洛杉矶，大陆下 85MB 要一会儿。嫌慢就把包挪到国内对象存储，只改 `latest.json` 里的 url，app 不用动。
 
 ### 11.3 崩溃记录与导出诊断

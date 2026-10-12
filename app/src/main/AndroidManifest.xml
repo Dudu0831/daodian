@@ -11,7 +11,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- 内测的检查更新：下完新包交给系统安装器（agent/update/Updates.kt） -->
+    <!-- 内测的检查更新：下完新包交给系统安装器（update/Updates.kt） -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- 桌面速记的语音输入（本地识别，自己录音）。只在第一次点小组件墨印时才弹授权，见 DESIGN.md §8.3 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />

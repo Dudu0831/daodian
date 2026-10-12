@@ -1,4 +1,4 @@
-package com.abc.daodian.agent.update
+package com.abc.daodian.update
 
 import android.app.DownloadManager
 import android.content.Context

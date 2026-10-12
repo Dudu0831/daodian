@@ -23,10 +23,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.abc.daodian.agent.update.Updates
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.ui.SettingsIcon
+import com.abc.daodian.update.Updates
 
 /**
  * 左边的抽屉（设计稿方向 B「两张纸」：<https://claude.ai/artifact/PRk3CWeu24V4tKZgxkGLwn>）。

@@ -16,12 +16,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
-import com.abc.daodian.agent.update.Updates
 import com.abc.daodian.agent.conversation.ChatViewModel
 import com.abc.daodian.agent.entry.quick.WidgetFrame
 import com.abc.daodian.agent.shell.AppNavHost
 import com.abc.daodian.shared.navigation.Launch
 import com.abc.daodian.shared.theme.DaodianTheme
+import com.abc.daodian.update.Updates
 
 /** 唯一的宿主 Activity：挂上 agent/shell 的导航，其余都在里面 */
 class MainActivity : ComponentActivity() {

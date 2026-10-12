@@ -44,7 +44,7 @@ android {
         buildConfigField("String", "LLM_API_KEY",   "\"${secret("LLM_API_KEY")}\"")
         buildConfigField("String", "LLM_MODEL",     "\"${secret("LLM_MODEL")}\"")
 
-        // 内测的检查更新（agent/update/Updates.kt）：新包和 latest.json 在官网服务器的 /app/ 下，scripts/publish.sh 传
+        // 内测的检查更新（update/Updates.kt）：新包和 latest.json 在官网服务器的 /app/ 下，scripts/publish.sh 传
         buildConfigField("String", "UPDATE_FEED", "\"https://104-168-64-160.sslip.io/app/latest.json\"")
     }
 
