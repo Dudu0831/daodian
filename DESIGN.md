@@ -177,7 +177,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 | 层 | 选择 |
 |---|---|
 | 语言 / UI | Kotlin + Jetpack Compose，Material 3，单 Activity |
-| SDK | minSdk 34 · targetSdk 35 · compileSdk 35（决策 3.2） |
+| SDK | minSdk 33 · targetSdk 35 · compileSdk 35（决策 3.2） |
 | 持久化 | Room（KSP），三个库见 §2.2；配置和 key 存 DataStore，`allowBackup="false"` |
 | 定时 | `AlarmManager.setAlarmClock()`（§05）；兜底巡检、记账整理用 WorkManager |
 | 模型 | `openai-java`（OkHttp backend），Responses API，`baseUrl` 指向任意兼容网关（决策 3.1） |
@@ -191,9 +191,15 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 
 **代价是包体**：R8 之后 2.2MB → 35MB（Jackson + kotlin-reflect + victools），接受了。调模型只在 `agent/model/ResponsesClient` 一处，真要换回手写客户端只动这一个类。
 
-### 决策 3.2 · minSdk 34
+### 决策 3.2 · minSdk 33
 
-原定 33（`USE_EXACT_ALARM`、`POST_NOTIFICATIONS` 落地的版本，定在这里就不用写版本分支）。写代码时发现全屏 intent 要的 `NotificationManager.canUseFullScreenIntent()` 和 `Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT` 都是 34 才有，停在 33 反而要写分支。目标机是 Android 15，34 零损失。**别改回去。**
+原定 33（`USE_EXACT_ALARM`、`POST_NOTIFICATIONS` 落地的版本，定在这里就不用写版本分支）。写代码时发现全屏 intent 要的 `NotificationManager.canUseFullScreenIntent()` 和 `Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT` 都是 34 才有，一度抬到 34 图个零分支。
+
+**10-15 退回 33**：内测要照顾 Android 13 的手机。14 才有的接口只有三处，各加一个版本分支：
+- `Notifier.canUseFullScreenIntent()`：13 上声明了 `USE_FULL_SCREEN_INTENT` 就有，直接当能弹；14 起照旧问系统。投递（`Notifier`）和体检（`HealthCheck`，13 上这一项没有「去开」）都走它。
+- 速记那页（`QuickAddActivity`）关系统进出场动画：14 起 `overrideActivityTransition`，13 上用 `overridePendingTransition(0, 0)`，退场那一下在 `finish()` 之后补。
+
+再往下（32 及以下）不去：`USE_EXACT_ALARM`、`POST_NOTIFICATIONS`、`PackageManager.ApplicationInfoFlags` 都是 33 才有，要分支的地方一下多起来，而且精确闹钟的授权方式也不一样。加 14 才有的接口时记得写分支，编译检查（lint `NewApi`）会报。
 
 ---
 
@@ -312,7 +318,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 
 - 渠道 `reminders_v1`，`IMPORTANCE_HIGH`。**渠道建好后铃声改不了**，要换声音只能换 channel id，所以 id 里带版本号。
 - `setCategory(CATEGORY_ALARM)` + `setFullScreenIntent(...)` → 锁屏直接弹出到点全屏页。全屏页是独立的 `AlarmActivity`，不是 `MainActivity` 借 `showWhenLocked` —— 「到点响铃」和「正常打开 app」互不污染。
-- Android 14+ 收紧了全屏 intent：先 `canUseFullScreenIntent()`，拿不到就降级成普通 heads-up，不要崩。
+- Android 14+ 收紧了全屏 intent：先 `Notifier.canUseFullScreenIntent()`（13 上直接算有，决策 3.2），拿不到就降级成普通 heads-up，不要崩。
 - 两个 action：「完成」「稍后 10 分钟」。
 - **`FLAG_INSISTENT`**：不加的话铃声和震动各播一遍就停（真机上就是「只嗡一下」）。加了之后系统循环到通知被取消 ——
   「完成」「稍后」（通知按钮和全屏页都走 `NotificationActionReceiver` → `cancel()`）、点开、划掉都会让它停。

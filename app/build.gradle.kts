@@ -31,7 +31,7 @@ android {
 
     defaultConfig {
         applicationId = "com.abc.daodian"
-        minSdk = 34          // 见 README「minSdk 从 33 改到 34」。34 才是真正的「零版本分支」边界
+        minSdk = 33          // DESIGN 决策 3.2：为了 Android 13 的内测者从 34 退回来，14 才有的接口三处版本分支
         targetSdk = 35
         // 发出去的每个包 versionCode 都要 +1：同号、降号覆盖不上
         versionCode = 8

@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -49,11 +50,23 @@ class QuickAddActivity : ComponentActivity() {
         else vm.blockVoice("没有麦克风权限。可以在系统设置里给「到点」打开，或者去 app 里说。")
     }
 
+    /** 13 上没有 overrideActivityTransition：退场的那一下只能在 finish() 之后关掉 */
+    override fun finish() {
+        super.finish()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            @Suppress("DEPRECATION") overridePendingTransition(0, 0)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // 进出场在 Compose 里自己画（纸从墨印里长出来），系统那一下窗口动画会和它叠在一起
-        overrideActivityTransition(Activity.OVERRIDE_TRANSITION_OPEN, 0, 0)
-        overrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            overrideActivityTransition(Activity.OVERRIDE_TRANSITION_OPEN, 0, 0)
+            overrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        } else {
+            @Suppress("DEPRECATION") overridePendingTransition(0, 0)
+        }
         enableEdgeToEdge()
         anchor = anchorOf(intent)
         mic = micOf(intent)

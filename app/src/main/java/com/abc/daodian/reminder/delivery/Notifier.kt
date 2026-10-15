@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -83,10 +84,9 @@ object Notifier {
         val body = timedBody(reminder, lateBy)
         if (body.isNotEmpty()) builder.setContentText(body)
 
-        // Android 14+ 收紧了全屏 intent，拿不到就安静降级成 heads-up，不要崩。
+        // Android 14+ 收紧了全屏 intent，拿不到就安静降级成 heads-up，不要崩。13 上声明了就有（决策 3.2）。
         // 全屏页是独立的 AlarmActivity（响铃屏），不是打开 app 本体的那个宿主 Activity。
-        val nm = context.getSystemService(NotificationManager::class.java)
-        if (nm.canUseFullScreenIntent()) {
+        if (canUseFullScreenIntent(context)) {
             val ring = PendingIntent.getActivity(
                 context,
                 reminder.id.toInt(),
@@ -341,4 +341,9 @@ object Notifier {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
     }
+
+    /** 14 起要用户许；13 上声明了 `USE_FULL_SCREEN_INTENT` 就有，没有这个接口（决策 3.2） */
+    fun canUseFullScreenIntent(context: Context): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+            context.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
 }
