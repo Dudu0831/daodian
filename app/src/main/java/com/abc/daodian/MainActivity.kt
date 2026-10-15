@@ -48,7 +48,7 @@ class MainActivity : ComponentActivity() {
         // 少了这行，键盘弹起时窗口缩一遍、imePadding 再顶一遍，输入框会飞到半空。
         enableEdgeToEdge()
         // 内测的检查更新：开 app 时查一次，有新版本抽屉的「设置」那行就写出来
-        Updates.check()
+        Updates.check(this)
 
         // POST_NOTIFICATIONS 是唯一需要运行时申请的权限，见设计文档 §5.2
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
@@ -88,6 +88,17 @@ class MainActivity : ComponentActivity() {
                 return go
             }
         })
+    }
+
+    /** 下完更新那一刻 app 在后台的话，回到前台再弹安装器（[Updates.foreground]） */
+    override fun onResume() {
+        super.onResume()
+        Updates.foreground(this, true)
+    }
+
+    override fun onPause() {
+        Updates.foreground(this, false)
+        super.onPause()
     }
 
     /** launchMode 是 singleTop：app 已经开着的时候再点小组件，走的是这里而不是 onCreate */

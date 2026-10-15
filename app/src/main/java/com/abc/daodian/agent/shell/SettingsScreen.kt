@@ -169,7 +169,7 @@ private fun VersionRow() {
     val context = LocalContext.current
     val state by Updates.state.collectAsState()
     LifecycleResumeEffect(Unit) {
-        Updates.check()
+        Updates.check(context)
         onPauseOrDispose { }
     }
     val current = BuildConfig.VERSION_NAME
@@ -183,6 +183,7 @@ private fun VersionRow() {
                     s.release.notes.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()) to colors.accent
             is Updates.State.Downloading ->
                 "正在下载 ${s.release.versionName}" + (s.fraction?.let { " · ${(it * 100).toInt()}%" } ?: "") to colors.muted
+            is Updates.State.Ready -> "${s.release.versionName} 下好了，点一下安装，数据都在" to colors.accent
             is Updates.State.Failed -> "${s.release.versionName} ${s.why}" to colors.red
         }
     }
@@ -195,8 +196,9 @@ private fun VersionRow() {
                 when (val s = state) {
                     is Updates.State.Available -> Updates.download(context, s.release)
                     is Updates.State.Failed -> Updates.download(context, s.release)
+                    is Updates.State.Ready -> Updates.install(context, s.release)
                     is Updates.State.Downloading -> Unit
-                    else -> Updates.check(force = true)
+                    else -> Updates.check(context, force = true)
                 }
             }
         }

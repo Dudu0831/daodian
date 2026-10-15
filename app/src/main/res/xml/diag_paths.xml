@@ -3,4 +3,6 @@
     <cache-path name="diag" path="diag/" />
     <!-- 对话页拍照：系统相机把原片写到这儿（agent/conversation/data/ChatImageFiles.kt） -->
     <cache-path name="camera" path="chat_camera/" />
+    <!-- 检查更新下好的包交给系统安装器（update/Updates.kt），getExternalFilesDir(DOWNLOADS) -->
+    <external-files-path name="update" path="Download/" />
 </paths>

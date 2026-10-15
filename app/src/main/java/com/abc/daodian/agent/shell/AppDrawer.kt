@@ -83,7 +83,7 @@ fun AppDrawer(
             SettingsIcon(tint = colors.ink2)
             Text("设置", style = DaodianType.body, color = colors.ink2, modifier = Modifier.weight(1f))
             val update by Updates.state.collectAsState()
-            val fresh = update is Updates.State.Available
+            val fresh = update is Updates.State.Available || update is Updates.State.Ready
             Text(
                 when {
                     healthMissing > 0 -> "还差 $healthMissing 项"
