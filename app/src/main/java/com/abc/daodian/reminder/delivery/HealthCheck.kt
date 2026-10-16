@@ -13,7 +13,7 @@ import androidx.core.app.NotificationManagerCompat
 /**
  * 权限体检。这几项里挂掉任何一项，提醒都可能不响。见设计文档 §9.1
  * 注意：MagicOS 的「应用启动管理」没有公开 API 可以检测，只能靠 §9.2 手动设置 + 放置测试验证（[MANUAL]）。
- * 设置页、抽屉经接头拿它（ReminderFeature.health）。
+ * 设置页、抽屉经接头拿它（ReminderShell.health）。
  */
 object HealthCheck {
 

@@ -1,11 +1,11 @@
 package com.abc.daodian.reminder
 
 import android.content.Context
-import com.abc.daodian.agent.diagnostics.Diagnostics.time
-import com.abc.daodian.agent.diagnostics.rows
 import com.abc.daodian.reminder.data.ReminderDatabase
 import com.abc.daodian.reminder.relay.RelayDatabase
 import com.abc.daodian.reminder.relay.RelaySettings
+import com.abc.daodian.shared.data.rows
+import com.abc.daodian.shared.format.DiagnosticText.time
 
 /** 「导出诊断」里提醒那一段：排了几条、下一次什么时候、最近响得准不准、派活收到的。不写标题、不写原话 */
 internal object ReminderDiagnostics {

@@ -1,8 +1,8 @@
 package com.abc.daodian.ledger.tools
 
-import com.abc.daodian.agent.engine.background.LockedTool
-import com.abc.daodian.agent.engine.tool.Tool
 import com.abc.daodian.ledger.domain.LedgerBackend
+import com.abc.daodian.runtime.LockedTool
+import com.abc.daodian.runtime.tool.Tool
 import java.time.ZoneId
 
 /**
@@ -28,7 +28,7 @@ object LedgerTools {
             ListExpensesTool(backend, zone)
         )
 
-    fun forChat(backend: LedgerBackend, zone: () -> ZoneId = { ZoneId.systemDefault() }): List<Tool> =
+    fun forAssistant(backend: LedgerBackend, zone: () -> ZoneId = { ZoneId.systemDefault() }): List<Tool> =
         listOf(
             ListExpensesTool(backend, zone),
             AddExpenseTool(backend, zone),

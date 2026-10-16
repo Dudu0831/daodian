@@ -9,14 +9,24 @@ import androidx.core.app.NotificationManagerCompat
 import com.abc.daodian.intake.Notice
 import com.abc.daodian.intake.NoticeSubscriber
 import com.abc.daodian.reminder.ReminderRoutes
+import com.abc.daodian.reminder.application.Reminders
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase
 import com.abc.daodian.reminder.data.dueDate
 import com.abc.daodian.reminder.domain.ReminderText
 import com.abc.daodian.reminder.domain.Rrule
+import com.abc.daodian.reminder.tools.CreateReminderTool
+import com.abc.daodian.runtime.AgentRuntime
+import com.abc.daodian.runtime.Input
+import com.abc.daodian.runtime.RunResult
+import com.abc.daodian.runtime.payloads
+import com.abc.daodian.runtime.reply
 import com.abc.daodian.shared.apps.AppCatalog
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.navigation.Launch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -33,7 +43,7 @@ import kotlinx.coroutines.sync.withLock
  *
  * 它是通知监听层的一个订阅者（DESIGN.md §2.3）：你给派活勾的 app（微信），通知才会交到这里。
  * 更细的规则是这里自己的：只认通知标题是名单（[RelaySettings]）上某个人名字的那些，微信的「[3条]」「备注名: 」自己剥；
- * 这些人说的每一句都记进 `relay.db`，那个人设了暗号的只把暗号开头的交给模型（[RelayAgent]），没设就句句都交。
+ * 这些人说的每一句都记进 `relay.db`，那个人设了暗号的只把暗号开头的交给模型（[RelayAgent]，[ask]），没设就句句都交。
  * 叫模型是重活，[accept] 只落库，模型另起一个协程办。建成了弹一条通知告诉你，点开是那条提醒。
  */
 object Relay : NoticeSubscriber {
@@ -102,17 +112,17 @@ object Relay : NoticeSubscriber {
         dao.update(m.copy(status = RelayStatus.WORKING.name, detail = null))
         val coded = code.isNotEmpty() && m.text.startsWith(code, ignoreCase = true)
         val task = if (coded) m.text.drop(code.length).trimStart(*LEAD) else m.text
-        val outcome = runCatching { RelayAgent.run(context, m, task, coded) }
-            .getOrElse { RelayAgent.Outcome.Failed(it.message ?: it.javaClass.simpleName) }
+        val outcome = runCatching { ask(context, m, task, coded) }
+            .getOrElse { Outcome.Failed(it.message ?: it.javaClass.simpleName) }
         val done = when (outcome) {
-            is RelayAgent.Outcome.Created -> {
+            is Outcome.Created -> {
                 val reminders = outcome.ids.mapNotNull { ReminderDatabase.get(context).reminderDao().byId(it) }
                 val said = reminders.joinToString("；") { "${whenOf(it)} · ${it.title}" }
                 notify(context, m, "${m.who}派了一件事", said, Launch.intent(context, route = ReminderRoutes.edit(outcome.ids.first())))
                 m.copy(status = RelayStatus.CREATED.name, detail = said, reminderId = outcome.ids.first())
             }
-            is RelayAgent.Outcome.NotTask -> m.copy(status = RelayStatus.NOT_TASK.name, detail = outcome.reply)
-            is RelayAgent.Outcome.Failed -> {
+            is Outcome.NotTask -> m.copy(status = RelayStatus.NOT_TASK.name, detail = outcome.reply)
+            is Outcome.Failed -> {
                 // 用了暗号还没接住，得让你知道；没暗号的闲聊办不成就算了，不吵你。点开是这个人那一页
                 if (coded) {
                     val route = personOf(context, m.who)?.let { ReminderRoutes.relay(it.id) } ?: ReminderRoutes.SETTINGS
@@ -123,6 +133,45 @@ object Relay : NoticeSubscriber {
         }
         dao.update(done)
     }
+
+    private sealed interface Outcome {
+        data class Created(val ids: List<Long>) : Outcome
+        data class NotTask(val reply: String) : Outcome
+        data class Failed(val why: String) : Outcome
+    }
+
+    /** 交给派活 agent 跑一轮。[task] 是去掉暗号之后的话；[coded] = 她用了暗号，是明确派的 */
+    private suspend fun ask(context: Context, m: RelayMessage, task: String, coded: Boolean): Outcome {
+        val app = context.applicationContext
+        // 别人派来的事一律响铃（gentle 压成 false）：轻提醒只能是用户自己的决定
+        val agent = RelayAgent.build { plan, ctx ->
+            Reminders.commitPlan(app, "${m.who}：${m.text}", plan.copy(note = noteOf(plan.note, m.who), gentle = false), ctx.model)
+        }
+
+        // 「明天」从她发这句的时刻算。隔太久才收到（扫通知栏扫出来的旧消息）就按现在算，免得建出过去的时间
+        val now = System.currentTimeMillis()
+        val sentAt = m.at.takeIf { now - it in 0..MAX_AGE_MILLIS } ?: now
+        val at = ZonedDateTime.ofInstant(Instant.ofEpochMilli(sentAt), ZoneId.systemDefault())
+
+        // 「老地方」「下班」这类，记忆里有就听得懂
+        val result = AgentRuntime.runOnce(agent, Input(RelayPrompt.input(m.who, task, coded), at), AgentRuntime.memory)
+        val created = result.payloads<CreateReminderTool.Created>().map { it.reminderId }
+        val rejected = result.outcomes.lastOrNull { !it.ok }?.output
+        val reply = result.reply
+        return when {
+            result == RunResult.NotConfigured -> Outcome.Failed("还没配置模型")
+            created.isNotEmpty() -> Outcome.Created(created)
+            result is RunResult.Failed -> Outcome.Failed(result.reason)
+            rejected != null -> Outcome.Failed(reply ?: rejected)
+            else -> Outcome.NotTask(reply?.ifBlank { null } ?: "模型没说话")
+        }
+    }
+
+    private fun noteOf(note: String?, who: String): String =
+        listOfNotNull(note?.takeIf { it.isNotBlank() }, "${who}派的").joinToString(" · ")
+
+    /** 收到的消息比这还旧，「明天」就按现在算 */
+    private const val MAX_AGE_MILLIS = 6 * 60 * 60 * 1000L
 
     /** 「10月1日 周四 15:00」「今天之内」「每天 08:00」 */
     private fun whenOf(r: Reminder): String {

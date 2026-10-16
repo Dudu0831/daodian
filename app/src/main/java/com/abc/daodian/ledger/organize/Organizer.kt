@@ -2,17 +2,6 @@ package com.abc.daodian.ledger.organize
 
 import android.content.Context
 import com.abc.daodian.BuildConfig
-import com.abc.daodian.agent.engine.AgentEvent
-import com.abc.daodian.agent.engine.AgentLoop
-import com.abc.daodian.agent.engine.Session
-import com.abc.daodian.agent.engine.background.AgentActivity
-import com.abc.daodian.agent.engine.context.LastTurns
-import com.abc.daodian.agent.engine.tool.ToolRegistry
-import com.abc.daodian.agent.memory.Memory
-import com.abc.daodian.agent.memory.MemoryBook
-import com.abc.daodian.agent.model.ResponsesClient
-import com.abc.daodian.agent.model.provider.ApiHealth
-import com.abc.daodian.agent.model.provider.ProviderStore
 import com.abc.daodian.intake.Intake
 import com.abc.daodian.ledger.data.LedgerSettings
 import com.abc.daodian.ledger.data.LedgerStore
@@ -21,10 +10,12 @@ import com.abc.daodian.ledger.data.db.RawNotification
 import com.abc.daodian.ledger.domain.ExpenseQuery
 import com.abc.daodian.ledger.domain.LedgerDays
 import com.abc.daodian.ledger.domain.LedgerTags
-import com.abc.daodian.ledger.domain.LedgerText
-import com.abc.daodian.ledger.tools.LedgerPrompt
 import com.abc.daodian.ledger.tools.LedgerTools
 import com.abc.daodian.ledger.tools.RecordExpensesTool
+import com.abc.daodian.runtime.AgentRuntime
+import com.abc.daodian.runtime.Input
+import com.abc.daodian.runtime.RunResult
+import com.abc.daodian.runtime.memory.Memory
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -33,14 +24,13 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 /**
  * 整理：把待整理的原始通知交给整理 agent（DESIGN.md §10.1 ②）。
  *
  * 代码先数，0 条就睡、不花一分钱；有才叫模型。整轮拿着账本锁（[LedgerTools.LOCK]）——
- * 同一时刻只有一个 agent 写账；别人正拿着就这次不跑，等下一轮。跑的时候挂在 [AgentActivity] 上，
+ * 同一时刻只有一个 agent 写账；别人正拿着就这次不跑，等下一轮。跑的时候挂在 [AgentRuntime] 上，
  * 顶栏那枚印看得到。
  *
  * 模型在后台自己决定一切（放开模式，不问）：写进去的都是「自动归的」或「待确认」，
@@ -83,7 +73,7 @@ object Organizer {
      */
     suspend fun run(context: Context, reason: String, respectCooldown: Boolean = true): Result {
         val app = context.applicationContext
-        return AgentActivity.tryRun(LedgerTools.LOCK, "organize", "整理账目") { organize(app, reason, respectCooldown) }
+        return AgentRuntime.exclusive(LedgerTools.LOCK, "organize", "整理账目") { organize(app, reason, respectCooldown) }
             ?: Result.Busy
     }
 
@@ -97,22 +87,20 @@ object Organizer {
         val before = System.currentTimeMillis() - if (respectCooldown) COOLDOWN_MILLIS else 0
         if (dao.countPendingRaws(before) == 0) return Result.Idle
 
-        val profile = ProviderStore.flow(context).first()
+        val profile = AgentRuntime.profile()
         if (!profile.isConfigured) return Result.Skipped("还没配置模型")
 
         // 设置里「整理员自己打标签」：关着（默认）连 tags 参数都不给它（DESIGN.md §10.4）
         val tagging = LedgerSettings.organizerTags(context)
-        val parsedBy = "${profile.model}@${LedgerPrompt.version(tagging)}"
-        val tools = ToolRegistry(LedgerTools.forOrganizer(store, { parsedBy }, tagging))
-        val system = if (tagging) LedgerPrompt.ORGANIZE_TAGGING else LedgerPrompt.ORGANIZE
-        val loop = AgentLoop(ResponsesClient(profile), tools, system, context = LastTurns(1), maxSteps = 5)
+        val parsedBy = "${profile.model}@${OrganizerPrompt.version(tagging)}"
+        val agent = OrganizerAgent.build(store, { parsedBy }, tagging)
 
         var run = AgentRun(kind = "organize", reason = reason, startedAt = System.currentTimeMillis(), model = profile.model)
         run = run.copy(id = dao.insertRun(run))
         var seen = emptySet<Long>()
         try {
             // 你在对话里说过的「8837 是老婆的卡」这类：对话模型记进记忆，整理员从这里读到（DESIGN.md §10.1「两个模型怎么传话」）
-            val memories = MemoryBook.get(context).all()
+            val memories = AgentRuntime.memories()
             for (i in 0 until MAX_BATCHES) {
                 val batch = dao.pendingRaws(before, BATCH)
                 // 上一批交完了还剩同样几条：模型处理不了它们，别原地打转，留给下次
@@ -121,16 +109,16 @@ object Organizer {
 
                 val input = inputOf(store, batch, memories, tagging)
                 trace(context, "$reason 第 ${i + 1} 批 · ${input.counts} · 约 ${input.text.length} 字")
-                var failure: String? = null
-                loop.run(Session(), input.text, ZonedDateTime.now()).collect { e ->
-                    when (e) {
-                        is AgentEvent.ToolFinished -> (e.outcome.payload as? RecordExpensesTool.Recorded)?.let { r ->
-                            run = run.copy(recorded = run.recorded + r.txnIds.size, ignored = run.ignored + r.ignored + r.unreadable)
-                        }
-                        is AgentEvent.Failed -> { failure = e.reason; ApiHealth.record(e) }
-                        is AgentEvent.Finished -> ApiHealth.record(e)
-                        else -> Unit
+                // 交一笔数一笔：跑到一半被停（WorkManager 收回），已经记下的也写进运行记录
+                val result = AgentRuntime.runOnce(agent, Input(input.text, ZonedDateTime.now())) { outcome ->
+                    (outcome.payload as? RecordExpensesTool.Recorded)?.let { r ->
+                        run = run.copy(recorded = run.recorded + r.txnIds.size, ignored = run.ignored + r.ignored + r.unreadable)
                     }
+                }
+                val failure = when (result) {
+                    is RunResult.Failed -> result.reason
+                    RunResult.NotConfigured -> "还没配置模型"
+                    is RunResult.Done -> null
                 }
                 run = run.copy(rawCount = run.rawCount + batch.size)
                 failure?.let { run = run.copy(error = it) }
@@ -146,42 +134,24 @@ object Organizer {
         return Result.Done(run)
     }
 
-    /** 喂给整理 agent 的一批：[text] 是原文，[counts] 只数个数（写 trace 用，不落内容） */
-    private class Input(val text: String, val counts: String)
-
-    /** 这一轮喂给整理 agent 的全部背景。会变的都在这里，system 提示词保持不动 */
-    private suspend fun inputOf(store: LedgerStore, batch: List<RawNotification>, memories: List<Memory>, tagging: Boolean): Input {
+    /** 这一批要喂的东西从库里取齐，怎么拼成一段话归 [OrganizerPrompt.input] */
+    private suspend fun inputOf(store: LedgerStore, batch: List<RawNotification>, memories: List<Memory>, tagging: Boolean): OrganizerPrompt.Input {
         val zone = ZoneId.systemDefault()
         val today = LocalDate.now(zone)
         val recent = store.query(ExpenseQuery(fromDay = LedgerDays.dayInt(today.minusDays(RECENT_DAYS)), limit = RECENT_LIMIT)).reversed()
-        val merchants = store.merchantMemory()
-        val categories = store.categories()
         // 开着打标签才给：每个标签带最近几笔，它照着学
         val tags = if (!tagging) emptyList() else LedgerTags.byUse(store.tagUses()).take(TAG_LIMIT).map { name ->
             name to store.query(ExpenseQuery(tag = name, limit = TAG_EXAMPLES))
         }.filter { it.second.isNotEmpty() }
-        val text = buildString {
-            append("这一批原始通知（${batch.size} 条）：\n")
-            batch.forEach { append(LedgerText.raw(store.noteOf(it), zone)).append('\n') }
-            append("\n").append(LedgerText.categoryTree(categories)).append('\n')
-            append("\n商户记忆（用户确认过的）：")
-            append(if (merchants.isEmpty()) "还没有" else merchants.joinToString("；") { (m, c) -> "$m → $c" })
-            append("\n\n关于用户记下的事（他说过的，认账时参考）：")
-            if (memories.isEmpty()) append("还没有") else memories.forEach { append("\n- ").append(it.text) }
-            if (tagging) {
-                append("\n\n用户打过的标签（只用这些，照这几笔学）：")
-                if (tags.isEmpty()) append("还没有，这次一个都不打")
-                tags.forEach { (name, txns) ->
-                    append("\n- ").append(name).append("：").append(txns.joinToString("；") { LedgerText.tagExample(it, zone) })
-                }
-            }
-            append("\n\n最近几天已有的流水：")
-            if (recent.isEmpty()) append("没有") else recent.forEach { append('\n').append(LedgerText.txn(it, zone)) }
-        }
-        return Input(
-            text,
-            "通知 ${batch.size} 条 · 类别 ${categories.size} 个 · 商户记忆 ${merchants.size} 条 · " +
-                "记忆 ${memories.size} 条 · " + (if (tagging) "标签 ${tags.size} 个 · " else "") + "最近流水 ${recent.size} 笔"
+        return OrganizerPrompt.input(
+            notes = batch.map { store.noteOf(it) },
+            categories = store.categories(),
+            merchants = store.merchantMemory(),
+            memories = memories,
+            tagging = tagging,
+            tags = tags,
+            recent = recent,
+            zone = zone
         )
     }
 

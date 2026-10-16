@@ -1,7 +1,7 @@
 package com.abc.daodian.ledger
 
 /**
- * 记账页面的路由：三层（总览 → 类别 → 一笔）、抓取页、设置页。听哪些 app 在通知监听层（「权限与监听」页里勾）。页面在 [LedgerFeature.routes] 注册；痕、通知要拉起某一页时也用这里的字符串。
+ * 记账页面的路由：三层（总览 → 类别 → 一笔）、抓取页、设置页。听哪些 app 在通知监听层（「权限与监听」页里勾）。页面在 [com.abc.daodian.ledger.presentation.LedgerShell.routes] 注册；痕、通知要拉起某一页时也用这里的字符串。
  */
 object LedgerRoutes {
     const val HOME = "ledger"

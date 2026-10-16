@@ -1,14 +1,14 @@
 package com.abc.daodian.ledger.reconciliation
 
+import com.abc.daodian.ledger.data.LedgerStore
 import com.abc.daodian.ledger.domain.ExpenseQuery
 import com.abc.daodian.ledger.domain.LedgerText
 import com.abc.daodian.ledger.domain.TxnState
-import com.abc.daodian.ledger.data.LedgerStore
 import java.time.ZoneId
 
 /**
  * 对账那一轮的开场：app 替你发起，列出没认出来的几笔，交给对话 agent 去问。
- * 以「每晚对账：」开头 —— 对话页把冒号前那段写在分隔线上，提示词里也交代了这一轮的规矩（LedgerPrompt.CHAT）。
+ * 以「每晚对账：」开头 —— 对话页把冒号前那段写在分隔线上，助手的提示词里也交代了这一轮的规矩（AssistantPrompt「记账」那段）。
  */
 object LedgerCheckPrompt {
 
@@ -34,7 +34,7 @@ object LedgerCheckPrompt {
                 append("\n\n正文被系统遮蔽、读不出金额的通知（也用 ask_user 问他那笔是多少钱、是什么，猜不出就不给选项；他说了就用 add_expense 记，raw_ids 填上这条）：")
                 unreadable.forEach { append('\n').append(LedgerText.raw(store.noteOf(it), zone)) }
             }
-            // 类别表不用附：对话里每句都垫着（LedgerFeature.background）
+            // 类别表不用附：对话里每句都垫着（LedgerSkill.background）
         }
     }
 }

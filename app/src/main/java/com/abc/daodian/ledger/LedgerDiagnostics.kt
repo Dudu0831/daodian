@@ -1,9 +1,9 @@
 package com.abc.daodian.ledger
 
 import android.content.Context
-import com.abc.daodian.agent.diagnostics.Diagnostics.time
-import com.abc.daodian.agent.diagnostics.rows
 import com.abc.daodian.ledger.data.db.LedgerDatabase
+import com.abc.daodian.shared.data.rows
+import com.abc.daodian.shared.format.DiagnosticText.time
 
 /** 「导出诊断」里记账那一段：每个 app 收了几条、整理成没成、账各是什么状态。不写金额、商户、通知原文 */
 internal object LedgerDiagnostics {

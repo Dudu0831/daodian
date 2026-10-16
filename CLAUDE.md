@@ -25,14 +25,16 @@
 
 **10-15 `minSdk` 从 34 退回 33**（DESIGN 决策 3.2）：全屏提醒的判断、体检那一项、速记页的进出场动画三处加了版本分支。同样**没编译过、没有 13 的手机验过**：要验的是 13 上锁屏到点弹不弹全屏页、点「完成」无残留排期、体检「全屏 intent」是对勾、速记那张纸进出没有系统动画叠着。
 
+**10-15 开始拆 agent runtime**（方案在根目录 `REFACTOR_PLAN.md`，一步一步做，每步行为不变，做完删掉）。**第 1 步做完了：提示词各归各的** —— 助手的 system 全文在 `agent/prompt/AssistantPrompt`（原来的基础提示词 + 提醒、记账两段按原顺序写进去，`Feature.prompt` 删了），记账整理员的在 `ledger/organize/OrganizerPrompt`，派活的在 `reminder/relay/RelayPrompt`。助手、整理员两份、记忆整理员的 system 改前改后逐字节比对过，一样；派活删了一条和它自己的「gentle 一律 false」打架的轻提醒规则，是这一步唯一改的字。单元测试过了；`LiveGatewayTest` 加的派活那条没跑（要火山方舟的 key）。没装机。**第 2 步也做完了：runtime 抽成包** —— 循环、工具、问卡、上下文、调模型、`AgentActivity`、记忆的数据和规矩从 `agent` 挪进 `runtime/`（纯挪包，类名不变，没有一个是按全类名记在手机上的），`ArchitectureTest` 查 runtime 不碰 Android 和 app 里别的包。编译（debug、release）、单测过了；**没装机**（手机那会儿没连上）。**第 3 步也做完了：跑 agent 那一层 + 花名册** —— 根目录 `Agents.kt` 列出 4 个 agent（助手、记账整理员、派活、记忆整理员），都从 `AgentRuntime` 跑（前台 `run`、后台 `runOnce`），各自不再拼循环、手动记健康、事后 `as?` 取结果（整理员边跑边数记了几笔那一处还是 `as?`）；客户端按配置共用一个；debug 包里花名册、工具、问人三样对不上就崩（`AgentsTest` 拿真的四个先查过）。后台的派活、记忆整理员、整理员多了 `trace_<id>.txt`，导出诊断多一段「agent」。单测 142 条，137 过、5 条真网关的跳过；**没装机**。**第 4 步也做完了：拆接头 + 改名** —— `agent/` 拆成 `assistant/`（助手：agent、提示词、对话页、速记、记忆）和 `shell/`（壳），代码里不再叫 chat（`ChatViewModel` → `ConversationViewModel` 这类 12 个类，`Recall.conversation`、`AppNav.assistant`、`LedgerTools.forAssistant`）；接头拆成 `module/Module` + 两个插口 `assistant/skill/AssistantSkill`、`shell/entry/ShellEntry`，每个模块一个 `XxxModule`（+ `XxxSkill`、`XxxShell`），`Features.kt` 改名 `Modules.kt`。存在手机上的名字一个没改（`chat.db`、路由 `"chat"`、`chat-tidy-idle`……）；按全类名记的三个：`QuickAddActivity` 在 manifest 里留了旧名字的 alias，`TidyWorker` 在 `agent/memory/tidy/` 留了空壳子类，`ChatDatabase` 改名 `ConversationDatabase`、schemas 目录跟着改名（KSP 照新类名导出的 3.json 和原来的一样）。`ArchitectureTest` 补成了 DESIGN §2.2 那整张表。编译 debug、release（release 包里旧名字的空壳和 alias 都在）、单测 143 条过；**没装机**：方案里第 4 步要的「演一遍库迁移」和 release 覆盖装都还没做。**第 5 步也做完了：runtime 变成 Gradle 模块 `:runtime`**（`kotlin("jvm")`，和 app 同一个 Kotlin 2.0.21）：源码、测试挪进根目录 `runtime/`，openai-java 只在它那边，app 改依赖 `project(":runtime")` 加自己的 Jackson。拆开时编译器抓出两处：`MemoryJson` 只有 app 的两个记忆工具在用，挪回 `assistant/memory`；问卡里对 runtime 那几个属性的 smart cast 跨模块不成立，先取成局部变量。拆前拆后 release 包解析出来的依赖一样（137 个，版本都一样）；单测 `:runtime` 42 条、`:app` 100 条（5 条真网关的跳过）都过；release 包打得出来。**没装机**。跑单测现在是 `./gradlew :runtime:test :app:testDebugUnitTest`。
+
 真机是荣耀 LGE-AN10，模型是火山方舟 `deepseek-v4.1-flash`。下表「真机验过」一栏里，「09-24：」后面的是重排之后那一轮补验的，其余是重排之前在 main 上验的；早先用 adb 测的句子是英文，09-24 那轮是中文。
 
 | 功能 | 真机验过 | 还没验 |
 |---|---|---|
 | 调度内核 | 冒烟零漂移（`dumpsys alarm` 里有 `Alarm clock:` 段、`exactAllowReason=policy_permission`、列为 `Next wake from idle`）；「喝水」全链路漂移 259ms；锁屏全屏页会弹（肉眼确认），点「完成」无残留排期。09-24：重启手机后闹钟还在 | **48 小时放置测试**（DESIGN §9.3，唯一还缺的硬证据） |
 | 对话 agent | 流式逐字、工具参数边流边出；骨架阶段点「停」几百毫秒内撤回；「hello」只回话；重装后对话还在。09-24：打开不闪（杀进程重开直接是记录、停在最后一条） | 断网 / 坏 key 的回退；推理模型的思考块（这家供应商不发）；思考开关网关收不收；「↓ 新内容」 |
-| 对话页按住说话（10-07，DESIGN §8.3；`ChatInputBar` 的 `HoldToTalk`、`VoiceHoldOverlay`、`VoiceInput.start(hold = true)`） | 10-07（debug 包，adb 截图）：深色下待命的输入条，麦克风在最左；第一次点麦克风先问麦克风权限。用户自己上手试过，只提了换档键的灰框（已去掉），细项没逐条记 | **没逐条验过**：点麦克风换档、再点换回打字，打了一半的草稿还在；按住出文字框，没出字是波形、出字后只有字，变宽、往上长、很长时在里面滚；松手这句发出去、文字框淡掉、输入条留在「按住说话」；上滑过线变虚线划掉 +「松手取消」，滑回来接着说；按不到 0.3 秒的提示、没听清的提示 3 秒自己收；回合在跑时这一档压暗、「停」在；问卡等着时按住说算回答；旁边有人说话时松手照样收得了（以前收不了）；按满 60 秒；说着切到后台不发；深色；`quick_trace.txt` 里 `voice start (hold)`。模型头一回加载期间按住说，开头的字丢不丢 |
-| 对话页发图片（10-12，DESIGN §6.10；`ChatInputBar` 最右那一格、`PendingImages`、`ImageSourceSheet`、`BubbleImages`、`ImageViewer`、`FoldImages`、`ChatImageFiles`） | 10-12 19:38 release 包覆盖装上（装之前是 0.1.5 / 7）：进程重启了，闹钟三条装前装后一样。用户自己上手测过，说没问题，细项没逐条记 | **没逐条验过**。**模型收不收图**（`LiveGatewayTest` 带图那条，或者真发一张）；`chat.db` v2 → v3 迁移后旧对话都在（验法照「演一遍库迁移」）；最右那一格 ＋ / 发送 / 停三样换；点 ＋ 出底纸，相册（系统选图页，不问权限）、相机；选 1 张、4 张，第 5 张加不上；叉去掉一张、虚线 ＋ 再加；不打字只发图；说话那一档带着图按住说、点发送只发图；气泡里一张（横的、竖的、很长的截图）和 2–4 张的排版，图解出来那一下列表跳不跳；点图全屏、两指放大、双击、几张左右滑、放大时不翻页；喊停撤回时图退回待发那一行；杀进程重开图还在；隔 3 轮后 `context_trace.txt` 里「带图片 0 张、折掉 N 句」；模型看不了图时那句报错、印不变灰、「换个模型」进配置页、换完「重试」不用重选图、不重试接着说别的不再被退；相机拍的照片方向对不对；深色 |
+| 对话页按住说话（10-07，DESIGN §8.3；`ConversationInputBar` 的 `HoldToTalk`、`VoiceHoldOverlay`、`VoiceInput.start(hold = true)`） | 10-07（debug 包，adb 截图）：深色下待命的输入条，麦克风在最左；第一次点麦克风先问麦克风权限。用户自己上手试过，只提了换档键的灰框（已去掉），细项没逐条记 | **没逐条验过**：点麦克风换档、再点换回打字，打了一半的草稿还在；按住出文字框，没出字是波形、出字后只有字，变宽、往上长、很长时在里面滚；松手这句发出去、文字框淡掉、输入条留在「按住说话」；上滑过线变虚线划掉 +「松手取消」，滑回来接着说；按不到 0.3 秒的提示、没听清的提示 3 秒自己收；回合在跑时这一档压暗、「停」在；问卡等着时按住说算回答；旁边有人说话时松手照样收得了（以前收不了）；按满 60 秒；说着切到后台不发；深色；`quick_trace.txt` 里 `voice start (hold)`。模型头一回加载期间按住说，开头的字丢不丢 |
+| 对话页发图片（10-12，DESIGN §6.10；`ConversationInputBar` 最右那一格、`PendingImages`、`ImageSourceSheet`、`BubbleImages`、`ImageViewer`、`FoldImages`、`ConversationImageFiles`） | 10-12 19:38 release 包覆盖装上（装之前是 0.1.5 / 7）：进程重启了，闹钟三条装前装后一样。用户自己上手测过，说没问题，细项没逐条记 | **没逐条验过**。**模型收不收图**（`LiveGatewayTest` 带图那条，或者真发一张）；`chat.db` v2 → v3 迁移后旧对话都在（验法照「演一遍库迁移」）；最右那一格 ＋ / 发送 / 停三样换；点 ＋ 出底纸，相册（系统选图页，不问权限）、相机；选 1 张、4 张，第 5 张加不上；叉去掉一张、虚线 ＋ 再加；不打字只发图；说话那一档带着图按住说、点发送只发图；气泡里一张（横的、竖的、很长的截图）和 2–4 张的排版，图解出来那一下列表跳不跳；点图全屏、两指放大、双击、几张左右滑、放大时不翻页；喊停撤回时图退回待发那一行；杀进程重开图还在；隔 3 轮后 `context_trace.txt` 里「带图片 0 张、折掉 N 句」；模型看不了图时那句报错、印不变灰、「换个模型」进配置页、换完「重试」不用重选图、不重试接着说别的不再被退；相机拍的照片方向对不对；深色 |
 | 轻提醒（10-09，DESIGN §5.6；`Reminder.gentle`、`Notifier.fireGentle`、渠道 `gentle_v2`） | 10-09 debug 包（深色），**都是换渠道、改结束方式之前的那一版**。**迁移**：旧代码的包里建一条带钟点的、一条当天事项（库 v1，没有 `gentle` 列）；新包覆盖后还没打开 app 时两条闹钟都在，打开后库是 v2、两行都在、`gentle = 0`、`integrity_check` ok、没有崩溃记录。**编辑页**：「时间」里那行开关，点一下小字跟着换；存完库里 `gentle = 1`，闹钟跟着挪。**列表**：标题下「轻提醒」。**到点**：`fire_log` 漂移 286ms、来路 `ALARM`；那一刻前台窗口是息屏（AOD），不是 `AlarmActivity`；通知 `flags=AUTO_CANCEL`（没有 INSISTENT）、`category=reminder`；渠道重要性 3、声音是通知音。**release 包**（同一版）22:57 从线上的 0.1.4 覆盖装上：上一个进程的退出原因是 `PACKAGE UPDATED`、新进程一直在、记账 21:30 的闹钟在；用户自己建了一条轻提醒的试，弹了、没声音（通知音量是 0）。单元测试 `GentleTest` | **10-11 release 包**（改完的这一版）21:25 覆盖装上：进程 21:25:21 重新起来，上一个的退出原因是 `PACKAGE UPDATED`；装前装后 `dumpsys alarm` 里一样是三条（当晚 22:10 的一条提醒、第二天 20:00 的当天事项、记账 21:30）；列表里 10-07 往前的历史记录、10-09 那几条测试的都在。21:35 改名后的那一版再覆盖一次：闹钟还是那三条；新建页「时间」里那行标题是「轻提醒」，底下两行小字各占一行（深色）。**改完的这一版到点时什么样还没验**：`gentle_v2` 带震动 —— 通知音量是 0 时震不震（`dumpsys vibrator_manager` 里看有没有这个包的一次）、建它时 `gentle_v1` 删没删；到点后一次性的直接是 `DONE`、列表里落成打勾的过去一行，没有「响过了，还没点完成」；通知上只有「稍后 10 分钟」，稍后那次还是轻提醒；没送到的（关掉渠道）留在 `FIRED`；**10-11 改名之后的这一版**（列表、痕、渠道名、体检跟着改名）：已经建过的 `gentle_v2` 渠道下次到点会不会改名成「轻提醒」；列表小字、痕上的「轻提醒」。**一直没验的**：通知音量开着时是不是只响一声；手机静音；重复的写成「每天 · 轻提醒」、到点后翻到下一次；选「当天之内」那行收起；对话里说「不用响铃」痕多「· 轻提醒」，没说的照旧响铃；派活来的不会变成轻提醒；体检里那一项（系统里关掉渠道变红）；浅色 |
 | Markdown、画图 | 09-24：标题、列表、表格、代码块、链接，流式时不露 `**`，「#12 那笔」不变标题；问「画个图」出结论 + 图，点开缩放，深色换色，坏图退回原文，「停」撤掉整轮 | —— |
 | 问卡与痕 | 直接建提醒只留痕、闹钟排上；一题 / 两题问卡点选 +「其他…」→ 建成；历史重启后按新样子画回来；痕点进编辑页。09-24：编辑页的「依据」；速记交给对话页；改多笔的痕「改了 N 笔 ⌄」 | 不点直接说；问卡等着时点「停」、杀进程后读回「没答」；多笔的对账问卡；深色 |
@@ -63,7 +65,7 @@ export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 **内测发版**：先在 `app/build.gradle.kts` 增加 `versionCode`、修改 `versionName`，然后：
 
 ```bash
-./gradlew :app:testDebugUnitTest
+./gradlew :runtime:test :app:testDebugUnitTest
 python3 -m unittest discover -s scripts -p 'test_pgyer_release.py'
 ./scripts/publish.sh --check          # 只检查环境
 ./scripts/publish.sh "这一版改了什么"  # 正式发布
@@ -88,7 +90,7 @@ release 签名靠根目录的 `keystore.properties` + `daodian-release.keystore`
   - 响没响、准不准：app 内「投递日志」页 / `fire_log` 表
   - 语音：debug 包 `files/quick_trace.txt` 里 `voice ←` 那几行（对话页按住说话那一次开头是 `voice start (hold)`）。按住和上滑按理能用 adb 模拟（还没在这台机器上试过）：`adb shell input swipe x y x y 3000` 是原地按 3 秒，终点的 y 改小就是按着往上滑；按着的那几秒里另开一个 `screencap` 截文字框。说话得真人说
   - 库：`adb exec-out run-as com.abc.daodian.debug cat databases/<名字>.db > <名字>.db`（连 `-wal`、`-shm` 一起拷），再 `sqlite3`
-- **内测的人那边**（release 包，不能 run-as、没有 trace 文件）：让对方点设置 →「导出诊断」发过来。里面是版本、机型、体检、闹钟排期和最近 30 次响的漂移、派活收到的、各 app 抓了几条、整理 / 对账成没成、最近 5 次崩溃的堆栈（崩溃记在 `files/crash/`，`agent/diagnostics/CrashLog`）。只有状态和数，不带对话、标题、金额、通知原文；各模块的那一段在 `Feature.diagnostics`，加的时候守这条
+- **内测的人那边**（release 包，不能 run-as、没有 trace 文件）：让对方点设置 →「导出诊断」发过来。里面是版本、机型、体检、闹钟排期和最近 30 次响的漂移、派活收到的、各 app 抓了几条、整理 / 对账成没成、最近 5 次崩溃的堆栈（崩溃记在 `files/crash/`，`shell/diagnostics/CrashLog`）。只有状态和数，不带对话、标题、金额、通知原文；各模块的那一段在 `ShellEntry.diagnostics`，加的时候守这条。「agent」那段列花名册上的几个和各自的提示词版本
 - **到点全屏页只能靠肉眼或录屏**：`AlarmActivity` 是 `exported=false`，`am start` 起不来；关屏后隔几十秒截图只拍到黑屏（用户已经关掉了）；`appops` 里那条 `USE_FULL_SCREEN_INTENT rejectTime` 也不能当证据。
 - `adb install -r` 在这台机器上**不一定重启 app 进程**，装完用 `ps` 看启动时间，不然跑的还是旧代码。
   10-09 那次覆盖装完进程干脆没起来，`dumpsys alarm` 里旧闹钟原样还在，库要等第一次打开 app（或闹钟响）才被新代码打开、才迁移 —— 验迁移要先打开一次再拉库。
@@ -100,7 +102,7 @@ release 签名靠根目录的 `keystore.properties` + `daodian-release.keystore`
   `DAODIAN_LIVE=1 DAODIAN_BASE_URL=… DAODIAN_KEY=… DAODIAN_MODEL=… ./gradlew :app:testDebugUnitTest --tests '*LiveGatewayTest*' -i`
 - 收到了没有：监听连没连着、谁在听哪些 app：设置 →「权限与监听」（深链 `--es com.abc.daodian.launch.ROUTE permissions`）；记账存下的原始通知：设置 → 记账 →「抓到的通知」（深链 `ledger/capture`）；派活收到的：设置 → 提醒 → 派活那一组点那个人（深链 `reminder/relay/<id>`，id 是加上那一刻的毫秒数，从只听一个人那一版搬过来的是 `1`；不带 id 的 `reminder/relay` 落到提醒设置页）。
 - 记忆、后台整理：`chat.db` 的 `memories`、`tidy_runs`（成没成、看了哪几轮、摘要原文都在这张表）。闲下来那次整理是 WorkManager 10 分钟后跑，荣耀会拖。
-- 每次发给模型的是什么（垫没垫背景、摘要盖到哪一轮、原样带了哪几轮、折掉几样、带了几张图片、多少字）：debug 包 `files/context_trace.txt`，`adb shell "run-as com.abc.daodian.debug cat files/context_trace.txt"`
+- 每次发给模型的是什么（提示词版本、垫没垫背景、摘要盖到哪一轮、原样带了哪几轮、折掉几样、带了几张图片、多少字）：debug 包 `files/context_trace.txt`（助手：对话页和速记），`adb shell "run-as com.abc.daodian.debug cat files/context_trace.txt"`；后台的几个 agent 各一份 `files/trace_<id>.txt`（`trace_organizer.txt`、`trace_relay.txt`、`trace_tidy.txt`）
 - 随话发的图片：发出去的在 debug 包 `files/chat_images/`（`adb shell "run-as com.abc.daodian.debug ls -la files/chat_images"`，文件名里带宽高），库里是 `chat_items.images`。模型收不收图不用装机也能先探一下：上面那条打真网关的命令把 `--tests` 换成 `'*LiveGatewayTest*picture*'`，它现画一张写着 4729 的图发过去
 - 整理员每批喂了几样（通知、类别、商户记忆、记忆、最近流水各几条，只数个数）：debug 包 `files/organize_trace.txt`，同上的读法
 - adb 往 `run-as … sh -c` 里传命令时，整条要再包一层双引号（`adb shell "run-as 包名 sh -c '…'"`），不然引号在 adb 这层被拆开，`rm` 之类的只拿到第一个词
@@ -109,8 +111,8 @@ release 签名靠根目录的 `keystore.properties` + `daodian-release.keystore`
 ## 不要碰的假设
 
 - **`reminder/scheduling/` 和 `reminder/data/` 是唯一不允许出错的部分**（DESIGN §05）。AlarmManager 里的排期是易失的，Room 是唯一真相，四个重排触发源缺一个都可能漏提醒。
-- **界面整包可丢弃、可重画**（各模块的 `presentation/`、`agent/conversation`、`agent/shell`），改起来不用犹豫。
-- **依赖规则**（DESIGN §2.2）：`agent` 不 import 模块、模块之间不互相 import、跨模块跳转只用路由。加功能先想它归哪个模块、要不要经接头。
+- **界面整包可丢弃、可重画**（各模块的 `presentation/`、`assistant/conversation`、`shell`），改起来不用犹豫。
+- **依赖规则**（DESIGN §2.2 那张表，`ArchitectureTest` 照着扫 import）：`assistant` 不 import 模块、模块之间不互相 import、模块只碰两个插口包（`assistant/skill`、`shell/entry`）和 `module`、跨模块跳转只用路由；`runtime` 不碰 Android 和 app 里别的包。加功能先想它归哪个模块、要不要经接头；加模块 = `XxxModule` + `Modules.kt` 一行，加后台 agent = `XxxAgent` + `XxxPrompt` + `Agents.kt` 一行。
 - 换 Kotlin / AGP / Compose 版本前看 README「依赖版本」那条约束链，顺序不能反。
 - `minSdk` 是 **33**（10-15 为 Android 13 的内测者从 34 退回来，决策 3.2）：14 才有的接口要写版本分支，再往下不去。
 
@@ -127,6 +129,7 @@ release 签名靠根目录的 `keystore.properties` + `daodian-release.keystore`
 - 聊天里不震动（§6.5）；时间轴列表不加虚化 / 缩放（§08）。
 - 对话页说话是按住说、松手直接发、上滑取消，取消只留一行字；文字框是灰的，不用墨色实心块、不用朱砂（§8.3，用户 10-07 一样样挑过）。
 - 随话发图：＋ 在输入条最右、有东西可发时换成发送（设计稿「甲」，**不是** ＋ 和发送并排）；一句最多 4 张；图只跟最近 3 轮发给模型；模型看不了图单独报一句，不挂「手动填一条」、印不变灰；配置页不测图（§6.10，用户 10-12 定的）。
+- 每个 agent 的提示词写全在自己目录下，不拼别处的段落；模块只给工具和数据，不往助手的提示词里追加 —— 模块改了工具，回用它的 agent 的提示词里跟着改（§6.3 第 6 条，用户 10-15 定的）。
 - 字体用系统泛型，没打包 Noto Serif SC —— 墨宋靠宋体挑大梁，真机上第一眼要看系统衬体的中文好不好看（§8.1）。
 - 到点全屏页是独立的 `AlarmActivity`（§5.6）。
 - 轻提醒（界面上就叫这个，**不叫「到点只发通知」**；开关底下两行小字解释它是什么，用户 10-11 定的）：只分两档、按条设、默认响铃，不加全局的「默认强度」；模型只认明说的，派活来的一律响铃；渠道单开（`gentle_v2`），不和当天事项共用；声音走通知音量再加一下震动，**不走闹钟音量**（静音时不该响）；不等人确认，送到了就算完，通知上没有「完成」（§5.6，用户 10-09 定的）。
@@ -159,6 +162,6 @@ release 签名靠根目录的 `keystore.properties` + `daodian-release.keystore`
 - **轻提醒到点弹了但没声音**：不是渠道的事，是那台手机的通知音量为 0（铃声、闹钟音量都开着，免打扰没开）。`adb shell dumpsys audio` 里看 `STREAM_NOTIFICATION` 那段的 `2 (speaker): 0`；免打扰看 `settings get global zen_mode`（§5.6）。
 - **发版停在「非预期的安装包下载地址」**：蒲公英把新包的下载跳到了脚本名单以外的主机（0.1.5 那次是 `cos3.pgyer.com`）。这时包已经传上蒲公英，`latest.json` 还没切，装着旧版的人不受影响。先看清跳去的主机确实是蒲公英的，加进 `scripts/pgyer_release.py` 的 `DOWNLOAD_HOSTS`，再用**同一句**更新说明重跑 —— 接着上次的进度走，不会重复上传。
 - **09-30 之前的版本升上来，记账先一条都不收**：听哪些 app 改成全由你勾、默认一个不听，装完去设置 →「权限与监听」→ 谁在听 → 记账，把支付宝、招商银行、掌上生活、建设银行勾上（§10.2）。
-- **挪包之后装新包要连数据卸载**：通知使用权、小组件、闹钟、WorkManager 都按全类名记（§2.2）。
+- **挪包之后装新包要连数据卸载**（09-24 那次）：通知使用权、小组件、闹钟、WorkManager 都按全类名记（§2.2）。内测之后不能再这么干：要挪按全类名记的类，旧名字留下（Activity 留 `activity-alias`、Worker 留空壳子类），10-15 挪速记和记忆整理就是这么做的。
 - **09-30 拆出通知监听层**：监听组件改成 `intake/NoticeListenerService`，覆盖安装后要去「权限与监听」重新开一次通知使用权；听哪些 app 挪进了监听层，记账、派活的都要重新勾（旧的勾选不迁移）。别的没挪，不用卸载（§2.3）。
 - **10-02 之前的版本升上来**：只听一个人时设的「听谁」「暗号」自动成了派活名单上的第一个人，不用重设；以前「试一句」留下的记录还在那个人的页上，标着「试的」。

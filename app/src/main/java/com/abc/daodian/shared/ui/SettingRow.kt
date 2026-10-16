@@ -28,7 +28,7 @@ import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 
 /*
- * 设置页一组纸里的一行，和行首、行尾的两样小记号。设置页的框（agent/shell）和各模块的设置组共用。
+ * 设置页一组纸里的一行，和行首、行尾的两样小记号。设置页的框（shell）和各模块的设置组共用。
  */
 
 /** 标题 + 一句说明，右边放值或箭头。[onClick] 为空就不能点 */

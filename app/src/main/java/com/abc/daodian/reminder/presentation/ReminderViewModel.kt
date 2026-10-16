@@ -3,7 +3,7 @@ package com.abc.daodian.reminder.presentation
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.abc.daodian.agent.conversation.data.ChatStore
+import com.abc.daodian.assistant.skill.CallHistory
 import com.abc.daodian.reminder.application.Reminders
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase
@@ -72,6 +72,6 @@ class ReminderViewModel(app: Application) : AndroidViewModel(app) {
      * 对话里不再有卡片，它挪到编辑页。桌面速记建的（不落盘）、手动建的没有。
      */
     suspend fun basisOf(reminderId: Long): String? =
-        ChatStore.get(getApplication()).callArguments(CreateReminderTool.NAME, reminderId)
+        CallHistory.arguments(getApplication(), CreateReminderTool.NAME, reminderId)
             ?.let(CreateReminderTool::planOf)?.basis?.takeIf { it.isNotBlank() }
 }

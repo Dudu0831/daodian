@@ -3,10 +3,9 @@ package com.abc.daodian.ledger.presentation
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.abc.daodian.agent.engine.background.AgentActivity
-import com.abc.daodian.ledger.data.LedgerSettings
 import com.abc.daodian.intake.Intake
 import com.abc.daodian.ledger.capture.LedgerCapture
+import com.abc.daodian.ledger.data.LedgerSettings
 import com.abc.daodian.ledger.data.LedgerStore
 import com.abc.daodian.ledger.data.db.Category
 import com.abc.daodian.ledger.data.db.ChangeLog
@@ -22,6 +21,7 @@ import com.abc.daodian.ledger.domain.TagBoard
 import com.abc.daodian.ledger.domain.TxnBrief
 import com.abc.daodian.ledger.organize.OrganizeWorker
 import com.abc.daodian.ledger.reconciliation.LedgerCheck
+import com.abc.daodian.runtime.AgentRuntime
 import com.abc.daodian.shared.format.Format
 import java.time.LocalDate
 import java.time.LocalTime
@@ -296,9 +296,9 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /** 后台正在跑的 agent（顶栏印章、设置页都看它） */
-    val running = AgentActivity.running
+    val running = AgentRuntime.running
 
-    val organizing: StateFlow<Boolean> = AgentActivity.running.map { list -> list.any { it.id == "organize" } }
+    val organizing: StateFlow<Boolean> = AgentRuntime.running.map { list -> list.any { it.id == "organize" } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     fun setOrganizeHours(hours: Int) = viewModelScope.launch {

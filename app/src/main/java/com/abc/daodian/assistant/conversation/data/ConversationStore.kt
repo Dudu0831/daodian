@@ -1,0 +1,98 @@
+package com.abc.daodian.assistant.conversation.data
+
+import android.content.Context
+import com.abc.daodian.runtime.engine.Item
+import com.abc.daodian.runtime.engine.Session
+import com.abc.daodian.runtime.engine.Turn
+import java.io.File
+import java.time.Instant
+import java.time.ZoneId
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+
+/**
+ * 对话页那段对话的存取：启动时读回来，之后 [Session] 每变一次就整轮写一次。
+ *
+ * 写盘排在一条单线程上：同一轮的几次覆盖、以及随后的「整轮拿掉」必须按发生的顺序落地，
+ * 否则晚到的旧快照会把删掉的一轮又写回来。写盘不挂在页面上 —— 页面关了，已经发生的照样要存下。
+ */
+class ConversationStore private constructor(private val dao: ConversationDao, private val imageDir: File) : Session.Listener {
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val writes = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
+
+    /** 最近 [turns] 轮，旧的在前 */
+    suspend fun load(turns: Int = LOAD_TURNS): List<Turn> =
+        dao.recent(turns).groupBy { it.turnId }.map { (id, rows) -> Turn(id, rows.map(::toItem)) }
+
+    /**
+     * 对话里建出 [ref] 这条记录的那次 [tool] 调用，当时的参数原文。模块拿它翻出模型当初的想法
+     * （比如提醒编辑页的「依据」）；桌面速记建的（不落盘）、手动建的没有。
+     */
+    suspend fun callArguments(tool: String, ref: Long): String? = dao.callArgumentsFor(tool, ref)
+
+    /** 最新一轮的号，没聊过是 0 */
+    suspend fun lastTurnId(): Long = dao.lastTurnId() ?: 0
+
+    override fun changed(turn: Turn) {
+        val rows = turn.items.mapIndexed { i, item -> toEntity(turn.id, i, item) }
+        writes.launch { dao.replaceTurn(turn.id, rows) }
+    }
+
+    override fun discarded(turn: Turn) {
+        writes.launch { dao.deleteTurn(turn.id) }
+    }
+
+    private fun toEntity(turnId: Long, seq: Int, item: Item): ConversationItemEntity = when (item) {
+        is Item.UserMessage -> ConversationItemEntity(
+            turnId = turnId, seq = seq, kind = if (item.trigger) TRIGGER else USER, text = item.text,
+            atMillis = item.at.toInstant().toEpochMilli(), zoneId = item.at.zone.id,
+            // 只存文件名：目录是哪儿由这台机器说了算
+            images = item.images.joinToString("\n") { File(it).name }.ifEmpty { null }
+        )
+        is Item.AssistantMessage -> ConversationItemEntity(turnId = turnId, seq = seq, kind = ASSISTANT, text = item.text)
+        is Item.ToolCall -> ConversationItemEntity(
+            turnId = turnId, seq = seq, kind = TOOL_CALL, text = item.arguments,
+            callId = item.callId, toolName = item.name
+        )
+        is Item.ToolResult -> ConversationItemEntity(
+            turnId = turnId, seq = seq, kind = TOOL_RESULT, text = item.output,
+            callId = item.callId, ok = item.ok, ref = item.ref
+        )
+    }
+
+    private fun toItem(row: ConversationItemEntity): Item = when (row.kind) {
+        USER, TRIGGER -> Item.UserMessage(
+            row.text,
+            Instant.ofEpochMilli(row.atMillis ?: 0).atZone(row.zoneId?.let(ZoneId::of) ?: ZoneId.systemDefault()),
+            trigger = row.kind == TRIGGER,
+            images = row.images?.lines()?.filter { it.isNotBlank() }?.map { File(imageDir, it).path }.orEmpty()
+        )
+        ASSISTANT -> Item.AssistantMessage(row.text)
+        TOOL_CALL -> Item.ToolCall(row.callId.orEmpty(), row.toolName.orEmpty(), row.text)
+        TOOL_RESULT -> Item.ToolResult(row.callId.orEmpty(), row.text, row.ok ?: false, row.ref)
+        else -> error("认不出的对话项：${row.kind}")
+    }
+
+    companion object {
+        /** 启动时读回多少轮。喂给模型的另有 ContextPolicy 裁剪，这里管的是画面上往回能翻多远 */
+        const val LOAD_TURNS = 100
+
+        private const val USER = "USER"
+        /** app 自己发起的一轮（每晚对账）。列还是那几列，不用改表 */
+        private const val TRIGGER = "TRIGGER"
+        private const val ASSISTANT = "ASSISTANT"
+        private const val TOOL_CALL = "TOOL_CALL"
+        private const val TOOL_RESULT = "TOOL_RESULT"
+
+        @Volatile private var instance: ConversationStore? = null
+
+        fun get(context: Context): ConversationStore =
+            instance ?: synchronized(this) {
+                instance ?: ConversationStore(ConversationDatabase.get(context).chatDao(), ConversationImageFiles.dir(context)).also { instance = it }
+            }
+    }
+}

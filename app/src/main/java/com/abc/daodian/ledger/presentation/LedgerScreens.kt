@@ -188,7 +188,7 @@ private fun PendingBadge() {
 
 /** 只读页唯一的「动作」：去对话里说。朱砂淡底的一条 */
 @Composable
-private fun ToChatBand(text: String, action: String, onClick: () -> Unit) {
+private fun ToAssistantBand(text: String, action: String, onClick: () -> Unit) {
     val colors = DaodianColors.current
     val shape = RoundedCornerShape(5.dp)
     Row(
@@ -308,7 +308,7 @@ fun LedgerOverviewScreen(
 
             if ((data?.pending ?: 0) > 0) {
                 Spacer(Modifier.height(20.dp))
-                ToChatBand("${data!!.pending} 笔没认出来，$checkNote", "现在就说 ›", onCheckNow)
+                ToAssistantBand("${data!!.pending} 笔没认出来，$checkNote", "现在就说 ›", onCheckNow)
             }
             Text(
                 "点类别看里面每一笔 · 点柱子进到那一段",

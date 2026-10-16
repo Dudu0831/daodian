@@ -1,15 +1,15 @@
 package com.abc.daodian.reminder.tools
 
-import com.abc.daodian.agent.engine.tool.ToolContext
-import com.abc.daodian.agent.feature.ToolTrace
-import com.abc.daodian.agent.feature.TraceState
+import com.abc.daodian.assistant.skill.ToolTrace
+import com.abc.daodian.assistant.skill.TraceState
 import com.abc.daodian.reminder.domain.ReminderPlan
+import com.abc.daodian.runtime.tool.ToolContext
+import java.time.ZonedDateTime
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.time.ZonedDateTime
 
 /** 轻提醒（gentle）：模型的参数怎么读、落库前带没带上、痕上怎么写。见 DESIGN.md §5.6 */
 class GentleTest {

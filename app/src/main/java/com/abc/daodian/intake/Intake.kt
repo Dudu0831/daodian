@@ -35,7 +35,7 @@ object Intake {
     @Volatile
     private var router = Router(emptyList())
 
-    /** `DaodianApp.onCreate` 把根目录 `Features.kt` 的 `SUBSCRIBERS` 装进来。系统拉起监听之前一定已经装好 */
+    /** `DaodianApp.onCreate` 把根目录 `Modules.kt` 的 `SUBSCRIBERS` 装进来。系统拉起监听之前一定已经装好 */
     fun install(list: List<NoticeSubscriber>) {
         router = Router(list)
         subscribers = list

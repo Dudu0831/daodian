@@ -8,25 +8,25 @@ import android.os.SystemClock
 import android.view.View
 import android.view.ViewTreeObserver
 import androidx.activity.ComponentActivity
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
-import com.abc.daodian.agent.conversation.ChatViewModel
-import com.abc.daodian.agent.entry.quick.WidgetFrame
-import com.abc.daodian.agent.shell.AppNavHost
+import com.abc.daodian.assistant.conversation.ConversationViewModel
+import com.abc.daodian.assistant.quick.WidgetFrame
 import com.abc.daodian.shared.navigation.Launch
 import com.abc.daodian.shared.theme.DaodianTheme
+import com.abc.daodian.shell.AppNavHost
 import com.abc.daodian.update.Updates
 
-/** 唯一的宿主 Activity：挂上 agent/shell 的导航，其余都在里面 */
+/** 唯一的宿主 Activity：挂上 shell 的导航，其余都在里面 */
 class MainActivity : ComponentActivity() {
 
-    private val vm: ChatViewModel by viewModels()
+    private val vm: ConversationViewModel by viewModels()
 
     /**
      * 从小组件、通知、桌面速记点进来时要去的那一屏（[Launch]）。用完置空 ——
@@ -110,7 +110,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
-        /** 读库再慢也不能一直盖着开屏：到点就撤，对话页自己先空着等（ChatScreen） */
+        /** 读库再慢也不能一直盖着开屏：到点就撤，对话页自己先空着等（ConversationScreen） */
         const val SPLASH_HOLD_MAX_MS = 1000L
     }
 }

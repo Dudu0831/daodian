@@ -1,8 +1,7 @@
 package com.abc.daodian.ledger.tools
 
-import com.abc.daodian.agent.engine.tool.ToolContext
-import com.abc.daodian.agent.feature.ToolTrace
-import com.abc.daodian.agent.feature.TraceState
+import com.abc.daodian.assistant.skill.ToolTrace
+import com.abc.daodian.assistant.skill.TraceState
 import com.abc.daodian.ledger.domain.Actor
 import com.abc.daodian.ledger.domain.CategoryKind
 import com.abc.daodian.ledger.domain.CategoryNode
@@ -20,6 +19,8 @@ import com.abc.daodian.ledger.domain.TxnBrief
 import com.abc.daodian.ledger.domain.TxnChange
 import com.abc.daodian.ledger.domain.TxnSource
 import com.abc.daodian.ledger.domain.TxnState
+import com.abc.daodian.ledger.organize.OrganizerPrompt
+import com.abc.daodian.runtime.tool.ToolContext
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import kotlinx.coroutines.runBlocking
@@ -161,11 +162,11 @@ class LedgerToolsTest {
 
     @Test
     fun `organizer prompt only teaches tagging when the setting is on`() {
-        assertTrue(LedgerPrompt.ORGANIZE.contains("标签不归你打"))
-        assertFalse(LedgerPrompt.ORGANIZE.contains("用户打过的标签"))
-        assertTrue(LedgerPrompt.ORGANIZE_TAGGING.contains("只用「用户打过的标签」里已有的"))
-        assertFalse(LedgerPrompt.ORGANIZE_TAGGING.contains("标签不归你打"))
-        assertEquals("${LedgerPrompt.VERSION}+tags", LedgerPrompt.version(true))
+        assertTrue(OrganizerPrompt.SYSTEM.contains("标签不归你打"))
+        assertFalse(OrganizerPrompt.SYSTEM.contains("用户打过的标签"))
+        assertTrue(OrganizerPrompt.SYSTEM_TAGGING.contains("只用「用户打过的标签」里已有的"))
+        assertFalse(OrganizerPrompt.SYSTEM_TAGGING.contains("标签不归你打"))
+        assertEquals("${OrganizerPrompt.VERSION}+tags", OrganizerPrompt.version(true))
     }
 
     // ---------------- record_expenses ----------------
@@ -287,7 +288,7 @@ class LedgerToolsTest {
     }
 
     @Test
-    fun `tags go on and come off in chat, and the trace says which`() {
+    fun `tags go on and come off in the conversation, and the trace says which`() {
         val backend = FakeLedger(raws, categories, tags = listOf("约会"))
         record(
             backend,
@@ -358,7 +359,7 @@ class LedgerToolsTest {
     }
 
     @Test
-    fun `chat expense is confirmed and needs no raw`() {
+    fun `an expense said in the conversation is confirmed and needs no raw`() {
         val backend = FakeLedger(raws, categories)
         val out = runBlocking {
             AddExpenseTool(backend) { zone }.execute(

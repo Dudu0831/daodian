@@ -8,8 +8,6 @@ import android.util.SizeF
 import android.view.View
 import android.widget.RemoteViews
 import com.abc.daodian.R
-import com.abc.daodian.agent.entry.quick.QuickAddActivity
-import com.abc.daodian.agent.shell.ShellRoutes
 import com.abc.daodian.reminder.ReminderRoutes
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase
@@ -339,14 +337,14 @@ object WidgetRenderer {
 
     /**
      * 挂在整块小组件上：点空白处进 app。桌面点它时把整块的屏幕位置填进 sourceBounds，
-     * 宿主 Activity 拿它记下整块的宽高（agent 的 WidgetFrame.remember），下次点墨印时纸才知道该从多大的框长出来。
+     * 宿主 Activity 拿它记下整块的宽高（助手的 WidgetFrame.remember），下次点墨印时纸才知道该从多大的框长出来。
      * FLAG_MUTABLE 的理由同 [quickAdd]。
      */
     private fun openApp(context: Context): PendingIntent =
         PendingIntent.getActivity(
             context,
             RC_APP,
-            Launch.intent(context, route = ShellRoutes.CHAT),
+            Launch.intent(context, route = Launch.HOME),
             PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
@@ -361,7 +359,7 @@ object WidgetRenderer {
         PendingIntent.getActivity(
             context,
             RC_MIC,
-            QuickAddActivity.intent(context),
+            Launch.quickAdd(context),
             PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 

@@ -10,6 +10,9 @@ room = "2.6.1"
 work = "2.9.1"
 datastore = "1.1.1"
 openai = "4.54.0"
+# 下面两个钉的是 10-15 :app 实际解析出来的版本（拆 :runtime 前后一样，包里的东西不变）
+coroutines = "1.7.3"
+jackson = "2.18.9"
 navigation = "2.8.4"
 junit = "4.13.2"
 androidsvg = "1.4"
@@ -32,6 +35,8 @@ androidx-room-compiler      = { group = "androidx.room",             name = "roo
 androidx-work-runtime       = { group = "androidx.work",             name = "work-runtime-ktx",         version.ref = "work" }
 androidx-datastore-prefs    = { group = "androidx.datastore",        name = "datastore-preferences",    version.ref = "datastore" }
 openai-java                 = { group = "com.openai",                name = "openai-java",              version.ref = "openai" }
+kotlinx-coroutines-core     = { group = "org.jetbrains.kotlinx",     name = "kotlinx-coroutines-core",  version.ref = "coroutines" }
+jackson-databind            = { group = "com.fasterxml.jackson.core", name = "jackson-databind",        version.ref = "jackson" }
 junit                       = { group = "junit",                     name = "junit",                    version.ref = "junit" }
 androidsvg                  = { group = "com.caverock",            name = "androidsvg-aar",           version.ref = "androidsvg" }
 androidx-navigation-compose = { group = "androidx.navigation",       name = "navigation-compose",       version.ref = "navigation" }
@@ -39,5 +44,6 @@ androidx-navigation-compose = { group = "androidx.navigation",       name = "nav
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android      = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-jvm          = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-compose      = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 ksp                 = { id = "com.google.devtools.ksp", version.ref = "ksp" }

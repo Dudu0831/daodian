@@ -61,45 +61,61 @@
 
 ## 目录结构
 
-一个 Gradle 模块，包层面分三个模块、模块下面一层通知监听、最底下是地基。依赖规则见 DESIGN.md §2.2。
+两个 Gradle 模块：`:runtime`（跑 agent 的那一层，纯 Kotlin）和 `:app`（其余全部）。`:app` 里最上面是壳和助手，中间三个模块（提醒、记账、通知监听），大家跑模型都用 `runtime`，最底下是地基。依赖规则见 DESIGN.md §2.2（`runtime` 由 Gradle 模块边界管，其余由 `ArchitectureTest` 守着）。
 
 ```text
-app/src/main/java/com/abc/daodian/
-├── DaodianApp.kt / MainActivity.kt / Features.kt   装配：模块清单、通知订阅者、唯一的宿主 Activity
-├── agent/            智能交互。只认识 Feature / FeatureUi 接头，不知道提醒和账是什么
-│   ├── engine/         ReAct 循环、Session、工具接口、ask_user、上下文裁剪、后台 agent 与锁
-│   ├── model/          调一次模型（流式 / 回退 / 停）；provider/ 供应商配置、「测一下」
-│   ├── feature/        接头：Feature、痕、体检项、注册表
-│   ├── prompt/         基础提示词
-│   ├── conversation/   对话页（回合、问卡、痕、Markdown、画图、随话发的图片）、ChatAgent、chat.db
-│   ├── memory/         记忆、垫在历史前面的那一段、后台整理（DESIGN.md §6.9）
-│   ├── entry/quick/    桌面速记
-│   ├── voice/          本地语音识别
-│   ├── diagnostics/    崩溃记录、导出诊断（DESIGN.md §11.3）
-│   └── shell/          导航、抽屉、设置页、模型配置页的框
-├── reminder/         提醒。断网、不经过模型也要能用
+runtime/src/main/java/com/abc/daodian/runtime/    :runtime —— 跑 agent 的那一层，纯 Kotlin，不认识 Android 和 :app
+├── engine/           ReAct 循环、Session、Item / Turn、事件
+├── tool/             工具接口、注册表
+├── ask/              问卡协议、ask_user
+├── context/          每步喂哪些轮、折叠、压缩、垫在前面的那段
+├── model/            调一次模型（流式 / 回退 / 停）、供应商配置的样子、健康状态、「测一下」
+├── memory/           记忆的数据和规矩、垫在前面那段怎么拼
+├── Agent.kt          AgentInfo（花名册上的一行）、Prompt、Agent、Input、RunResult
+└── AgentRuntime.kt   跑一个 agent（run / runOnce）、后台谁在跑、按名字的锁
+
+app/src/main/java/com/abc/daodian/                :app
+├── DaodianApp.kt / MainActivity.kt   装配、唯一的宿主 Activity
+├── Modules.kt        模块清单（提醒、记账、通知监听）和要听通知的订阅者
+├── Agents.kt         花名册：系统里一共这几个 agent（助手、记账整理员、派活、记忆整理员）
+├── assistant/        助手：它的 agent 和提示词、对话页、桌面速记、记忆。代码不认识提醒和账，经插口拿
+│   ├── AssistantAgent.kt / AssistantPrompt.kt / AssistantRoutes.kt
+│   ├── skill/          插口：AssistantSkill（模块给助手的工具、现状、痕、app 发起的一轮）、痕、CallHistory
+│   ├── conversation/   对话页（回合、问卡、痕、Markdown、画图、随话发的图片）、chat.db
+│   ├── quick/          桌面速记
+│   ├── memory/         记忆、垫在历史前面的那一段、记忆整理员（DESIGN.md §6.9）
+│   ├── provider/       模型配置存在哪（DataStore）
+│   └── voice/          本地语音识别
+├── shell/            宿主壳：导航、抽屉、设置页、权限页、模型配置页的框
+│   ├── entry/          插口：ShellEntry（模块给壳的页面、抽屉卡、设置行、体检、诊断）、AppNav
+│   └── diagnostics/    崩溃记录、导出诊断（DESIGN.md §11.3）
+├── module/           模块接头 Module：给助手的、给壳的、冷启动
+├── reminder/         提醒。断网、不经过模型也要能用。ReminderModule.kt 是接头
 │   ├── scheduling/     调度内核 —— 唯一不允许出错的部分：排期、到点、重排、巡检、当天事项
 │   ├── data/           reminder.db：提醒 + 投递日志
 │   ├── domain/         计划、校验闸门、RRULE 子集
 │   ├── application/    Reminders：所有写操作的唯一入口
 │   ├── delivery/       通知、通知按钮、权限体检
-│   ├── tools/          create_reminder、提醒那段提示词、痕
+│   ├── assistant/      给助手的（ReminderSkill）
+│   ├── tools/          create_reminder、痕
 │   ├── widget/         桌面小组件
-│   ├── relay/          派活：订阅通知，名单上的人在微信里说的话交给模型建成提醒
-│   └── presentation/   列表、编辑（逃生舱）、到点全屏页、投递日志、提醒设置页（含派活名单）、派活某个人的那一页
-├── ledger/           记账
+│   ├── relay/          派活：订阅通知，名单上的人在微信里说的话交给派活 agent 建成提醒
+│   └── presentation/   给壳的（ReminderShell）、列表、编辑（逃生舱）、到点全屏页、投递日志、提醒设置页（含派活名单）、派活某个人的那一页
+├── ledger/           记账。LedgerModule.kt 是接头
 │   ├── capture/        订阅通知：勾了的 app 的通知原样存进 raw_notification
-│   ├── organize/       后台整理 agent
+│   ├── organize/       记账整理员（后台 agent）和它的提示词
 │   ├── reconciliation/ 每晚对账
 │   ├── domain/         流水、类别、护栏
 │   ├── data/           ledger.db
-│   ├── tools/          查账 / 记账 / 改账 / 加类别、记账提示词、痕
-│   └── presentation/   总览、类别、一笔、抓取页
+│   ├── assistant/      给助手的（LedgerSkill）
+│   ├── tools/          查账 / 记账 / 改账 / 加类别、痕
+│   └── presentation/   给壳的（LedgerShell）、总览、类别、一笔、抓取页
 ├── intake/           通知监听。全 app 唯一的监听，按各模块勾的 app 分通知；只抓、只分，不存、不读懂（DESIGN.md §2.3）
 │   ├── data/           每个订阅者听哪些 app
-│   └── presentation/   「权限与监听」页里通知监听那几组、通用的勾 app 页
-├── update/           检查更新（内测）：查新版、下载、交给系统安装器。不依赖 agent 和任何模块（DESIGN.md §11.2）
-└── shared/           地基：墨宋色板与字体、动效、手绘图标、通用组件、人话时间、装了哪些 app、Launch 路由
+│   └── presentation/   给壳的（IntakeShell）、「权限与监听」页里通知监听那几组、通用的勾 app 页
+├── update/           检查更新（内测）：查新版、下载、交给系统安装器。不依赖助手和任何模块（DESIGN.md §11.2）
+├── shared/           地基：墨宋色板与字体、动效、手绘图标、通用组件、人话时间、装了哪些 app、Launch 路由
+└── agent/            只剩一个旧全类名的空壳（TidyWorker），过两个版本删
 ```
 
 ## 构建
@@ -111,7 +127,7 @@ app/src/main/java/com/abc/daodian/
 | Android SDK | platform 35 + build-tools 35.0.0 + platform-tools | |
 
 ```bash
-./gradlew :app:testDebugUnitTest   # JVM 单测
+./gradlew :runtime:test :app:testDebugUnitTest   # JVM 单测（两个模块各一份）
 ./gradlew :app:assembleDebug       # 打包
 ./gradlew :app:installDebug        # 装到连着的手机
 ```
@@ -138,6 +154,8 @@ IDE 的 Android 插件支持的 AGP 上限
   → AGP → 最低 Gradle 版本 → Kotlin → KSP（必须与 Kotlin 版本前缀精确匹配）
                                           → Compose 编译器（Kotlin 2.0 起 = Kotlin 版本本身）
 ```
+
+`:runtime` 用的 Kotlin JVM 插件和 `:app` 的是同一个插件包、同一个 `kotlin` 版本，跟着这条链一起升。`libs.versions.toml` 里的协程、Jackson 钉的是拆模块那天 `:app` 实际解析出来的版本（拆前拆后包里的东西一样），升 openai-java 时一起看。
 
 ## 手机上要设的（重要）
 

@@ -3,7 +3,7 @@ package com.abc.daodian.intake
 import android.content.Context
 
 /**
- * 要听通知的模块实现它，在根目录 `Features.kt` 的 `SUBSCRIBERS` 里列一行就接上了。
+ * 要听通知的模块实现它，在根目录 `Modules.kt` 的 `SUBSCRIBERS` 里列一行就接上了。
  *
  * 监听层只按包名分：你给这个订阅者勾了哪些 app，那些 app 的通知就交给它（[accept]）。
  * 更细的规则 —— 听谁、暗号、认不认得这家银行的格式 —— 都是订阅者自己的事。见 DESIGN.md §2.3

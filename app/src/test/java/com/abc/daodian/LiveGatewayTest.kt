@@ -1,26 +1,27 @@
 package com.abc.daodian
 
-import com.abc.daodian.agent.engine.AgentEvent
-import com.abc.daodian.agent.engine.AgentLoop
-import com.abc.daodian.agent.engine.Item
-import com.abc.daodian.agent.engine.Session
-import com.abc.daodian.agent.engine.Turn
-import com.abc.daodian.agent.engine.context.LastTurns
-import com.abc.daodian.agent.engine.context.Preamble
-import com.abc.daodian.agent.engine.tool.ToolRegistry
-import com.abc.daodian.agent.memory.EditMemoryTool
-import com.abc.daodian.agent.memory.FakeMemoryBook
-import com.abc.daodian.agent.memory.tidy.SaveTidyTool
-import com.abc.daodian.agent.memory.tidy.TidyPrompt
-import com.abc.daodian.agent.memory.tidy.TidyText
-import com.abc.daodian.agent.model.LlmClient
-import com.abc.daodian.agent.model.LlmEvent
-import com.abc.daodian.agent.model.LlmRequest
-import com.abc.daodian.agent.model.ResponsesClient
-import com.abc.daodian.agent.model.provider.ProviderProfile
-import com.abc.daodian.agent.prompt.BasePrompt
+import com.abc.daodian.assistant.AssistantPrompt
+import com.abc.daodian.assistant.memory.EditMemoryTool
+import com.abc.daodian.assistant.memory.FakeMemoryBook
+import com.abc.daodian.assistant.memory.tidy.SaveTidyTool
+import com.abc.daodian.assistant.memory.tidy.TidyPrompt
+import com.abc.daodian.assistant.memory.tidy.TidyText
+import com.abc.daodian.reminder.domain.ReminderPlan
+import com.abc.daodian.reminder.relay.RelayPrompt
 import com.abc.daodian.reminder.tools.CreateReminderTool
-import com.abc.daodian.reminder.tools.ReminderPrompt
+import com.abc.daodian.runtime.context.LastTurns
+import com.abc.daodian.runtime.context.Preamble
+import com.abc.daodian.runtime.engine.AgentEvent
+import com.abc.daodian.runtime.engine.AgentLoop
+import com.abc.daodian.runtime.engine.Item
+import com.abc.daodian.runtime.engine.Session
+import com.abc.daodian.runtime.engine.Turn
+import com.abc.daodian.runtime.model.LlmClient
+import com.abc.daodian.runtime.model.LlmEvent
+import com.abc.daodian.runtime.model.LlmRequest
+import com.abc.daodian.runtime.model.ProviderProfile
+import com.abc.daodian.runtime.model.ResponsesClient
+import com.abc.daodian.runtime.tool.ToolRegistry
 import java.io.File
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -81,7 +82,7 @@ class LiveGatewayTest {
             committed += "${plan.title} @ ${plan.firstTriggerAt}"
             1001L
         }))
-        val loop = AgentLoop(llm, tools, BasePrompt.SYSTEM + "\n\n" + ReminderPrompt.RULES)
+        val loop = AgentLoop(llm, tools, AssistantPrompt.SYSTEM)
         val session = Session()
         val now = ZonedDateTime.now(ZoneId.of("Asia/Shanghai"))
 
@@ -116,7 +117,7 @@ class LiveGatewayTest {
             CreateReminderTool { plan, _ -> committed += plan.firstTriggerAt; 1001L },
             EditMemoryTool(book)
         ))
-        val loop = AgentLoop(ResponsesClient(profile), tools, BasePrompt.SYSTEM + "\n\n" + ReminderPrompt.RULES)
+        val loop = AgentLoop(ResponsesClient(profile), tools, AssistantPrompt.SYSTEM)
         val session = Session()
         val now = ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).withHour(15).withMinute(0)
         val background = { _: Session -> Preamble("你记得的关于他的事（m 编号 · 记下或改过的日子）：\n- m1 · 9月20日 · 他说的「晚点」一般指晚上 9 点") }
@@ -130,6 +131,31 @@ class LiveGatewayTest {
         assertTrue("第二轮没正常结束：${second.last()}", second.last() is AgentEvent.Finished)
         println("记忆：${book.list.map { it.text }}")
         assertTrue("没记下健身：${book.list}", book.list.any { "健身" in it.text })
+    }
+
+    /**
+     * 派活（reminder/relay）：她发来的一句，只带 create_reminder，问不了人。
+     * 没说钟点的建成当天事项；她说「不用响铃」也照样响铃（gentle = false）；闲聊不建。
+     */
+    @Test
+    fun `relay turns a chore into a day task and leaves chit-chat alone`() = runBlocking {
+        val plans = mutableListOf<ReminderPlan>()
+        val tools = ToolRegistry(listOf(CreateReminderTool { plan, _ -> plans += plan; 1001L }))
+        val loop = AgentLoop(ResponsesClient(profile), tools, RelayPrompt.SYSTEM, LastTurns(1), maxSteps = 3)
+        val now = ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).withHour(15).withMinute(0)
+
+        val task = loop.run(Session(), RelayPrompt.input("小美", "明天帮我取个快递，不用响铃", coded = false), now).onEach(::log).toList()
+        assertTrue("派活没正常结束：${task.last()}", task.last() is AgentEvent.Finished)
+        println("建的：$plans")
+        val plan = plans.singleOrNull()
+        assertNotNull("应该恰好建一条：$plans", plan)
+        assertTrue("没说钟点，应该是当天事项：$plan", plan!!.allDay)
+        assertFalse("别人派来的事一律响铃：$plan", plan.gentle)
+
+        plans.clear()
+        val chitchat = loop.run(Session(), RelayPrompt.input("小美", "你在干嘛呀", coded = false), now).onEach(::log).toList()
+        assertTrue("闲聊那句没正常结束：${chitchat.last()}", chitchat.last() is AgentEvent.Finished)
+        assertTrue("闲聊不该建：$plans", plans.isEmpty())
     }
 
     /** 整理员（§6.9）：看一段对话，交上记忆和摘要；账目、一次性的事不进记忆，摘要不写「已经办好」 */
@@ -182,7 +208,7 @@ class LiveGatewayTest {
         val file = File.createTempFile("daodian-probe", ".png").apply { deleteOnExit() }
         file.writeBytes(ProbeImage.digits(number))
 
-        val loop = AgentLoop(ResponsesClient(profile), ToolRegistry(emptyList()), BasePrompt.SYSTEM)
+        val loop = AgentLoop(ResponsesClient(profile), ToolRegistry(emptyList()), AssistantPrompt.SYSTEM)
         val events = loop.run(Session(), "图上写的是什么数字？只回数字", ZonedDateTime.now(), images = listOf(file.path)).onEach(::log).toList()
         val end = events.last()
         assertTrue("带图的请求没走通（${profile.model}）：$end", end is AgentEvent.Finished)

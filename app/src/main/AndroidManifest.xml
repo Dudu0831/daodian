@@ -75,13 +75,22 @@
             exported=false 就够 —— 小组件的 PendingIntent 是以我们自己的身份发的。见 §8.3
         -->
         <activity
-            android:name=".agent.entry.quick.QuickAddActivity"
+            android:name=".assistant.quick.QuickAddActivity"
             android:exported="false"
             android:excludeFromRecents="true"
             android:taskAffinity="com.abc.daodian.quick"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Daodian.Quick" />
+
+        <!--
+            速记挪包（10-15）之前的全类名：升级前已经摆在桌面上的小组件，墨印的 PendingIntent 还指着这个名字，
+            小组件重画之前点它走这里。小组件都重画过之后可以删（REFACTOR_PLAN.md 第 6 节）
+        -->
+        <activity-alias
+            android:name=".agent.entry.quick.QuickAddActivity"
+            android:targetActivity=".assistant.quick.QuickAddActivity"
+            android:exported="false" />
 
         <!-- 闹钟到点。只接收我们自己的 PendingIntent，不对外暴露 -->
         <receiver
@@ -157,7 +166,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- 「导出诊断」生成的文本交给分享（agent/diagnostics/Diagnostics.kt）、对话页拍照时系统相机落片（ChatImageFiles.kt）、
+        <!-- 「导出诊断」生成的文本交给分享（shell/diagnostics/Diagnostics.kt）、对话页拍照时系统相机落片（ConversationImageFiles.kt）、
              下好的更新包交给安装器（update/Updates.kt）。只开放 cache/diag、cache/chat_camera、外部 files/Download 三个目录 -->
         <provider
             android:name="androidx.core.content.FileProvider"

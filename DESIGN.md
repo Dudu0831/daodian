@@ -75,53 +75,66 @@
 
 ### 2.2 模块与接头
 
-一个 Gradle 模块，包层面分三个模块、模块下面一层通知监听、最底下是地基（目录树见 [README](README.md)）：
+两个 Gradle 模块：`:runtime` 和 `:app`（10-15 拆的）。`:app` 里最上面是壳和助手，中间三个模块，大家跑模型都用 `runtime`，最底下是地基（目录树见 [README](README.md)）：
 
-- **`agent`** 智能交互：循环、调模型、对话页、桌面速记、宿主壳（导航、抽屉、设置页和模型配置页的框）。**只认识接头，不知道提醒和账是什么。**
+- **`assistant`** 助手：它的 agent 和提示词（§6.1、§6.3）、对话页、桌面速记、记忆。**代码只认识插口（`assistant/skill`），不 import 提醒和账**；助手的提示词里写着它们工具的用法（§6.3 第 6 条）。
+- **`shell`** 宿主壳：导航、抽屉、设置页、权限页、模型配置页的框，导出诊断和崩溃记录。内容由模块经插口（`shell/entry`）塞；对话页是起点，所以它用得着助手。
+- **`runtime`** 跑 agent 的那一层：循环、工具接口、问卡协议、上下文（折叠、压缩）、调一次模型、`AgentRuntime`（跑一个 agent、后台谁在跑、按名字的锁）、记忆的数据和规矩。**纯 Kotlin，不认识 Android、不认识任何模块和对话页**：单独一个 Gradle 模块 `:runtime`（`kotlin("jvm")`），没有 android.jar、看不见 `:app`，这条由编译器管。10-15 从原来的 `agent` 里抽出来的。
 - **`reminder`** 提醒：断网、不经过模型也要能用。触发路径全在它的 `scheduling/` 和 `data/` 里。
 - **`ledger`** 记账：自己在后台存通知、整理、对账（§10）。
 - **`intake`** 通知监听：全 app 唯一的通知监听，按你给各模块勾的 app 把通知分下去。只抓、只分，不存、不读懂（§2.3）。
 - **`shared`** 地基：色板、字体、动效、通用组件、人话时间、装了哪些 app、`Launch`。谁也不依赖。
-- **`update`** 检查更新：内测期间查新版、下载、交给系统安装器（§11.2）。只碰 `BuildConfig` 和系统服务，跟智能交互没关系，所以不放在 `agent` 里；根目录开 app 时查一次，`agent/shell` 的设置页和抽屉读它的状态。
+- **`update`** 检查更新：内测期间查新版、下载、交给系统安装器（§11.2）。只碰 `BuildConfig` 和系统服务，跟智能交互没关系；根目录开 app 时查一次，`shell` 的设置页和抽屉读它的状态。
+- **`module`** 只放模块接头 `Module` 这一个接口。
 
 ```
-agent            只认接头
-  ↑ 接头
-reminder    ledger     订阅 → 存进自己的库 → 读懂、生成数据
+根目录                装配：Modules.kt（模块清单）、Agents.kt（agent 花名册）
+shell  →  assistant   壳用助手（对话页是起点）
+   ↑ 插口    ↑ 插口     shell/entry、assistant/skill，由各模块的 Module 交出去
+reminder    ledger    订阅 → 存进自己的库 → 读懂、生成数据；各有自己的后台 agent
     ↓ 订阅    ↓
-intake                 授权、连接、抓、按包名分发
-    ↓
-shared                 地基：没有状态
+intake                授权、连接、抓、按包名分发
+runtime               跑 agent 的：助手和模块都用，它自己谁也不认识
+shared                地基：没有状态
 ```
 
-**接头**：模块用一个 object 同时实现两个接口，在 `Features.kt` 里列一行就接上了。加模块 = 新目录 + 一个接头 + 这里一行；抽屉里的纸、设置首页的行也按这个顺序摆。
+**接头**：一个模块一个 `XxxModule`（实现 `module/Module`：id、名字、给助手的、给壳的、冷启动要做的事），在根目录 `Modules.kt` 里列一行就接上了。给助手的、给壳的是两个插口，各是一个 object：
 
-| 接口 | 模块给什么 |
+| 插口 | 模块给什么 | 现在有的 |
+|---|---|---|
+| `assistant/skill/AssistantSkill`（放在模块的 `assistant/`） | 工具、垫在历史前面的现状（`background`，如记账的类别表和标签，§6.9）、写操作留什么痕（`trace`）、空状态例句、连不上模型时「手动填一条」去哪、app 自己发起的一轮（`trigger`，如每晚对账）、问过你还等你点的那一轮（`pendingTrigger`，对话末尾画成虚线段）、问卡上一题顺手办了什么（`askNote`，如挂上的标签，§6.6）和那一块怎么画（`AskAddon`）。**不给提示词**（§6.3 第 6 条） | `ReminderSkill`、`LedgerSkill` |
+| `shell/entry/ShellEntry`（放在模块的 `presentation/`） | 名字（`label`：「权限与监听」页上写「提醒要的」，导出诊断里那一段的标题）、自己的页面（路由以模块 id 开头）、抽屉里的一张纸、设置首页的行（`settingsEntries`：一个模块一行，标题 + 一句里面有什么，点进自己的设置页）、「权限与监听」页里的一组（`PermissionSection`）和首页那一行上的一句（`permissionStatus`）、体检项和结论底下补的一行、导出诊断里的一段 | `ReminderShell`、`LedgerShell`、`IntakeShell` |
+
+加模块 = 新目录 + `XxxModule`（要的话再加 `XxxSkill`、`XxxShell`）+ `Modules.kt` 里一行；它给助手的工具要在助手的提示词里写上用法。助手的工具顺序、抽屉里的纸、设置首页的行都按 `Modules.kt` 的顺序。要听通知的订阅者另外在 `SUBSCRIBERS` 里列（§2.3）；要在后台自己跑一个 agent，写 `XxxAgent` + `XxxPrompt`、`Agents.kt` 里加一行（§6.1）。
+
+**依赖规则**（单元测试 `ArchitectureTest` 照这张表扫 import）
+
+| 哪里 | 能 import app 里的哪些 |
 |---|---|
-| `agent/feature/Feature`（不碰 Compose） | 名字（`label`，「权限与监听」页上写「提醒要的」）、工具、接在基础提示词后面的一段、垫在历史前面的现状（`background`，如记账的类别表和标签，§6.9）、写操作留什么痕（`trace`）、空状态例句、连不上模型时「手动填一条」去哪、app 自己发起的一轮（`trigger`，如每晚对账）、问过你还等你点的那一轮（`pendingTrigger`，对话末尾画成虚线段）、问卡上一题顺手办了什么（`askNote`，如挂上的标签，§6.6）、体检项、冷启动要做的事 |
-| `agent/shell/FeatureUi` | 自己的页面（路由以模块 id 开头）、抽屉里的一张纸、设置首页的行（`settingsEntries`：一个模块一行，标题 + 一句里面有什么，点进自己的设置页）、「权限与监听」页里的一组（`PermissionSection`）和首页那一行上的一句（`permissionStatus`）、体检结论底下补的一行、问卡上一题底下挂的一块（`AskAddon`，如对账时顺手打标签） |
+| `runtime` | 只有自己 —— 单独的 Gradle 模块，编译器管，测试不查。要用 app 里的东西（模型配置存在哪、记忆库、trace 写到哪），由 app 实现它的接口装进去（`DaodianApp`） |
+| `assistant` | 自己、`runtime`、`shared` |
+| `shell` | 自己、`assistant`、`runtime`、`shared`、`update` |
+| `module` | 两个插口包 `assistant/skill`、`shell/entry` |
+| 模块的核心层（提醒的 `domain / data / application / scheduling / delivery`，记账的 `domain / data / capture`） | 自己、`shared`、`intake` 的核心（`Notice`、`NoticeSubscriber`、`Intake`、`IntakeRoutes`） |
+| 模块的其余部分 | 再加上 `runtime`、两个插口包、`module`。别的模块不碰 |
+| `intake` 的核心 | 自己、`shared` |
+| `intake` 的接头（`IntakeModule.kt`）和 `presentation/` | 再加上 `shell/entry`、`module` |
+| `update`、`shared` | 自己、`shared` |
+| 根目录 | 随便用：只做装配 |
 
-**依赖规则**
+测不出来、要自己守的两条：跨模块跳转只用路由字符串，模块不 import `MainActivity`，从外面拉起 app 走 `shared/navigation/Launch`（`route` 去哪页、`trigger` 开一轮 app 发起的、`say` 替你发一句话、`quickAdd` 拉起桌面速记）；模块要用对话记录里的东西走插口包（`assistant/skill/CallHistory`，如提醒编辑页的「依据」），不碰对话库。
 
-1. `agent` 不 import `reminder`、`ledger`、`intake`，要什么都经接头拿。
-2. `reminder`、`ledger` 互不 import。
-3. 模块的核心层不 import `agent`：提醒的 `domain / data / application / scheduling / delivery`，记账的 `domain / data / capture`。能 import `agent` 的只有接头文件、`tools/`、`presentation/`、`widget/`、`organize/`、`reconciliation/`，和提醒的 `relay/`（派活，试验版，里面有个后台 agent）。
-4. `shared` 不 import 任何模块。
-5. 跨模块跳转只用路由字符串。模块不 import `MainActivity`，从外面拉起 app 走 `shared/navigation/Launch`（`route` 去哪页、`trigger` 开一轮 app 发起的、`say` 替你发一句话）。
-6. 根目录只做装配。
-7. `intake` 的核心只 import `shared`，**永远**不 import `agent` 和任何模块；只有它的接头文件 `IntakeFeature.kt` 和 `presentation/` 碰界面壳。
-8. `reminder`、`ledger` 可以 import `intake` 的核心（`Notice`、`NoticeSubscriber`、`Intake`、`IntakeRoutes`），不 import 它的页面和接头。
-9. `update` 不 import `agent` 和任何模块。
+**路由**：助手 `chat`（对话页，起点）、`memory`；壳 `settings`、`permissions`、`provider`；提醒 `reminder/list`、`reminder/edit?id=`、`reminder/log`、`reminder/settings`、`reminder/relay/{id}`（派活名单上某个人的那一页）；记账 `ledger`、`ledger/category/…`、`ledger/txn/{id}`、`ledger/capture`、`ledger/settings`；通知监听 `intake/apps/{订阅者 id}`。
+路由常量放在 `AssistantRoutes` / `ShellRoutes` / `ReminderRoutes` / `LedgerRoutes` / `IntakeRoutes`，不挂在接头上 —— 通知、小组件（核心层）要用，又不该 import 接头。对话页那个字 `"chat"` 在 `Launch.HOME`，**不改**：通知栏里挂着的、小组件上的 PendingIntent 里存着它，改了点进来 NavHost 找不到页会崩。
 
-**路由**：agent 用 `chat`、`settings`、`permissions`、`provider`、`memory`；提醒 `reminder/list`、`reminder/edit?id=`、`reminder/log`、`reminder/settings`、`reminder/relay/{id}`（派活名单上某个人的那一页）；记账 `ledger`、`ledger/category/…`、`ledger/txn/{id}`、`ledger/capture`、`ledger/settings`；通知监听 `intake/apps/{订阅者 id}`。
-路由常量放在 `ReminderRoutes` / `LedgerRoutes` / `IntakeRoutes`，不挂在接头上 —— 通知、小组件（核心层）要用，又不该 import 接头。
-
-**界面归属**：对话的画法（回合、问卡、痕、输入框、速记的纸）归 `agent`；模块自己的页面归各自的 `presentation/`；导航、抽屉、设置页、模型配置页的框归 `agent/shell`，内容由模块塞。
+**界面归属**：对话的画法（回合、问卡、痕、输入框、速记的纸）归 `assistant`；模块自己的页面归各自的 `presentation/`；导航、抽屉、设置页、权限页、模型配置页的框归 `shell`，内容由模块塞。
 ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、抽屉、设置组拿到同一份。
 
 **三个库互不牵连**：`reminder.db`（提醒、投递日志）、`chat.db`（对话、记忆、整理记录）、`ledger.db`（账）。对话表、账表出岔子，连累不到闹钟。以后改表都是 version + 1、在各自 `autoMigrations` 里加一条。通知监听层不落库，只有一个 DataStore 记每个订阅者勾了哪些 app。（派活试验版另有 `relay.db`，转正时再写进来。）
 
-**挪包 = 改全类名**。通知使用权（`intake/NoticeListenerService`）、桌面小组件、已排的闹钟、WorkManager 的 Worker、Room 的 schemas 目录都按全类名记，挪了包的新版本要连数据卸载再装；只挪了通知监听的，覆盖安装后重新开一次通知使用权就行。
+**挪包 = 改全类名**。通知使用权（`intake/NoticeListenerService`）、桌面小组件、已排的闹钟、manifest 里的组件、WorkManager 排着的 Worker 都按全类名记在手机上；Room 的 schemas 目录也按库类的全类名放（只在构建时要：库类改名把目录跟着改名就行，手机上认的是库文件名和表结构）。
+**内测之后不再让人连数据卸载**：要挪按全类名记的类，旧名字得留着 —— Activity 在 manifest 里留一个 `activity-alias` 指向新类，Worker 在旧位置留一个空壳子类。10-15 的 `QuickAddActivity`、`TidyWorker`（还有 `ChatDatabase` 改名 `ConversationDatabase`、schemas 目录跟着改）就是这么挪的；`agent/` 里那个空壳过两个版本删。存在手机上的名字（库文件、表名、文件目录、DataStore、WorkManager 唯一名、路由字符串、PendingIntent 里的 extra 键）一律不跟着代码改名。
+只挪了通知监听的，覆盖安装后重新开一次通知使用权就行（09-30 那次）。
 
 ### 2.3 通知监听层（intake）
 
@@ -138,7 +151,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 | 更细的规则（听谁、暗号、认得哪家银行的格式） | | ✓ |
 | 存原文、去重、读懂、生成数据 | | ✓ |
 
-**订阅**：实现 `intake/NoticeSubscriber`（`id`、`label`、`purpose`、可选的 `warn` / `suggested`、`accept`），在根目录 `Features.kt` 的 `SUBSCRIBERS` 里列一行。`DaodianApp` 启动时装进 `Intake`，比系统来绑监听早。眼下两个：记账 `ledger/capture/LedgerCapture`、派活 `reminder/relay/Relay`。
+**订阅**：实现 `intake/NoticeSubscriber`（`id`、`label`、`purpose`、可选的 `warn` / `suggested`、`accept`），在根目录 `Modules.kt` 的 `SUBSCRIBERS` 里列一行。`DaodianApp` 启动时装进 `Intake`，比系统来绑监听早。眼下两个：记账 `ledger/capture/LedgerCapture`、派活 `reminder/relay/Relay`。
 
 **路由表**：每个订阅者听哪些 app，是你勾出来的，存在 intake 的 DataStore（`apps.<订阅者 id>`）。来一条通知只按包名查表 —— 包名是唯一一个所有订阅者都用得上、又不用看懂内容就能判断的维度。暗号这类规则留在订阅者：派活要记下名单上的人说的每一句（没带暗号的只是不交给模型），监听层先滤掉它就看不到了；而且判断「是不是名单上的人」得先认得微信的格式，那是订阅者的知识。
 
@@ -157,7 +170,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 - 刚勾上的，当场扫一遍通知栏（`how = picked`）。取消勾选不删订阅者已经存下的。
 - 读不到应用列表时，顶上一行「读取应用列表」+「去开」，只列得出已经勾上的。荣耀不用额外授权就读得到（09-30）。
 
-**在「权限与监听」页里占几组**（设置 →「权限与监听」，`IntakeFeature.PermissionSection`）：「记账、派活要的」—— 使用权、连没连着（「重连」）、扫一遍；「谁在听」按模块列（点进勾选页）；「按 app 看」列出每个 app 交给谁。同一个 app 两个模块都勾了，一条通知两边各收一份、各存各的。通知使用权**不算进体检结论**（§9.1）；有人勾了 app 时，设置首页「权限与监听」那一行后面接一句「监听连着 · 今天 09:12 起」/「监听断了」（`permissionStatus`）。通知的事只在这一页：模块页不往这里跳，要看监听断没断、谁听哪些 app，从设置首页进来。
+**在「权限与监听」页里占几组**（设置 →「权限与监听」，`IntakeShell.PermissionSection`）：「记账、派活要的」—— 使用权、连没连着（「重连」）、扫一遍；「谁在听」按模块列（点进勾选页）；「按 app 看」列出每个 app 交给谁。同一个 app 两个模块都勾了，一条通知两边各收一份、各存各的。通知使用权**不算进体检结论**（§9.1）；有人勾了 app 时，设置首页「权限与监听」那一行后面接一句「监听连着 · 今天 09:12 起」/「监听断了」（`permissionStatus`）。通知的事只在这一页：模块页不往这里跳，要看监听断没断、谁听哪些 app，从设置首页进来。
 
 **实时回调会丢**：真机上监听一直连着，一笔 199.90 的两条通知一条都没收到，约 10%（推测是荣耀冻结了进程）。所以**不能只靠实时回调**：连上时、解锁时、整理前都把通知栏扫一遍。只扫得到还挂在通知栏里的，划掉了的系统不留。
 
@@ -166,7 +179,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 **监听会断，而且断了没人知道**（反编译 Android 15 框架查的，不是猜的）：
 
 - 没绑上时 `getActiveNotifications()` 不报错，返回**空数组** —— 分不出「没连着」和「通知栏里没有」。所以扫之前先看连没连着，由 `NoticeListenerService` 连上 / 断开时报给 `Intake.listener`。
-- 系统只肯重绑「自己请求断开过」的监听（`ManagedServices.setComponentState` 状态没变就直接返回）。连着的要重连：先 `requestUnbind()` 再 `requestRebind()`；进程被杀后系统没自动绑回来的，app 里请了没用，只能去系统设置把通知使用权关掉再打开。冷启动时 `requestRebind` 催一下（`IntakeFeature.onAppStart`）。
+- 系统只肯重绑「自己请求断开过」的监听（`ManagedServices.setComponentState` 状态没变就直接返回）。连着的要重连：先 `requestUnbind()` 再 `requestRebind()`；进程被杀后系统没自动绑回来的，app 里请了没用，只能去系统设置把通知使用权关掉再打开。冷启动时 `requestRebind` 催一下（`IntakeModule.onAppStart`）。
 - **不用「禁用再启用组件」那一招**：Android 15 收到组件变化会清掉「查不到服务」的授权（`trimApprovedListsForInvalidServices`，查的时候不带 `MATCH_DISABLED_COMPONENTS`），一禁用使用权就没了。
 - 「通知使用权开没开」按组件查（`isNotificationListenerAccessGranted`），不按包名：挪包后旧组件名的授权还挂在包名下，按包名查会误报开着。
 
@@ -180,7 +193,8 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 | SDK | minSdk 33 · targetSdk 35 · compileSdk 35（决策 3.2） |
 | 持久化 | Room（KSP），三个库见 §2.2；配置和 key 存 DataStore，`allowBackup="false"` |
 | 定时 | `AlarmManager.setAlarmClock()`（§05）；兜底巡检、记账整理用 WorkManager |
-| 模型 | `openai-java`（OkHttp backend），Responses API，`baseUrl` 指向任意兼容网关（决策 3.1） |
+| 模型 | `openai-java`（OkHttp backend），Responses API，`baseUrl` 指向任意兼容网关（决策 3.1）。只在 `:runtime` 里用，`:app` 看不见它 |
+| 模块 | `:app`（Android 应用）+ `:runtime`（`kotlin("jvm")`，跑 agent 的那一层，§2.2）。`:runtime` 和 app 一样产 Java 17 的字节码，对外露协程（`api`），openai-java 只在里面（`implementation`）；JSON 两边各自依赖 Jackson |
 | 语音 | sherpa-onnx 本地识别（决策 8.3） |
 | 画图 | AndroidSVG 1.4（§6.8） |
 | 日期时间 | `java.time`，不需要 desugaring |
@@ -189,7 +203,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 
 请求 / 响应类型由官方维护，新参数不用自己追文档。两个前提都验过：走的是 OkHttp backend（`java/net/http` 引用为 0，Android 上不会因为缺 `HttpClient` 崩）；第三方网关（DeepSeek、火山方舟）认它发的请求。
 
-**代价是包体**：R8 之后 2.2MB → 35MB（Jackson + kotlin-reflect + victools），接受了。调模型只在 `agent/model/ResponsesClient` 一处，真要换回手写客户端只动这一个类。
+**代价是包体**：R8 之后 2.2MB → 35MB（Jackson + kotlin-reflect + victools），接受了。调模型只在 `runtime/model/ResponsesClient` 一处，真要换回手写客户端只动这一个类。
 
 ### 决策 3.2 · minSdk 33
 
@@ -348,19 +362,34 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 
 ### 6.1 循环
 
-一个 ReAct 循环（`agent/engine/AgentLoop`）：调模型 → 执行工具 → `function_call_output` 回传 → 再调，直到模型只说话不调工具，或撞步数上限（6）。对话页、桌面速记、后台整理账目都跑在它上面。
+一个 ReAct 循环（`runtime/engine/AgentLoop`）：调模型 → 执行工具 → `function_call_output` 回传 → 再调，直到模型只说话不调工具，或撞步数上限（6）。
+
+**系统里一共 4 个 agent**，列在根目录的花名册 `Agents.kt`（10-15 加的）。每个都是一个 `XxxAgent`（是谁、归谁、什么时候醒、`build(...)` 现建要跑的 `Agent`）加一份 `XxxPrompt`（§6.3 第 6 条）：
+
+| agent | 归谁 | 什么时候醒 | 能问你 | 工具 |
+|---|---|---|---|---|
+| 助手 `assistant/AssistantAgent` | 助手 | 你在对话页说一句；桌面速记；每晚对账由记账开场 | 能 | ask_user、edit_memory、create_reminder、list_expenses、add_expense、update_expenses、add_category |
+| 记账整理员 `ledger/organize/OrganizerAgent` | 记账 | 后台：每 3 小时、对账前、手动点 | 不能 | record_expenses、list_expenses |
+| 派活 `reminder/relay/RelayAgent` | 提醒 | 后台：名单上的人发来一句 | 不能 | create_reminder |
+| 记忆整理员 `assistant/memory/tidy/TidyAgent` | 助手 | 后台：闲 10 分钟、攒够 16 轮 | 不能 | save_tidy |
+
+桌面速记是助手的第二个入口（同一份 system 和工具），每晚对账是助手的一轮，配置页「测一下」只调一次模型 —— 这三样都不算单独的 agent。
+
+**都从 `runtime/AgentRuntime` 跑**：前台 `run`（事件流，界面边收边画）、后台 `runOnce`（跑完收成 `RunResult`，工具交的结构化结果用 `payloads<T>()` 取；没配模型直接 `NotConfigured`，不打网络）。它替调用方办掉：读当时的模型配置（`ModelSource`，app 装进来的是 `ProviderStore`）、按配置共用一个客户端、建循环、每次请求前交给 `Tracer`（debug 包写文件）、一轮结束记进 `ApiHealth`。要挂到顶栏、要拿锁的包一层 `exclusive`（`runOnce` 自己不挂：派活一直不在顶栏上）。
+**debug 包里跑之前查三样，对不上直接崩**：在花名册上（提示词也是它自己 `prompts` 里的一份）；手上的工具和 `Prompt.tools`（这份提示词照着写的工具）一样；问不了人的没带 `ask_user`。单元测试 `AgentsTest` 拿真的四个 agent 按这个规矩先查一遍。
 
 | 包 | 职责 |
 |---|---|
-| `agent/engine/` | 循环、`Session`（这段对话的完整记录）、事件 |
-| `agent/engine/tool/` | `Tool` 接口：schema + 执行 + `READ` / `WRITE`；注册表 |
-| `agent/engine/ask/` | `ask_user` + `Asker`（界面亮出问卡、挂起到用户答完），§6.6 |
-| `agent/engine/context/` | 每步喂哪些轮次、前面垫什么：摘要之后的最多 24 轮，旧图、旧查询、他早先发来的图片折成一句；什么时候压（§6.8、§6.9） |
-| `agent/memory/` | 记忆、垫在前面的那段（`Recall`）、`edit_memory`；`tidy/` 是后台整理（§6.9） |
-| `agent/engine/background/` | 后台谁在跑（顶栏印外转一圈细线）；按名字的锁（账本一把锁） |
-| `agent/model/` | 只管调一次模型（§6.2），不认识任何工具；`provider/` 是供应商配置（决策 8.4） |
-| `agent/prompt/` | 基础提示词，各模块那一段按 `Features.kt` 的顺序接在后面 |
-| `agent/conversation/ChatAgent` | 接线：拼 system、收工具、按配置缓存 agent |
+| `runtime/engine/` | 循环、`Session`（这段对话的完整记录）、事件 |
+| `runtime/tool/` | `Tool` 接口：schema + 执行 + `READ` / `WRITE`；注册表 |
+| `runtime/ask/` | `ask_user` + `Asker`（界面亮出问卡、挂起到用户答完），§6.6 |
+| `runtime/context/` | 每步喂哪些轮次、前面垫什么：摘要之后的最多 24 轮，旧图、旧查询、他早先发来的图片折成一句；什么时候压（§6.8、§6.9） |
+| `runtime/memory/` | 记忆的数据、改法（`MemoryBackend`）和规矩（`MemoryRules`） |
+| `assistant/memory/` | 记忆库（`MemoryBook`）、垫在前面的那段（`Recall`）、`edit_memory`；`tidy/` 是后台整理（§6.9） |
+| `runtime/AgentRuntime`、`runtime/Agent` | 跑一个 agent（上面那段）；后台谁在跑（顶栏印外转一圈细线）；按名字的锁（账本一把锁） |
+| `runtime/model/` | 只管调一次模型（§6.2），不认识任何工具；供应商配置长什么样（`ProviderProfile`）、`ApiHealth`、「测一下」。配置存在哪（DataStore）是 `assistant/provider/ProviderStore`（决策 8.4） |
+| `assistant/AssistantPrompt` | 助手的 system 全文（`AssistantPrompt`），模块不往里追加（§6.3 第 6 条） |
+| `assistant/AssistantAgent` | 助手：system、收工具（问人 + 记忆 + 各模块给的）、喂哪些轮 |
 
 **规矩**
 
@@ -370,12 +399,12 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 - **边跑边记**：每一项一发生就写进 `Session`。中途喊停，已执行的工具调用留着；没轮到的调用补一条「用户叫停了」的结果，保证下一次请求合法。
 - **工具不抛业务错**：参数不对、闸门拦下都返回 `ok=false`；只有真意外才抛，循环兜成一条错误结果回给模型。
 
-**对话落盘**（`agent/conversation/data/`，`chat.db`）
+**对话落盘**（`assistant/conversation/data/`，`chat.db`）
 
-- `Session` 每次变动把整轮快照交给 `Session.Listener`；`ChatStore` 按轮覆盖写，写盘排在一条单线程上，页面关了照样写完。
+- `Session` 每次变动把整轮快照交给 `Session.Listener`；`ConversationStore` 按轮覆盖写，写盘排在一条单线程上，页面关了照样写完。
 - 一张表 `chat_items`，一行一项（用户话 / 回复 / 工具调用 / 工具结果），用户话连说话时刻和时区一起存，随话发的图片存文件名（v3 加的 `images` 列，§6.10）。工具结果多存模型看不到的 `ok` 和 `ref`（办成后指向的记录）—— 重启后画痕靠它们。
 - 启动读回最近 100 轮，画面从这些轮重建，画的是当时的样子（提醒后来改了删了，对话里不跟着变 —— 它是记录，不是列表）。
-- **读回来之前画面是空的，但那不是「没聊过」**：对话页中间先空着、不画招呼语，系统开屏按住不撤，读完一起放出来（`ChatViewModel.restored`，最多多留 1 秒）；列表一出来就停在最后一条。否则打开 app 会先闪一下空状态。
+- **读回来之前画面是空的，但那不是「没聊过」**：对话页中间先空着、不画招呼语，系统开屏按住不撤，读完一起放出来（`ConversationViewModel.restored`，最多多留 1 秒）；列表一出来就停在最后一条。否则打开 app 会先闪一下空状态。
 - 悬着的调用（app 在等你答问卡时被杀）读回来时补一条「没答」，不然下一次请求会被网关拒。
 - 只有对话页落盘；桌面速记、后台整理都是一次性的。
 - **`chat.db` 里有账**：工具参数（金额、商户）跟着对话落盘，以后做导出、备份要记得。
@@ -388,7 +417,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 
 ### 6.2 调模型：流式、回退、停
 
-`agent/model/ResponsesClient` 走 `responses().createStreaming()`，事件对到界面上：
+`runtime/model/ResponsesClient` 走 `responses().createStreaming()`，事件对到界面上：
 
 | SDK 事件 | 界面 |
 |---|---|
@@ -406,24 +435,28 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 1. **HTTP 调用全程阻塞，协程取消打断不了它**。`createStreaming()` 要等响应头回来（首个 token 之前）才返回，`stream()` 的迭代也阻塞。以前包在 `withContext(IO)` 里、把 `close` 挂在 `invokeOnCompletion` 上 —— 那个回调要 Job **完成**才触发，Job 卡在阻塞调用里完成不了，于是点「停」要等到首个 token。
    现在阻塞活放在不随调用方取消的协程里（`ResponsesClient.detached`），调用方只挂起等结果：取消时立刻返回，顺手 `close()` 已连上的流；还没连上的由它连上后自己查到取消再关。SDK 的异步版不能替代：`AsyncStreamResponse.close()` 不取消底下的请求。
 2. **思考过程可能压根没有**。`reasoning*` 只有推理模型发；界面在没有思考块时要长得正常，一个字都还没来时显示墨条。思考**不进历史** —— 喂回给模型没意义，只会挤掉真正的上下文。
-3. **参数以 `…Done` 给的完整串为准**，不用 delta 拼出来的那份 —— 拼串可能缺尾巴。流着时从半截参数里抠标题（`agent/feature/PartialArgs`）只拿来画。
+3. **参数以 `…Done` 给的完整串为准**，不用 delta 拼出来的那份 —— 拼串可能缺尾巴。流着时从半截参数里抠标题（`assistant/skill/PartialArgs`）只拿来画。
 
 没设超时，用的是 openai-java 默认的 10 分钟。真机上出过一步走了近 3 分钟：界面一直是墨条 +「停」，状态是对的，只是慢。
 
 ### 6.3 提示词的规矩
 
 1. **每句用户话带当前时刻、时区和星期几**。只给日期不给星期，「下周三」必错。
-2. **时刻放 user message，不放 system**。供应商做前缀缓存，system 必须逐字节稳定：基础提示词 + 各模块那一段按 `Features.kt` 的顺序拼，里面不放任何会变的东西。
+2. **时刻放 user message，不放 system**。供应商做前缀缓存，system 必须逐字节稳定：常量，里面不放任何会变的东西。
 3. **先分流**：闲聊、反问、办事分开。早先开头就把每句话当成建提醒请求，「hello」也弹卡。
 4. **拿不准就调 `ask_user`，不在正文里问**；调之前先说一句为什么问，猜好答案（§6.6）。
 5. **决策 6.4 · 不管格式**（用户定的）：不写「别用 Markdown」「能用哪几样」—— 换模型、换供应商，习惯都不一样，界面兼容比约束模型稳（§6.7）。画图例外，得写进提示词：Markdown 模型自己会写，画图它不会主动（§6.8）。
+6. **每个 agent 的提示词写全在自己目录下，不拼别处的段落**（用户 10-15 定的）：助手 `assistant/AssistantPrompt`、记账整理员 `ledger/organize/OrganizerPrompt`、派活 `reminder/relay/RelayPrompt`、记忆整理员 `assistant/memory/tidy/TidyPrompt`。
+   模块只给工具（工具自己的说明跟着工具走）和数据（类别表这类垫在历史前面），怎么用这些工具的规矩由用它的 agent 写 —— 以前助手的 system 是基础提示词 + 各模块那一段按 `Modules.kt` 顺序拼的，看全文得跑起来；派活又拼了一份提醒规则，里面的轻提醒那条和它自己的「gentle 一律 false」打架。
+   代价：模块加了、删了、改了名工具，要回用它的 agent 的提示词里跟着改。每一轮会变的输入怎么拼（`input(...)`）和 system 放在同一个文件，system 说「每次给你什么」，拼的代码就在下面。
+   runtime 造的标记（垫的背景、app 自动发起的一轮）在提示词里插常量（`Preamble.MARK`、`Item.TRIGGER_MARK`），不手抄。
 
 ### 6.4 建提醒：`create_reminder` 与校验闸门
 
 **用工具调用，不用 `response_format: json_object`**：后者实测模型会自己发明字段名（`{summary, details:{…}}`），工具调用把参数 schema 交给服务端强制。
 
 参数（`reminder/domain/ReminderPlan`）：`title`、`note`、`firstTriggerAt`（ISO-8601 带偏移）、`basis`、`rrule`、`wallClockAnchored`、`allDay`（§4.3）、`gentle`（§5.6，只有用户明说才是 true）。
-`basis`（推算依据，如 `now + 5d, 15:00`）是刻意要的：逼模型把推算写出来，既提高准确率，出错时也一眼看出哪儿歪了。它不进提醒表，编辑页「原话」下面那行「依据」是从 `chat.db` 里建这条的那次调用取的（`ChatStore.callArguments`）；桌面速记建的、手动建的没有。
+`basis`（推算依据，如 `now + 5d, 15:00`）是刻意要的：逼模型把推算写出来，既提高准确率，出错时也一眼看出哪儿歪了。它不进提醒表，编辑页「原话」下面那行「依据」是从 `chat.db` 里建这条的那次调用取的（`ConversationStore.callArguments`）；桌面速记建的、手动建的没有。
 
 **校验闸门**（`reminder/domain/PlanValidator`），落库前无条件过一遍：
 
@@ -447,7 +480,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 - **等待**：两根墨条，一道墨色从左往右洇过去，「· 到点」的圆点呼吸。墨条收起和第一块内容进场同一帧，没有空白帧。
 - **正文**：每段增量 180ms 淡入；光标在字流动时常亮，停顿超过 400ms 才闪。
 - **滚动**：流式期间逐帧贴底（回合原地长大时条数不变，只盯条数的话新内容会掉出屏幕）；你一拖列表就不跟，冒出「↓ 新内容」。键盘弹起、问卡长出来时列表是从底下被压矮的，矮了多少往下滚多少。贴底按「离底还差多少」滚，不 `scrollBy` 一个大数（见下一条）。发出去时键盘还开着：等键盘收完再跟（最多 0.7 秒）—— 不等的话列表先被推上去、紧接着整页随键盘落下来，一上一下。
-- **挪位**：只有条目进出的那一帧（发一句、喊停撤回、重试抹掉、对账虚线来去）给挪位动画，下一帧就收回。键盘收放、输入框变高变矮、回合原地长大一律直接到位 —— `animateItem` 把滚动以外的位移全当挪位，留着的话每一条都拖在后面慢慢追（键盘收起时整屏消息抖动变形）。贴底那一下 `scrollBy` 一个大数，碰上同一帧内容变矮（墨条收起、「在记账」换上来）要往回滚，库会把请求的整个数当成「滚过了」交给挪位动画，每一条被挪到一百万像素外再拉回来，整屏白半秒（`ChatScreen`）。
+- **挪位**：只有条目进出的那一帧（发一句、喊停撤回、重试抹掉、对账虚线来去）给挪位动画，下一帧就收回。键盘收放、输入框变高变矮、回合原地长大一律直接到位 —— `animateItem` 把滚动以外的位移全当挪位，留着的话每一条都拖在后面慢慢追（键盘收起时整屏消息抖动变形）。贴底那一下 `scrollBy` 一个大数，碰上同一帧内容变矮（墨条收起、「在记账」换上来）要往回滚，库会把请求的整个数当成「滚过了」交给挪位动画，每一条被挪到一百万像素外再拉回来，整屏白半秒（`ConversationScreen`）。
 - 无限循环的动画（墨条、细线、呼吸点）只在真用时才进组合 —— 挂着不用也会一直要帧、耗电。
 
 ### 6.6 问卡与痕
@@ -458,8 +491,8 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 
 | | 是什么 | 谁画的 | 代码 |
 |---|---|---|---|
-| **痕** | 一次写操作留下的一行小字：「✓ 提醒 9月24日 周四 08:00 · 带伞 ›」。不是卡片 | 代码按工具调用 + 结果画，字由模块写（`ReminderTrace` / `LedgerTrace`） | `agent/conversation/TraceLine.kt` |
-| **问卡** | 模型拿不准时先猜好几个答案，你点一下、点「其他…」自己写，或者直接说一句 | 模型调 `ask_user` | `agent/engine/ask/`、`agent/conversation/AskCard.kt` |
+| **痕** | 一次写操作留下的一行小字：「✓ 提醒 9月24日 周四 08:00 · 带伞 ›」。不是卡片 | 代码按工具调用 + 结果画，字由模块写（`ReminderTrace` / `LedgerTrace`） | `assistant/conversation/TraceLine.kt` |
+| **问卡** | 模型拿不准时先猜好几个答案，你点一下、点「其他…」自己写，或者直接说一句 | 模型调 `ask_user` | `runtime/ask/`、`assistant/conversation/AskCard.kt` |
 
 **痕为什么不能省**：模型嘴上说「记下了」不代表它调了工具（真机上出过只回一句「明白」、什么都没建）。痕按工具结果画，没落库就没有它。
 
@@ -476,7 +509,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 - **输入框**：问卡等着时，发出去的话都交给问卡。点了某题的「其他…」→ 句首垫题目、描朱砂边，只答那一题；否则算「直接说」—— 卡片收成「没点 · 你直接说了」，那句话画成你的气泡，模型拿原话去对。等你的时候发送键是箭头，不是「停」：是它在等你，不是你在等它。
 - **答**：「问」换成「答」，印盖下来 —— 整个对话唯一的重拍，不震动。卡框褪掉，每题收成一行「题目 答案」，没点的写「先放着」。
 - **结果怎么回给模型**：人话逐题列出，末行 `answer={…}` 机读 —— 重启后把问卡原样画回来靠它（`AskUserTool.answerOf`）。
-- **一题问的是一条记录**（`ref`，一笔账写「#12」）：认得它的模块在那题底下挂一块自己的东西（`FeatureUi.AskAddon`），比如对账时「＋ 打标签」。那一块点了就落库，不等「就这样」；交卷时问一次模块办了什么（`Feature.askNote`），收起后淡淡接在答案后面（「和她吃饭 · 约会」），也写进回给模型的话（「这笔挂着标签『约会』，已经挂好了，别再打」），机读那行多一个 `notes`。agent 不知道标签是什么，只转交。
+- **一题问的是一条记录**（`ref`，一笔账写「#12」）：认得它的模块在那题底下挂一块自己的东西（`AssistantSkill.AskAddon`），比如对账时「＋ 打标签」。那一块点了就落库，不等「就这样」；交卷时问一次模块办了什么（`AssistantSkill.askNote`），收起后淡淡接在答案后面（「和她吃饭 · 约会」），也写进回给模型的话（「这笔挂着标签『约会』，已经挂好了，别再打」），机读那行多一个 `notes`。agent 不知道标签是什么，只转交。
 - **没答**（喊停、app 在等人时被杀）：记成「用户没回答」（§6.1）。
 - **桌面速记**：纸太小放不下问卡。模型一调 `ask_user`，速记这一轮作废，打开 app 到对话页、把那句话照常发出去（`Launch` 带 `say`）；这一轮已经办成了点什么就不带那句话，只打开对话页，免得办两遍。
 
@@ -506,7 +539,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 | 解析失败、流完了还没写完 | 「这张图画不出来，原文在这里」+ 代码块，原文不丢 |
 
 - **颜色**：提示词让模型不画背景、字和线用 `currentColor`、数据只用色板里的五种（朱砂 `#9E3B2E`、`#3A372F`、`#8A8578`、`#C9C3B3`、`#8A6A24`）。画之前 `currentColor` 换成墨色，根 `<svg>` 没写 `fill` 的补一个墨色（SVG 默认填黑，深色下看不见）；深色主题再把浅色色板的颜色换成深色色板对应的，纯黑 / 深灰换成墨色、纯白换成纸色（`SvgColors`）。
-- **提示词**（`BasePrompt`「画图」）：什么时候画、每个数都照刚查到的抄、`viewBox` 宽 340 高不超过 440、字号 12–14、图前先一句结论。
+- **提示词**（`AssistantPrompt`「画图」）：什么时候画、每个数都照刚查到的抄、`viewBox` 宽 340 高不超过 440、字号 12–14、图前先一句结论。
 - **历史里的图折起来**（`FoldDrawings`）：一张图一两千 token，之后每句话都要重发。喂给模型时，更早几轮里的图换成一句「（这里原来有一张图，历史里省略了）」，当前这一轮原样给；`Session` 里存的、界面画的都不变。
 - **图上的数是模型抄的**，偶尔会抄错。这是选静态 SVG（而不是代码按查询结果画）接受了的代价。
 
@@ -524,7 +557,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 system（逐字节不变）
 [背景]  （app 附上的背景，不是用户说的）
         你记得的关于他的事：m3 · 9月20日 · 他说的「晚点」一般指晚上 9 点 …
-        各模块的现状（Feature.background）：记账的类别表（以这份为准）：支出类别：餐饮（外卖、堂食…）…
+        各模块的现状（AssistantSkill.background）：记账的类别表（以这份为准）：支出类别：餐饮（外卖、堂食…）…
         更早的对话，摘要（到 9月24日 为止）：…
 [轮次]  摘要之后的，原样（最多 24 轮）
         · 更早的图折成一句（§6.8）
@@ -537,13 +570,13 @@ system（逐字节不变）
 - **模块现状**是模型每句话都该知道、会变但不常变的东西，目前只有记账的类别表（以前写死在提示词里，整理员后来建的二级对话里不认得，§10.1）。变一次前缀缓存失效一次，所以每分钟都在变的不放这里。
 - 后台整理账目不垫这一段，但它那一轮的输入里带着记忆（§10.1）。
 
-**压缩**（`engine/context/Compaction`）
+**压缩**（`runtime/context/Compaction`）
 
 - **成段地压，不逐轮滑**：摘要之后原样喂的攒到 16 轮（或折过之后约 2.4 万字）才压一次，一压压到只剩最近 6 轮。两次压缩之间前缀一个字不变，缓存吃得上。
 - 摘要接替「旧摘要 + 这段对话」，600 字以内。**只写聊过什么，不写提醒和账现在的状态**：「已经改好了」写进摘要，模型会以为不用再管（§10.7 第 9 条同一个坑）。
 - 压缩一直不成（断网、网关挂了）：对话照样聊，退回「摘要之后最近 24 轮」，更早的就丢了 —— 和以前一样，不会更糟。
 
-**记忆**（`agent/memory/`）
+**记忆**（`assistant/memory/`）
 
 - 记**这个人**：作息、他的说法指什么（「老地方」「晚点」）、常提的人和地方、长期在做的事、明确说过的偏好。**不记某一条提醒、某一笔账**：它们在库里，会被改、被删，抄进记忆只会过时；商户归类有记账自己的商户记忆（§10.7 第 1 条）。
 - **认账用得上的说法要记**：「尾号 8837 的卡是老婆在用」「每月 5 号建行扣的 3500 是房租」—— 不是某一笔账，是他的情况；后台整理账目读记忆，下回自己就认得（§10.1）。
@@ -563,7 +596,7 @@ system（逐字节不变）
 - 喂给整理员的是**人读的记录**（`TidyText`：「[9月24日 周四 21:03] 他：…」「助手：…」，工具调用缩成一行），不是原样的结构。查询结果不抄（不是关于他的事），问卡的答案要抄（那是他的原话）。一次最多 40 轮 / 3 万字，多了分几次。
 - **进度记在 `tidy_runs`**：一次一行，成没成都记（这台机器看不到 logcat，靠它）。最近一次成功那行的 `memoryThrough` 是记忆整理到哪一轮；最近一次写了摘要那行就是现在的摘要。失败了进度不动、下次再来，不让 WorkManager 连环重试。
 - 整理和对话不抢锁：它只写记忆和 `tidy_runs`，不碰 `chat_items`。压的只会是最后 6 轮以前的，当前这一轮（可能还在等问卡）碰不到。
-- 跑的时候挂在 `AgentActivity` 上（「整理记忆」），顶栏印外面转一圈细线。
+- 跑的时候挂在 `AgentRuntime.running` 上（「整理记忆」），顶栏印外面转一圈细线。
 
 **要注意**
 
@@ -587,7 +620,7 @@ system（逐字节不变）
 - **点图全屏看**（`ImageViewer`）：和点开模型画的图是同一个样子，两指放大、双击、点一下收起；一次发了几张的左右滑，放大着的时候横着拖是挪图、不翻页。
 - 回合在跑、问卡等着你答的时候 ＋ 压暗，加不了。喊停撤回时，图跟原话一起退回待发那一行。
 
-**图在本机怎么放**（`conversation/data/ChatImageFiles`）
+**图在本机怎么放**（`assistant/conversation/data/ConversationImageFiles`）
 
 - 选回来就缩小（长边 1280）、摆正、转成 JPEG，**不留原图**：发给模型的和界面上画的是同一份。
 - 选好没发的在缓存目录 `chat_pending/`，发出去那一刻挪进 `files/chat_images/`，之后一直留着 —— 对话记录里要画。对话页的状态新建时清掉一分钟以前没发的。
@@ -597,7 +630,7 @@ system（逐字节不变）
 **发给模型**
 
 - `Item.UserMessage.images`。带图的那句发成「`input_text` + 若干 `input_image`」，图读成 base64 的 data URL 直接带在请求里（`ResponsesClient.pictured`），不依赖网关的文件接口。
-- **图只跟最近 3 轮**（`engine/context/FoldImages`，用户定的）：历史是客户端每步带全的，图不折的话每一步都把文件重传一遍。更早的折成「（这里原来有 N 张图片，历史里省略了；要再看得请他重发）」，接在原话后面。带 3 轮是因为他常接着上一张图说「不对，是右下角那个数」。
+- **图只跟最近 3 轮**（`runtime/context/FoldImages`，用户定的）：历史是客户端每步带全的，图不折的话每一步都把文件重传一遍。更早的折成「（这里原来有 N 张图片，历史里省略了；要再看得请他重发）」，接在原话后面。带 3 轮是因为他常接着上一张图说「不对，是右下角那个数」。
 - **没等到回应的那一轮，图不管新旧都折**（只剩他那一句：失败了、没重试）。不然模型看不了图的时候，一张图会把后面两三句全拖下水 —— 句句带着它、句句被退。
 - 压成摘要时整理员看不到图，记录里只写「（附了 N 张图片）」；图里要紧的东西靠当轮的回答、建的提醒、记的账留下来。
 - 一张还原样带着的图按 800 字算进「该不该压」（`Compaction.IMAGE_CHARS`），只是个量级。
@@ -763,7 +796,7 @@ debug 包可以慢放看接缝：`adb shell run-as com.abc.daodian.debug sh -c '
 - `SpeechRecognizer`：默认服务是 MagicVoice（YOYO），绑得上、也真开了麦克风，但**一个回调都不回**。它只伺候自家语音助手。
 - 供应商网关：`/audio/transcriptions` 不存在，`/responses`、`/chat/completions` 带音频输入也都失败。
 
-所以自己录音（`AudioRecord`，`VOICE_RECOGNITION` 源，16kHz 单声道），sherpa-onnx 本地流式识别，模型 `sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01`（`assets/asr/`）。只有 `agent/voice/VoiceInput` 一处，速记和对话页的麦克风共用：
+所以自己录音（`AudioRecord`，`VOICE_RECOGNITION` 源，16kHz 单声道），sherpa-onnx 本地流式识别，模型 `sherpa-onnx-streaming-zipformer-small-ctc-zh-int8-2025-04-01`（`assets/asr/`）。只有 `assistant/voice/VoiceInput` 一处，速记和对话页的麦克风共用：
 
 - 第一次 `start()` 才加载模型（真机约 1.9 秒），加载期间录音先攒着，好了一口气喂进去 —— 开头的字不丢。对话页换到「按住说话」那一刻就先加载上（`warmUp()`）。
 - 两种收法：速记看停顿 —— 还没开口给 5 秒，开了口停 1.2 秒就收，一句最长 20 秒；对话页是按住说话（`start(hold = true)`），不看停顿，松手才收，最长 60 秒。
@@ -782,7 +815,7 @@ debug 包可以慢放看接缝：`adb shell run-as com.abc.daodian.debug sh -c '
 - **上滑取消只有一行字**：输入条上方「上滑取消」。按着往上滑过 72dp 算要取消，滑回 56dp 以内才算反悔（两个数错开，手抖不来回跳）；文字框变虚线、字划掉。这时手指盖着输入条上方那行字，所以「松手取消」写在文字框下面。
 - 按得不到 0.3 秒：当成点了一下，不录不发，提示「按住说，松手就发」。一个字没认出来：「没听清，再说一次？」。这两句写在输入条上面，3 秒自己收，不是出错、不写红字。说到一半识别出错：半句话不替你发，听到的放进输入框、换回打字。
 - 切到后台、手势被系统掐掉：当取消。松手后 6 秒还没解完：当没听清，不让文字框一直挂着。
-- 手势在 `ChatInputBar` 的 `HoldToTalk`：手指滑出那一块之后事件照样送到它（落点在按下那一刻就定了），量的是离按下那个点往上走了多远。
+- 手势在 `ConversationInputBar` 的 `HoldToTalk`：手指滑出那一块之后事件照样送到它（落点在按下那一刻就定了），量的是离按下那个点往上走了多远。
 
 **没做：只认你的声音**（近讲门 / VAD）。按住说话解决了「收不了」，但你按着的时候旁边人说的话照样会被认成字。门槛得在真机上对着真实环境调，凭空猜一个数会切掉你自己的字。
 
@@ -801,8 +834,8 @@ debug 包可以慢放看接缝：`adb shell run-as com.abc.daodian.debug sh -c '
 - **未知当好的**：冷启动是朱砂 —— 昨晚没网今早开 app，不该先摆一张臭脸。墨灰盖回朱砂时重新盖一次印；变灰时不动，坏消息不配重拍。回复进行中印章不动。
 - **纸签**：好着时只有模型名（宋体大字）+ 网关主机名 + 末行「改配置 ›」。出问题才在顶上压一条告警带：一句人话（`ApiHealth.humanize()` 把 401 / 超时 / UnknownHost 翻成「key 不对」「服务器没回」），底下小字留原始异常。
 - **状态只在内存里**（`ApiHealth`）：存下来会误报 —— 昨晚的失败不代表现在连不上。只有网络 / 服务端失败才算数；闸门拦下、模型跑偏不改状态，点「停」压根到不了这儿。
-- **配置存 DataStore**（`agent/model/provider/ProviderStore`）：网关地址、key、模型，外加「先想一想再答」（开 = `reasoning.effort=medium` + `summary=auto`，关 = `effort=none`）。`secrets.properties` 只是**种子**：一个字段都没存过时才用它。key 不加密：`allowBackup="false"` + 私有目录，自用的取舍。
-- **agent 按配置缓存**（`ChatAgent`）：不能每句话新建一个 —— 每个 `ResponsesClient` 自带一个 OkHttp 连接池。对话页和速记共用这份缓存；速记每次说话前现读一次配置。
+- **配置存 DataStore**（`assistant/provider/ProviderStore`）：网关地址、key、模型，外加「先想一想再答」（开 = `reasoning.effort=medium` + `summary=auto`，关 = `effort=none`）。`secrets.properties` 只是**种子**：一个字段都没存过时才用它。key 不加密：`allowBackup="false"` + 私有目录，自用的取舍。
+- **客户端按配置缓存**（`AgentRuntime`）：不能每句话新建一个 —— 每个 `ResponsesClient` 自带一个 OkHttp 连接池。对话页、速记、后台的几个 agent 共用这份缓存；每次跑之前现读一次配置，改完下一句就换。
 - **「测一下」走真路**（`ProviderTest`）：同一个 `ResponsesClient`、同一份 system、挂着整套工具，只换成一句最短的话、只调一步。不拿 `/models` 试探 —— 第三方网关不一定实现，测通了也不代表正式调用能通。测的是框里**正在填**的值；**测没过也能保存**（有的网关对测试话挑刺、正式调用反而通）。
 - 配置页：key 默认遮住，输入法关掉联想和自动大写（免得 key 进词库）；有未保存改动时返回会拦一下。
 
@@ -823,7 +856,7 @@ debug 包可以慢放看接缝：`adb shell run-as com.abc.daodian.debug sh -c '
 | 全屏 intent | `NotificationManager.canUseFullScreenIntent()` |
 | 轻提醒 | `gentle_v2` 渠道建过才查：`importance > IMPORTANCE_NONE`（§5.6） |
 
-体检项由各模块的 `Feature.health` 给，眼下只有提醒在给，在设置 →「权限与监听」页，首页那一行上写「都就绪了」/「还差 N 项：…」。通知使用权在同一页通知监听那一组（§2.3），不算进体检 —— 它挂了记账、派活收不到，但不影响提醒响。
+体检项由各模块的 `ShellEntry.health` 给，眼下只有提醒在给，在设置 →「权限与监听」页，首页那一行上写「都就绪了」/「还差 N 项：…」。通知使用权在同一页通知监听那一组（§2.3），不算进体检 —— 它挂了记账、派活收不到，但不影响提醒响。
 
 ### 9.2 系统层面要手动设的
 
@@ -1071,7 +1104,7 @@ MagicOS 各版本菜单名有出入，按关键词找：
 
 内测的人手机上 logcat 看不到（这台 ROM 屏蔽第三方）、release 包不能 `run-as`、trace 文件只在 debug 包写 —— CLAUDE.md「怎么拿证据」那套全失效。所以：
 
-- **崩溃记录**（`agent/diagnostics/CrashLog`）：`DaodianApp.onCreate` 第一件事装上；崩了先把版本、机型、线程、堆栈写进 `files/crash/`，再交还系统原来的处理（照样弹「已停止运行」）。留最近 10 份。
-- **导出诊断**（设置 → 系统 →「导出诊断」，`agent/diagnostics/Diagnostics`）：生成一份 txt，交给系统分享（发微信）。7 天内崩过，这一行变红写次数。内容：版本、机型、ROM、时区、电池优化、精确闹钟、系统下一个闹钟是谁排的；模型服务（模型名、网关主机名、key 填没填）；体检；各模块一段；最近 5 次崩溃。
-- **只写状态和数，不写内容**：没有对话、记忆、提醒标题、金额、商户、通知原文、key。各模块那一段由 `Feature.diagnostics` 交上来（提醒：各状态条数、排着的下次时刻、最近 30 次响的漂移、派活名单几个人、收到的结果；记账：近 7 天每个 app 抓了几条、账的状态、最近 10 次整理 / 对账；通知监听：使用权、连没连着、谁听哪些包名）。加模块、加段的时候守这条；读库用 `rows()` 只数数、看状态列。
+- **崩溃记录**（`shell/diagnostics/CrashLog`）：`DaodianApp.onCreate` 第一件事装上；崩了先把版本、机型、线程、堆栈写进 `files/crash/`，再交还系统原来的处理（照样弹「已停止运行」）。留最近 10 份。
+- **导出诊断**（设置 → 系统 →「导出诊断」，`shell/diagnostics/Diagnostics`）：生成一份 txt，交给系统分享（发微信）。7 天内崩过，这一行变红写次数。内容：版本、机型、ROM、时区、电池优化、精确闹钟、系统下一个闹钟是谁排的；模型服务（模型名、网关主机名、key 填没填）；体检；各模块一段；最近 5 次崩溃。
+- **只写状态和数，不写内容**：没有对话、记忆、提醒标题、金额、商户、通知原文、key。各模块那一段由 `ShellEntry.diagnostics` 交上来（提醒：各状态条数、排着的下次时刻、最近 30 次响的漂移、派活名单几个人、收到的结果；记账：近 7 天每个 app 抓了几条、账的状态、最近 10 次整理 / 对账；通知监听：使用权、连没连着、谁听哪些包名）。加模块、加段的时候守这条；读库用 `rows()` 只数数、看状态列。
 

@@ -1,7 +1,7 @@
 package com.abc.daodian.reminder
 
 /**
- * 提醒各页的路由。页面在 [ReminderFeature.routes] 注册；通知、小组件、痕要拉起某一页时也用这里的字符串
+ * 提醒各页的路由。页面在 [com.abc.daodian.reminder.presentation.ReminderShell.routes] 注册；通知、小组件、痕要拉起某一页时也用这里的字符串
  * （经 shared/navigation/Launch），所以放在一个谁都能引的地方，不挂在接头上。
  */
 object ReminderRoutes {
