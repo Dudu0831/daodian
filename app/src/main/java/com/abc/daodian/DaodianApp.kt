@@ -13,6 +13,7 @@ import com.abc.daodian.runtime.AgentRuntime
 import com.abc.daodian.shared.navigation.Launch
 import com.abc.daodian.shell.diagnostics.CrashLog
 import com.abc.daodian.shell.entry.ShellEntries
+import com.abc.daodian.update.DailyCheck
 
 /**
  * 只做装配：把订阅者、agent 花名册、模块清单装进各自的注册表，挨个做冷启动要做的事
@@ -46,5 +47,7 @@ class DaodianApp : Application() {
         // 小组件拉起速记用（提醒模块不 import 助手）
         Launch.install(quickAdd = QuickAddActivity::class.java)
         MODULES.forEach { it.onAppStart(this) }
+        // 每天几个钟点后台查更新：冷启动排一遍（release 包才排）
+        runCatching { DailyCheck.arm(this) }
     }
 }

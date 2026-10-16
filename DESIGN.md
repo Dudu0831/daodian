@@ -1098,7 +1098,8 @@ MagicOS 各版本菜单名有出入，按关键词找：
 - 版本号：每发一个包 versionCode +1（同号、降号覆盖不上），versionName 走 `0.1.x`。每发一版打一个 `v<versionName>` 的 tag。
 - 新包放在官网那台服务器的 `/srv/daodian-app`，网址 `https://104-168-64-160.sslip.io/app/`：`daodian-<版本>.apk` 加一份 `latest.json`（versionCode、versionName、url、size、notes）。和官网分目录，官网部署的 `rsync --delete` 碰不到；Caddy 那段在 `daodian-web/deploy/Caddyfile`，`latest.json` 不缓存、不进访问统计。
 - 发版用 `scripts/publish.sh "这一版改了什么"`：打 release → 核签名指纹 → 确认 versionCode 比线上大 → **先传包、再换 `latest.json`**（app 看到新版时包一定已经在）。脚本里有服务器地址和 root 登录，**gitignored、只在本机**。
-- app 这边（`update/Updates.kt`）：开 app 时查一次，回到设置页再查（一小时内不重复），点「版本」那行马上查；查不到就当没有，不打扰。有新版：设置「版本」那行朱砂字 + 这一版的 notes，抽屉「设置」那行写「有新版本」（体检缺项时让位给红字）。点了交给系统 DownloadManager 下（离开 app 也接着下，通知栏有进度），下完交给系统安装器 —— 同签名、更大的 versionCode，就是覆盖升级，数据都在。第一次要去系统里许「安装未知应用」，回来再点一次。debug 包不查。
+- app 这边（`update/Updates.kt`）：开 app 时查一次，回到设置页再查（一小时内不重复），点「版本」那行马上查；查不到就当没有，不打扰。
+- **每天 09:00 / 13:00 / 19:00 另在后台查一次**（`update/DailyCheck`，10-16 加的：以前不开 app 就永远不知道有新版）。闹钟是自己的，不碰提醒的排期：响了交给 WorkManager 等有网再查，响完排下一个钟点，开机、覆盖安装、冷启动都重排。钟点避开常排着的 20:00 和对账的 21:30。查到新版发一条「新版本」通知（渠道 `update`），**同一版只发一次**，点开进设置页；开始下载、已是最新、装上了那一版，这条都收掉。不在后台自己下：八九十 MB，怕走流量。上一次后台查的结果和下一次的钟点写进导出诊断（「检查更新」那行）—— release 包没别的地方看得到。有新版：设置「版本」那行朱砂字 + 这一版的 notes，抽屉「设置」那行写「有新版本」（体检缺项时让位给红字）。点了交给系统 DownloadManager 下（离开 app 也接着下，通知栏有进度），下完交给系统安装器 —— 同签名、更大的 versionCode，就是覆盖升级，数据都在。第一次要去系统里许「安装未知应用」，回来再点一次。debug 包不查。
 - **下完一定装得上、不重下**（10-15 修的：0.1.6 那次下完没弹安装器，再进 app 又从头下）。两个原因：下完那一刻 app 在后台，Android 10 起系统不让后台弹页面，不报错、什么也不出；下载状态只在内存里，进程被收掉就忘了。现在：下载 id 记在 prefs（`update`）里，开 app 查到新版先看这一条 —— 下完了（文件在、大小和 `latest.json` 的 `size` 一样）就是「下好了，点一下安装」，还在下就接着盯；下完时在后台，回到前台（`MainActivity.onResume`）补弹一次，只自动弹一次，在安装器里点了取消就留在「下好了」。安装器拿的是自己 FileProvider 的地址（`external-files-path` 的 `Download/`），不用 DownloadManager 给的 `content://downloads`。下载通知下完后留着，点它也能装。升到最新之后，旧包和那条下载记录清掉。
 - 服务器在洛杉矶，大陆下 85MB 要一会儿。嫌慢就把包挪到国内对象存储，只改 `latest.json` 里的 url，app 不用动。
 

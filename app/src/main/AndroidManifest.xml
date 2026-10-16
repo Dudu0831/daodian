@@ -166,6 +166,19 @@
             </intent-filter>
         </receiver>
 
+        <!--
+            每天 09:00 / 13:00 / 19:00 后台查更新的闹钟，只收自己的 PendingIntent；开机、覆盖安装后靠它重排（update/DailyCheck.kt）。
+            检查更新自己的，不碰提醒的 schedule/
+        -->
+        <receiver
+            android:name=".update.DailyCheckReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         <!-- 「导出诊断」生成的文本交给分享（shell/diagnostics/Diagnostics.kt）、对话页拍照时系统相机落片（ConversationImageFiles.kt）、
              下好的更新包交给安装器（update/Updates.kt）。只开放 cache/diag、cache/chat_camera、外部 files/Download 三个目录 -->
         <provider

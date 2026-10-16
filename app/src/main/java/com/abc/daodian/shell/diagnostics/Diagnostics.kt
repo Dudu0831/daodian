@@ -12,6 +12,7 @@ import com.abc.daodian.runtime.AgentRuntime
 import com.abc.daodian.shared.format.DiagnosticText.time
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shell.entry.ShellEntries
+import com.abc.daodian.update.DailyCheck
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -54,6 +55,7 @@ object Diagnostics {
         appendLine("到点 · 诊断")
         appendLine("导出 ${time(now)}（${TimeZone.getDefault().id}）")
         appendLine("版本 ${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}）${if (BuildConfig.DEBUG) " debug" else ""}")
+        appendLine("检查更新 ${DailyCheck.describe(context)}")
         appendLine("机型 ${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}（SDK ${Build.VERSION.SDK_INT}）· ${Build.DISPLAY}")
         val pm = context.getSystemService(PowerManager::class.java)
         appendLine("电池优化 ${if (pm.isIgnoringBatteryOptimizations(context.packageName)) "已忽略" else "受限"}")

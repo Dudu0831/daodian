@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -29,6 +30,7 @@ import java.net.URL
  * 下载交给系统的 DownloadManager（离开 app 也接着下，通知栏有进度），下完交给系统安装器。
  * 下载 id 记在 prefs 里：进程被收掉再开，下完的直接装、没下完的接着盯，不重下；
  * 下完时 app 在后台，系统不让弹安装器，回到前台再弹（[foreground]）。
+ * 什么时候查：开 app、回到设置页、点「版本」那行，外加每天 09:00 / 13:00 / 19:00 在后台查一次（[DailyCheck]）。
  * debug 包不查：包名不同，装 release 包是另装一个 app。
  */
 object Updates {
@@ -61,7 +63,7 @@ object Updates {
     private var lastCheck = 0L
     private var downloadId: Long? = null
 
-    /** 冷启动和回到设置页时调。一小时内查过就不再查，[force] 除外 */
+    /** 冷启动和回到设置页时调。一小时内查过就不再查，[force] 除外。每天几个钟点另在后台查（[DailyCheck]） */
     fun check(context: Context, force: Boolean = false) {
         val app = context.applicationContext
         if (!enabled) return
@@ -69,17 +71,23 @@ object Updates {
         val now = System.currentTimeMillis()
         if (!force && now - lastCheck < 60 * 60_000L) return
         lastCheck = now
-        scope.launch {
-            val release = runCatching { fetch() }.getOrNull() ?: return@launch
-            if (_state.value is State.Downloading || _state.value is State.Ready) return@launch
-            _state.value = if (release.versionCode > BuildConfig.VERSION_CODE) resume(app, release) else {
-                clear(app)
-                State.Latest
-            }
-            // 上回下完时 app 不在前台、后来进程又被收掉：这次开 app 补弹一次
-            val s = _state.value
-            if (s is State.Ready && foreground && !prefs(app).getBoolean(KEY_PROMPTED, true)) prompt(app, s.release)
+        scope.launch { refresh(app) }
+    }
+
+    /** 真去查一次，返回查完的状态；查不到（没网、服务器没回）是 null。后台定时那次在 Worker 里等着它 */
+    suspend fun refresh(app: Context): State? = withContext(Dispatchers.IO) {
+        val release = runCatching { fetch() }.getOrNull() ?: return@withContext null
+        val before = _state.value
+        if (before is State.Downloading || before is State.Ready) return@withContext before
+        _state.value = if (release.versionCode > BuildConfig.VERSION_CODE) resume(app, release) else {
+            clear(app)
+            DailyCheck.dismiss(app)
+            State.Latest
         }
+        // 上回下完时 app 不在前台、后来进程又被收掉：这次开 app 补弹一次
+        val s = _state.value
+        if (s is State.Ready && foreground && !prefs(app).getBoolean(KEY_PROMPTED, true)) prompt(app, s.release)
+        s
     }
 
     private fun fetch(): Release {
@@ -107,6 +115,8 @@ object Updates {
     fun download(context: Context, release: Release): Boolean {
         val app = context.applicationContext
         if (askInstallPermission(context)) return true
+        // 后台查到时发的那条「有新版本」用不着了：下载自己有进度通知
+        DailyCheck.dismiss(app)
         val dm = app.getSystemService(DownloadManager::class.java)
         // 上一次下的旧包、没下完的那条先清掉，免得 DownloadManager 改名成 -1.apk
         prefs(app).getLong(KEY_ID, -1L).takeIf { it >= 0 }?.let { dm.remove(it) }
