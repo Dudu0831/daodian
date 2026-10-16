@@ -1,32 +1,37 @@
 package com.abc.daodian
 
-import com.abc.daodian.assistant.AssistantPrompt
-import com.abc.daodian.assistant.memory.EditMemoryTool
+import com.abc.daodian.assistant.AssistantAgent
 import com.abc.daodian.assistant.memory.FakeMemoryBook
 import com.abc.daodian.assistant.memory.tidy.SaveTidyTool
-import com.abc.daodian.assistant.memory.tidy.TidyPrompt
+import com.abc.daodian.assistant.memory.tidy.TidyAgent
 import com.abc.daodian.assistant.memory.tidy.TidyText
+import com.abc.daodian.ledger.domain.LedgerBackend
+import com.abc.daodian.ledger.tools.LedgerTools
 import com.abc.daodian.reminder.domain.ReminderPlan
+import com.abc.daodian.reminder.relay.RelayAgent
 import com.abc.daodian.reminder.relay.RelayPrompt
 import com.abc.daodian.reminder.tools.CreateReminderTool
-import com.abc.daodian.runtime.context.LastTurns
+import com.abc.daodian.reminder.tools.ReminderTools
+import com.abc.daodian.runtime.Agent
+import com.abc.daodian.runtime.AgentRuntime
+import com.abc.daodian.runtime.Input
+import com.abc.daodian.runtime.RunResult
 import com.abc.daodian.runtime.context.Preamble
 import com.abc.daodian.runtime.engine.AgentEvent
-import com.abc.daodian.runtime.engine.AgentLoop
 import com.abc.daodian.runtime.engine.Item
 import com.abc.daodian.runtime.engine.Session
 import com.abc.daodian.runtime.engine.Turn
-import com.abc.daodian.runtime.model.LlmClient
+import com.abc.daodian.runtime.memory.MemoryBackend
 import com.abc.daodian.runtime.model.LlmEvent
-import com.abc.daodian.runtime.model.LlmRequest
 import com.abc.daodian.runtime.model.ProviderProfile
-import com.abc.daodian.runtime.model.ResponsesClient
-import com.abc.daodian.runtime.tool.ToolRegistry
+import com.abc.daodian.runtime.payloads
+import com.abc.daodian.runtime.reply
+import com.abc.daodian.runtime.tool.ToolContext
 import java.io.File
+import java.lang.reflect.Proxy
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.Properties
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -39,17 +44,28 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * 打真网关：验证「工具结果回传 → 模型接着说」和「历史里的工具调用原样重放」这两件事网关认不认。
- * 要花钱、要联网，默认跳过。跑法（在项目根目录）：
+ * 打真网关：验证「工具结果回传 → 模型接着说」和「历史里的工具调用原样重放」这两件事网关认不认，
+ * 以及几个 agent 的提示词在真模型上管不管用。要花钱、要联网，默认跳过。跑法（在项目根目录）：
  *
  *     DAODIAN_LIVE=1 ./gradlew :app:testDebugUnitTest --tests '*LiveGatewayTest*' -i
  *
  * 配置读根目录的 secrets.properties；想换供应商不改文件，用环境变量覆盖：
  * `DAODIAN_BASE_URL` / `DAODIAN_KEY` / `DAODIAN_MODEL`。落库是假的，不碰手机。
+ *
+ * 和真机走同一条路：`AgentRuntime` 照 debug 包的规矩装（strict），agent 用各自的 `XxxAgent.build(...)` 建，
+ * 助手的工具也是真机上那一套（自己的两样 + 提醒、记账给的）。
  */
 class LiveGatewayTest {
 
     private lateinit var profile: ProviderProfile
+
+    /** 这一次一共发了几次请求（runtime 每次真要发请求前交给 Tracer） */
+    private var requests = 0
+
+    /** 这几条用不着账本：建工具不碰它，模型真去查账就报出来（工具出错会回给模型，不会让测试崩） */
+    private val noLedger = Proxy.newProxyInstance(LedgerBackend::class.java.classLoader, arrayOf(LedgerBackend::class.java)) { _, method, _ ->
+        error("这几条用不着账本：${method.name}")
+    } as LedgerBackend
 
     @Before
     fun setUp() {
@@ -65,38 +81,39 @@ class LiveGatewayTest {
         assumeTrue("供应商没配全（secrets.properties 或环境变量）", profile.isConfigured)
     }
 
-    /** 数一数这一轮调了几次模型 */
-    private class Counting(private val inner: LlmClient) : LlmClient {
-        var calls = 0
-        override fun step(request: LlmRequest): Flow<LlmEvent> {
-            calls++
-            return inner.step(request)
-        }
+    /** 每条测试自己装一次：记忆库各用各的，请求数从 0 数 */
+    private fun install(book: MemoryBackend = FakeMemoryBook()) {
+        requests = 0
+        AgentRuntime.install(AGENTS, { profile }, { book }, tracer = { _, _, _, _ -> requests++ }, strict = true)
     }
+
+    /** 助手，带着真机上那一套工具（按 `Modules.kt` 的顺序）；建提醒落到 [commit] */
+    private fun assistant(book: MemoryBackend, commit: suspend (ReminderPlan, ToolContext) -> Long = { _, _ -> 1001L }): Agent =
+        AssistantAgent.build(AssistantAgent.tools(book, ReminderTools.forAssistant(commit) + LedgerTools.forAssistant(noLedger)))
 
     @Test
     fun `tool result round trip and replayed history`() = runBlocking {
         val committed = mutableListOf<String>()
-        val llm = Counting(ResponsesClient(profile))
-        val tools = ToolRegistry(listOf(CreateReminderTool { plan, _ ->
+        val book = FakeMemoryBook()
+        install(book)
+        val agent = assistant(book) { plan, _ ->
             committed += "${plan.title} @ ${plan.firstTriggerAt}"
             1001L
-        }))
-        val loop = AgentLoop(llm, tools, AssistantPrompt.SYSTEM)
+        }
         val session = Session()
         val now = ZonedDateTime.now(ZoneId.of("Asia/Shanghai"))
 
         // 第一轮：要走完「调工具 → 结果回传 → 模型收尾」
-        val first = loop.run(session, "明天下午三点提醒我交房租", now).onEach(::log).toList()
-        println("第一轮调模型 ${llm.calls} 次，落库：$committed")
+        val first = AgentRuntime.run(agent, session, Input("明天下午三点提醒我交房租", now)).onEach(::log).toList()
+        println("第一轮发了 $requests 次请求，落库：$committed")
         val end1 = first.last()
         assertTrue("第一轮没正常结束：$end1", end1 is AgentEvent.Finished)
         assertEquals("应该恰好建一条", 1, committed.size)
-        assertTrue("工具结果没回传给模型（只调了 ${llm.calls} 次）", llm.calls >= 2)
+        assertTrue("工具结果没回传给模型（只发了 $requests 次）", requests >= 2)
 
         // 第二轮：历史里带着上一轮的 function_call / output，网关得认
-        llm.calls = 0
-        val second = loop.run(session, "我刚才让你提醒我什么？", now.plusMinutes(1)).onEach(::log).toList()
+        requests = 0
+        val second = AgentRuntime.run(agent, session, Input("我刚才让你提醒我什么？", now.plusMinutes(1))).onEach(::log).toList()
         val end2 = second.last()
         assertTrue("第二轮没正常结束：$end2", end2 is AgentEvent.Finished)
         val reply = (end2 as AgentEvent.Finished).turn.items.filterIsInstance<Item.AssistantMessage>().joinToString { it.text }
@@ -113,48 +130,48 @@ class LiveGatewayTest {
     fun `background memory is used and edit_memory is called when asked`() = runBlocking {
         val committed = mutableListOf<String>()
         val book = FakeMemoryBook("他说的「晚点」一般指晚上 9 点")
-        val tools = ToolRegistry(listOf(
-            CreateReminderTool { plan, _ -> committed += plan.firstTriggerAt; 1001L },
-            EditMemoryTool(book)
-        ))
-        val loop = AgentLoop(ResponsesClient(profile), tools, AssistantPrompt.SYSTEM)
+        install(book)
+        val agent = assistant(book) { plan, _ -> committed += plan.firstTriggerAt; 1001L }
         val session = Session()
         val now = ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).withHour(15).withMinute(0)
         val background = { _: Session -> Preamble("你记得的关于他的事（m 编号 · 记下或改过的日子）：\n- m1 · 9月20日 · 他说的「晚点」一般指晚上 9 点") }
 
-        val first = loop.run(session, "晚点提醒我给妈妈打电话", now, background = background).onEach(::log).toList()
+        val first = AgentRuntime.run(agent, session, Input("晚点提醒我给妈妈打电话", now), background = background).onEach(::log).toList()
         assertTrue("第一轮没正常结束：${first.last()}", first.last() is AgentEvent.Finished)
         println("建的：$committed")
         assertTrue("没按记忆排到 21:00：$committed", committed.singleOrNull()?.contains("T21:00") == true)
 
-        val second = loop.run(session, "记住：我每周二晚上健身", now.plusMinutes(1), background = background).onEach(::log).toList()
+        val second = AgentRuntime.run(agent, session, Input("记住：我每周二晚上健身", now.plusMinutes(1)), background = background)
+            .onEach(::log).toList()
         assertTrue("第二轮没正常结束：${second.last()}", second.last() is AgentEvent.Finished)
         println("记忆：${book.list.map { it.text }}")
         assertTrue("没记下健身：${book.list}", book.list.any { "健身" in it.text })
     }
 
     /**
-     * 派活（reminder/relay）：她发来的一句，只带 create_reminder，问不了人。
+     * 派活（reminder/relay）：她发来的一句，只带 create_reminder，问不了人。照 `Relay` 的跑法：`RelayAgent` + 只垫记忆。
      * 没说钟点的建成当天事项；她说「不用响铃」也照样响铃（gentle = false）；闲聊不建。
      */
     @Test
     fun `relay turns a chore into a day task and leaves chit-chat alone`() = runBlocking {
+        install()
         val plans = mutableListOf<ReminderPlan>()
-        val tools = ToolRegistry(listOf(CreateReminderTool { plan, _ -> plans += plan; 1001L }))
-        val loop = AgentLoop(ResponsesClient(profile), tools, RelayPrompt.SYSTEM, LastTurns(1), maxSteps = 3)
+        val agent = RelayAgent.build { plan, _ -> plans += plan; 1001L }
         val now = ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).withHour(15).withMinute(0)
 
-        val task = loop.run(Session(), RelayPrompt.input("小美", "明天帮我取个快递，不用响铃", coded = false), now).onEach(::log).toList()
-        assertTrue("派活没正常结束：${task.last()}", task.last() is AgentEvent.Finished)
-        println("建的：$plans")
+        val task = AgentRuntime.runOnce(agent, Input(RelayPrompt.input("小美", "明天帮我取个快递，不用响铃", coded = false), now), AgentRuntime.memory)
+        println("派活：$task\n建的：$plans")
+        assertTrue("派活没正常结束：$task", task is RunResult.Done)
+        assertEquals("工具交上来的就是建的那条", listOf(1001L), task.payloads<CreateReminderTool.Created>().map { it.reminderId })
         val plan = plans.singleOrNull()
         assertNotNull("应该恰好建一条：$plans", plan)
         assertTrue("没说钟点，应该是当天事项：$plan", plan!!.allDay)
         assertFalse("别人派来的事一律响铃：$plan", plan.gentle)
 
         plans.clear()
-        val chitchat = loop.run(Session(), RelayPrompt.input("小美", "你在干嘛呀", coded = false), now).onEach(::log).toList()
-        assertTrue("闲聊那句没正常结束：${chitchat.last()}", chitchat.last() is AgentEvent.Finished)
+        val chitchat = AgentRuntime.runOnce(agent, Input(RelayPrompt.input("小美", "你在干嘛呀", coded = false), now), AgentRuntime.memory)
+        println("闲聊：${chitchat.reply}")
+        assertTrue("闲聊那句没正常结束：$chitchat", chitchat is RunResult.Done)
         assertTrue("闲聊不该建：$plans", plans.isEmpty())
     }
 
@@ -162,6 +179,7 @@ class LiveGatewayTest {
     @Test
     fun `tidy extracts memories and writes a summary`() = runBlocking {
         val book = FakeMemoryBook("他在备考 CPA")
+        install(book)
         val at = ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).minusDays(1).withHour(21).withMinute(3)
         val turns = listOf(
             Turn(1, listOf(
@@ -181,16 +199,11 @@ class LiveGatewayTest {
                 Item.AssistantMessage("改好了。")
             ))
         )
-        val loop = AgentLoop(ResponsesClient(profile), ToolRegistry(listOf(SaveTidyTool(book, compact = true))), TidyPrompt.SYSTEM,
-            context = LastTurns(1), maxSteps = 3)
-        var saved: SaveTidyTool.Saved? = null
         val input = TidyText.input(book.list.toList(), null, turns, compact = true, stale = emptySet())
         println(input)
-        loop.run(Session(), input, ZonedDateTime.now()).onEach(::log).collect { e ->
-            if (e is AgentEvent.ToolFinished) (e.outcome.payload as? SaveTidyTool.Saved)?.let { saved = it }
-        }
-        val s = saved
-        assertNotNull("没交作业", s)
+        val result = AgentRuntime.runOnce(TidyAgent.build(book, compact = true, remember = true), Input(input, ZonedDateTime.now()))
+        val s = result.payloads<SaveTidyTool.Saved>().lastOrNull()
+        assertNotNull("没交作业：$result", s)
         println("记忆：${book.list.map { "m${it.id} ${it.text}" }}\n摘要：${s!!.summary}")
         assertTrue("没记下作息或老地方", book.list.any { "瑞幸" in it.text || "九点" in it.text || "9" in it.text })
         assertTrue("考试改期没更新到 m1", book.list.none { it.text == "他在备考 CPA" })
@@ -208,8 +221,10 @@ class LiveGatewayTest {
         val file = File.createTempFile("daodian-probe", ".png").apply { deleteOnExit() }
         file.writeBytes(ProbeImage.digits(number))
 
-        val loop = AgentLoop(ResponsesClient(profile), ToolRegistry(emptyList()), AssistantPrompt.SYSTEM)
-        val events = loop.run(Session(), "图上写的是什么数字？只回数字", ZonedDateTime.now(), images = listOf(file.path)).onEach(::log).toList()
+        val book = FakeMemoryBook()
+        install(book)
+        val input = Input("图上写的是什么数字？只回数字", ZonedDateTime.now(), images = listOf(file.path))
+        val events = AgentRuntime.run(assistant(book), Session(), input).onEach(::log).toList()
         val end = events.last()
         assertTrue("带图的请求没走通（${profile.model}）：$end", end is AgentEvent.Finished)
         val reply = (end as AgentEvent.Finished).turn.items.filterIsInstance<Item.AssistantMessage>().joinToString { it.text }

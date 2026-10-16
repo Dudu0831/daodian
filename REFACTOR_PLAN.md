@@ -1,6 +1,6 @@
 # 改造方案：拆出 agent runtime
 
-2026-10-15 定的方向。**第 1–5 步做完了（10-15，都没装机）**，剩第 6 步（可选）；第 4 步要的两项真机验证、第 5 步的装机说一句还欠着。做完一步在第 8 节打勾；全部做完后，要紧的决定写进 DESIGN（§2.2、§06），这份删掉（和当初的 `TEST_PLAN.md` 一样）。
+2026-10-15 定的方向。**第 1–5 步做完了（10-15，都没装机）**，10-16 复查后又补了一轮（第 8 节末尾「复查后补的」），剩第 6 步（可选）；第 4 步要的两项真机验证、第 5 步的装机说一句还欠着。做完一步在第 8 节打勾；全部做完后，要紧的决定写进 DESIGN（§2.2、§06），这份删掉（和当初的 `TEST_PLAN.md` 一样）。
 
 ## 0 一句话
 
@@ -32,7 +32,7 @@
 shell               宿主壳：导航、抽屉、设置页、权限页、模型配置页、诊断
   ↓ 用
 assistant           助手：它的 agent、对话页、桌面速记、记忆
-  ↑ 插口（assistant/skill、shell/entry）
+  ↑ 插口（assistant/plugin、shell/entry）
 reminder  ledger    模块：自己的核心 + 自己的后台 agent
   ↓ 用（assistant 也用）
 runtime             跑 agent 的：纯 Kotlin，不认识 Android、模块和对话页
@@ -45,7 +45,7 @@ intake  shared      不变
 | `assistant` | `runtime`、`shared` | 模块、`shell` |
 | `shell` | `assistant`、`runtime`、`shared`、`update` | 模块（模块的东西都经 `ShellEntry` 进来） |
 | 模块的核心层（提醒的 `domain/data/application/scheduling/delivery`，记账的 `domain/data/capture`） | `shared`、`intake` 核心 | `runtime`、`assistant`、`shell`（同今天） |
-| 模块的其余部分 | `runtime`，两个插口包 `assistant/skill`、`shell/entry`，和接头接口 `module` | `assistant`、`shell` 的其余部分；别的模块 |
+| 模块的其余部分 | `runtime`，两个插口包 `assistant/plugin`、`shell/entry`，和接头接口 `module` | `assistant`、`shell` 的其余部分；别的模块 |
 | `module` | 两个插口包 | 其余一切（只放 `Module` 这一个接口，只有根目录和模块的接头用它） |
 | `intake`、`update`、`shared` | 不变 | 不变 |
 
@@ -69,7 +69,7 @@ runtime/                       纯 Kotlin（第 5 步变成 Gradle 模块 :runti
 assistant/                     助手
   AssistantAgent.kt            ★ 助手
   AssistantPrompt.kt
-  skill/                       AssistantSkill 插口（原 Feature 给对话的那一半）、痕、PartialArgs
+  plugin/                      AssistantPlugin 插口（原 Feature 给对话的那一半）、痕、PartialArgs
   conversation/                对话页（入口一）、chat.db
   quick/                       桌面速记（入口二）
   memory/                      记忆、记忆页、edit_memory
@@ -85,13 +85,13 @@ module/Module.kt               模块接头：id、label、给助手的、给壳
 
 reminder/
   ReminderModule.kt
-  assistant/ReminderSkill.kt   给助手的：create_reminder、痕、例句、手动填一条
+  assistant/ReminderPlugin.kt   给助手的：create_reminder、痕、例句、手动填一条
   presentation/ReminderShell.kt 给壳的：页面、抽屉卡、设置行、体检、诊断
   relay/RelayAgent.kt          ★ 派活
   relay/RelayPrompt.kt
 ledger/
   LedgerModule.kt
-  assistant/LedgerSkill.kt     给助手的：四个工具、类别表、痕、每晚对账那一轮、问卡上打标签
+  assistant/LedgerPlugin.kt     给助手的：四个工具、类别表、痕、每晚对账那一轮、问卡上打标签
   presentation/LedgerShell.kt
   organize/OrganizerAgent.kt   ★ 记账整理员
   organize/OrganizerPrompt.kt
@@ -291,7 +291,7 @@ CLAUDE.md 里的命令不用改。
 | 现在 | 去哪 |
 |---|---|
 | `id`、`label`、`onAppStart` | `Module`（`module/Module.kt`） |
-| `tools`、`background`、`trace`、`examples`、`manualEntry`、`trigger`、`pendingTrigger`、`dismissTrigger`、`askNote`、`AskAddon` | `AssistantSkill`（`assistant/skill/`） |
+| `tools`、`background`、`trace`、`examples`、`manualEntry`、`trigger`、`pendingTrigger`、`dismissTrigger`、`askNote`、`AskAddon` | `AssistantPlugin`（`assistant/plugin/`） |
 | `prompt` | 删掉，写进助手自己的提示词 |
 | `routes`、`DrawerCard`、`settingsEntries`、`PermissionSection`、`permissionStatus`、`HealthNote`、`health`、`diagnostics` | `ShellEntry`（`shell/entry/`） |
 
@@ -300,7 +300,7 @@ CLAUDE.md 里的命令不用改。
 interface Module {
     val id: String                                  // 「reminder」：路由前缀、trigger 键前缀
     val label: String                               // 「提醒」
-    val assistant: AssistantSkill? get() = null     // 给助手的
+    val assistant: AssistantPlugin? get() = null     // 给助手的
     val shell: ShellEntry? get() = null             // 给壳的
     fun onAppStart(context: Context) {}
 }
@@ -313,7 +313,7 @@ val SUBSCRIBERS: List<NoticeSubscriber> = listOf(LedgerCapture, Relay)   // 不�
 CrashLog.install(this)
 Intake.install(SUBSCRIBERS)
 AgentRuntime.install(AGENTS, ProviderStore.get(this), MemoryBook.get(this), Traces(this), strict = BuildConfig.DEBUG)
-AssistantSkills.install(MODULES.mapNotNull { it.assistant })
+AssistantPlugins.install(MODULES.mapNotNull { it.assistant })
 ShellEntries.install(MODULES.mapNotNull { it.shell })
 Launch.install(quickAdd = QuickAddActivity::class.java)
 MODULES.forEach { it.onAppStart(this) }
@@ -327,7 +327,7 @@ MODULES.forEach { it.onAppStart(this) }
 
 | 现在 | 改成 |
 |---|---|
-| 提醒编辑页的「依据」直接读 `ChatStore.callArguments` | 改走 `assistant/skill` 的 `CallHistory.arguments(tool, ref)`（插口包里，模块可以用） |
+| 提醒编辑页的「依据」直接读 `ChatStore.callArguments` | 改走 `assistant/plugin` 的 `CallHistory.arguments(tool, ref)`（插口包里，模块可以用） |
 | 小组件用 `ShellRoutes.CHAT` 回对话页 | `Launch.HOME`（还是 `"chat"` 这个字符串，放在 `shared/navigation`） |
 | 小组件 import `QuickAddActivity` 拉起速记 | `Launch.quickAdd(context)`，Activity 由根目录装进来 |
 | 两个 `XxxDiagnostics` 用了 `agent.diagnostics` 的 `time`、`rows` | `time` 挪进 `shared/format`，`rows` 挪进 `shared/data` |
@@ -345,7 +345,7 @@ MODULES.forEach { it.onAppStart(this) }
 | `agent/`（整个包） | `assistant/` + `shell/`，运行时那部分进 `runtime/` |
 | `ChatAgent` | `AssistantAgent` |
 | `BasePrompt` | `AssistantPrompt` |
-| `Feature`、`FeatureRegistry` | `AssistantSkill`、`AssistantSkills`（另有 `ShellEntry`、`ShellEntries`、`Module`） |
+| `Feature`、`FeatureRegistry` | `AssistantPlugin`、`AssistantPlugins`（另有 `ShellEntry`、`ShellEntries`、`Module`） |
 | `FeatureUi` | `ShellEntry` |
 | `agent/conversation/Chat*`（`ChatScreen`、`ChatViewModel`、`ChatInputBar`、`ChatComponents`、`ChatMotion`、`ChatTopBar`、`ChatStore`、`ChatDatabase`、`ChatImageFiles`、`ChatItemEntity`） | `assistant/conversation/Conversation*` |
 | `ChatMessage` | `ConversationItem`（不叫 `AssistantMessage`：runtime 里的 `Item.AssistantMessage` 是模型回的那句，会撞名） |
@@ -437,7 +437,7 @@ MODULES.forEach { it.onAppStart(this) }
 
 ### 第 4 步：拆接头 + 改名（diff 最大，基本是改 import 和改文档）
 
-- [x] 按第 5 节拆成 `Module`、`AssistantSkill`、`ShellEntry`；`Features.kt` 改名 `Modules.kt`；每个模块拆成 `XxxModule` / `XxxSkill` / `XxxShell`（通知监听层只有 `IntakeModule` + `IntakeShell`）。
+- [x] 按第 5 节拆成 `Module`、`AssistantPlugin`、`ShellEntry`；`Features.kt` 改名 `Modules.kt`；每个模块拆成 `XxxModule` / `XxxPlugin` / `XxxShell`（通知监听层只有 `IntakeModule` + `IntakeShell`）。
   做的时候定的细节：两个插口各自带 `id`（用 `XxxModule.ID` 这个常量），`DaodianApp` 装的时候查和模块的一样；`HealthItem` 跟着体检挪进 `shell/entry`；`AppNav.chat` 改名 `AppNav.assistant`。
 - [x] 按第 6 节改名挪包：`agent/` 拆成 `assistant/` 和 `shell/`（挪了 50 个文件，Chat 开头的类改名 12 个）；小写的也改了：`Recall.conversation`、`Tidy.conversationBusy`、`LedgerTools.forAssistant`、`ToAssistantBand`、内存里的锁名 `assistant-tidy`。`AppCatalog.isChat`（是不是聊天软件）不是一个意思，留着。`ShellRoutes.CHAT`、`MEMORY` 挪成 `AssistantRoutes.HOME`、`MEMORY`。
   按全类名记的三个照表处理了：`QuickAddActivity` 在 manifest 里留了旧名字的 `activity-alias`；`TidyWorker` 改成 `open`，旧全类名处留空壳子类；`ChatDatabase` 改名 `ConversationDatabase`，`app/schemas/` 目录跟着改名 —— KSP 照新类名导出的 3.json 和原来那份逐字一样（identity hash `667766dc…`）。release 包里查过（dexdump、aapt2）：两个 `TidyWorker` 都在、alias 在。
@@ -466,6 +466,22 @@ MODULES.forEach { it.onAppStart(this) }
 - [ ] 验：装 debug 包说一句（**还没做**，没装机）。
 - [x] 文档：README（两个模块、目录树、单测命令、依赖版本那段）、DESIGN §2.2、§03 技术栈；CLAUDE.md 发版前跑的单测命令、现状。
 
+### 复查后补的（10-16）
+
+第 1–5 步做完后复查出来的几处，一起补了。行为不变（debug 包对不上时崩得更彻底，算修正）；手机上存的东西一样没动。
+
+- [x] 插口改名：`AssistantSkill` → `AssistantPlugin`，包 `assistant/skill` → `assistant/plugin`，`ReminderSkill`、`LedgerSkill`、`AssistantSkills` 跟着改（本文件上面的名字也已经换成新的）。理由：agent 那边 skill 指按需读进上下文的说明，这个插口偏偏不给提示词（DESIGN §2.2）。都是普通 object，不用留旧名字。
+- [x] strict 对不上，后台的也崩：抛 `AgentMisconfigured`，抛之前交给 `install` 的 `onMisconfigured`，`DaodianApp` 扔到主线程上再抛。以前派活、整理员、记忆整理员外面的兜底 catch 会把它吃成一条失败记录。`AgentRuntimeTest` 加了一条：调用方吞掉异常时钩子照样收到。
+- [x] `exclusive(锁名, 哪个 agent, 在做什么)`：`Running` 带的是花名册上的 `AgentInfo`，记账两个 ViewModel 不再手写 `"organize"`（以前它和花名册上的 `"organizer"` 是两套 id）。顶栏那一行的字不变。导出诊断的「agent」那段多了归谁、什么时候醒（`owner`、`wakes` 以前代码里没人读）。
+- [x] `AgentLoop`、`ResponsesClient`、`ToolRegistry` 改成 `internal`：第 5 节表里「派活、整理员只用 `AgentRuntime`」这条由编译器管了。`AgentLoop.ABORTED` 挪成 `Session.ABORTED`，`DEFAULT_MAX_STEPS` 挪到 `Agent`。`LiveGatewayTest` 改成装 `AgentRuntime`（strict）+ 各自的 `XxxAgent.build(...)`，助手带真机上那一套工具。
+- [x] `reminder/tools/ReminderTools`（同 `LedgerTools`）：`ReminderPlugin`、`RelayAgent`、`AgentsTest` 用同一份；`AssistantAgent` 多了不要 Context 的 `tools(memory, modules)`、`build(tools)`；`AgentsTest` 多查一条助手过 strict。
+- [x] 文档：DESIGN §2.2（插口为什么叫 plugin、runtime 那行、alias 和空壳一起删）、§6.1、§10.4 的旧名字、§11.3；CLAUDE.md 现状、容易忘的决定、两处旧名字；README 目录树；manifest 里 alias 的注释不再指向这份文件。
+- [ ] 验：
+  - [x] `:runtime` 单测 43 条过（云端用 Maven Central 的 GCS 镜像单独编）；`ArchitectureTest` 单独跑过。
+  - [ ] **`:app` 没编译过**（云端拉不到 `dl.google.com`）：本地跑 `./gradlew :runtime:test :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease`。
+  - [ ] `LiveGatewayTest` 改写后没跑（要火山方舟的 key）。
+  - [ ] 装 debug 包：故意改坏一个后台 agent 的 `Prompt.tools`，触发它（比如整理员点「现在整理」），确认当场崩、崩溃记录里是 `AgentMisconfigured`；改回来。顶栏整理账目时那一圈细线照旧转、记账页「整理中」照旧亮。
+
 ### 第 6 步（可选）：工具写起来省点事
 
 - [ ] runtime 里加一个 schema 小 DSL 和一个参数读取器。现在每个工具都自己手写 `mapOf("type" to …)` 和一份 `string()` / `boolean()` 小函数，strict 要求的 required 全列、`additionalProperties = false` 也是手写的。
@@ -477,4 +493,4 @@ MODULES.forEach { it.onAppStart(this) }
 
 - 对话页一层的类名用 `Conversation*`（第 6 节就是照这个写的）。要是想全叫 `Assistant*`，第 4 步之前说。
 - 时间推算那段，助手和派活现在是两种写法。要不要合成一样的说法，第 3 步之后单独看：合了会改字，助手的前缀缓存要失效一次，得真机再验。
-- `TidyWorker` 的空壳子类和 `QuickAddActivity` 的 alias，留到哪个版本删。
+- `TidyWorker` 的空壳子类和 `QuickAddActivity` 的 alias，留到哪个版本删。（DESIGN §2.2 现在写的是「过两个版本一起删」，删这份文件前定下具体版本号）

@@ -1,4 +1,4 @@
-package com.abc.daodian.assistant.skill
+package com.abc.daodian.assistant.plugin
 
 /**
  * 从流到一半的工具参数里抠字段。痕在办的时候逐字显示标题用（见 DESIGN.md §6.6）。

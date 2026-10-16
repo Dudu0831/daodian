@@ -1,7 +1,7 @@
 package com.abc.daodian.ledger
 
 import android.content.Context
-import com.abc.daodian.ledger.assistant.LedgerSkill
+import com.abc.daodian.ledger.assistant.LedgerPlugin
 import com.abc.daodian.ledger.organize.OrganizeWorker
 import com.abc.daodian.ledger.presentation.LedgerShell
 import com.abc.daodian.ledger.reconciliation.LedgerCheck
@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 
 /**
  * 记账的接头。记账自己在后台转：存通知（capture，通知是监听层分过来的）、定期整理（organize）、每晚对账（reconciliation）；
- * 这里把它交出去：给助手的（[LedgerSkill]）、给壳的（[LedgerShell]），冷启动排上整理和对账。
+ * 这里把它交出去：给助手的（[LedgerPlugin]）、给壳的（[LedgerShell]），冷启动排上整理和对账。
  */
 object LedgerModule : Module {
 
@@ -22,7 +22,7 @@ object LedgerModule : Module {
 
     override val id = ID
     override val label = LABEL
-    override val assistant get() = LedgerSkill
+    override val assistant get() = LedgerPlugin
     override val shell get() = LedgerShell
 
     override fun onAppStart(context: Context) {

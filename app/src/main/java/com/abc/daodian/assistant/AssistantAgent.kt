@@ -3,7 +3,7 @@ package com.abc.daodian.assistant
 import android.content.Context
 import com.abc.daodian.assistant.memory.EditMemoryTool
 import com.abc.daodian.assistant.memory.MemoryBook
-import com.abc.daodian.assistant.skill.AssistantSkills
+import com.abc.daodian.assistant.plugin.AssistantPlugins
 import com.abc.daodian.runtime.Agent
 import com.abc.daodian.runtime.AgentInfo
 import com.abc.daodian.runtime.ask.AskUserTool
@@ -14,13 +14,14 @@ import com.abc.daodian.runtime.context.FoldImages
 import com.abc.daodian.runtime.context.FoldStale
 import com.abc.daodian.runtime.context.LastTurns
 import com.abc.daodian.runtime.engine.Turn
+import com.abc.daodian.runtime.memory.MemoryBackend
 import com.abc.daodian.runtime.tool.Tool
 import com.abc.daodian.runtime.tool.ToolEffect
 
 /**
  * 助手：你在对话页说一句、在桌面速记说一句，都是它；每晚对账那一轮也是它，开场白由记账写。
  *
- * 工具 = 问人（[AskUserTool]，拿不准时出问卡）+ 记忆（[EditMemoryTool]）+ 各模块给的（[com.abc.daodian.assistant.skill.AssistantSkill.tools]）；
+ * 工具 = 问人（[AskUserTool]，拿不准时出问卡）+ 记忆（[EditMemoryTool]）+ 各模块给的（[com.abc.daodian.assistant.plugin.AssistantPlugin.tools]）；
  * system = [AssistantPrompt]，全文写在那一个文件里，模块不往里追加。这里不认识任何具体模块。
  * 历史怎么喂见 [policy]；前面垫的记忆和摘要由调用方给（`memory/Recall`），DESIGN.md §6.9。
  * 怎么跑归 runtime（`AgentRuntime.run`）：客户端按配置缓存在那边，这里每句话现建一个 [Agent] 不费什么。
@@ -34,17 +35,23 @@ object AssistantAgent : AgentInfo {
     override val prompts = listOf(AssistantPrompt.PROMPT)
     override val canAsk = true
 
-    fun build(context: Context): Agent {
-        val tools = tools(context)
-        return Agent(this, AssistantPrompt.PROMPT, tools, policy(staleOf(tools), LastTurns(Compaction.HARD_CAP)))
-    }
+    fun build(context: Context): Agent = build(tools(context))
+
+    /** 拿一套现成的工具建（测试里没有 Context，工具用 [tools] 的另一个重载现拼） */
+    fun build(tools: List<Tool>): Agent =
+        Agent(this, AssistantPrompt.PROMPT, tools, policy(staleOf(tools), LastTurns(Compaction.HARD_CAP)))
 
     /** 常量，逐字节稳定（前缀缓存） */
     val system: String get() = AssistantPrompt.SYSTEM
 
-    fun tools(context: Context): List<Tool> =
-        listOf(AskUserTool(), EditMemoryTool(MemoryBook.get(context))) +
-            AssistantSkills.tools(context)
+    fun tools(context: Context): List<Tool> = tools(MemoryBook.get(context), AssistantPlugins.tools(context))
+
+    /**
+     * 助手自己的两样（问人、记忆）在前，各模块给的接在后面（按 `Modules.kt` 的顺序）。
+     * 不要 Context：`AgentsTest`、`LiveGatewayTest` 用它拼出和真机上一样的一套
+     */
+    fun tools(memory: MemoryBackend, modules: List<Tool>): List<Tool> =
+        listOf(AskUserTool(), EditMemoryTool(memory)) + modules
 
     /** 结果过几轮就折掉的查询工具（[Tool.outputGoesStale]） */
     fun staleTools(context: Context): Set<String> = staleOf(tools(context))

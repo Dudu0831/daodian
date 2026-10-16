@@ -1,7 +1,7 @@
 package com.abc.daodian.reminder.relay
 
 import com.abc.daodian.reminder.domain.ReminderPlan
-import com.abc.daodian.reminder.tools.CreateReminderTool
+import com.abc.daodian.reminder.tools.ReminderTools
 import com.abc.daodian.runtime.Agent
 import com.abc.daodian.runtime.AgentInfo
 import com.abc.daodian.runtime.tool.ToolContext
@@ -20,5 +20,5 @@ object RelayAgent : AgentInfo {
 
     /** [commit]：落库那一下由 [Relay] 给（写上是谁派的、一律响铃） */
     fun build(commit: suspend (ReminderPlan, ToolContext) -> Long) =
-        Agent(this, RelayPrompt.PROMPT, listOf(CreateReminderTool(commit)), maxSteps = 3)
+        Agent(this, RelayPrompt.PROMPT, ReminderTools.forRelay(commit), maxSteps = 3)
 }

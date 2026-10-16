@@ -2,7 +2,7 @@
 
 给 Claude Code 会话的操作手册。是什么、怎么构建看 [README.md](README.md)；**改代码前读 [DESIGN.md](DESIGN.md) 对应那一节**（为什么这样、要守的规矩，代码注释里的 `§5.3` 都指它）。这份只记三样：现状、怎么拿证据、坑。
 
-## 现状（2026-10-13，过时了就更新）
+## 现状（2026-10-16，过时了就更新）
 
 **包重排（agent / reminder / ledger / shared，DESIGN.md §2.2）已经合进 `main`。** 09-24 卸载重装后，按测试清单在真机上走了一遍，全部通过。清单测完就删了，要看用 `git show 8e5ee3c:TEST_PLAN.md`。清单里「main 上就没验过、顺手可以验的」那一节是可选的，下表仍按没验算。
 从重排之前的版本升上来要连数据卸载，见最后一节「踩过的坑」的最后一条。
@@ -25,7 +25,15 @@
 
 **10-15 `minSdk` 从 34 退回 33**（DESIGN 决策 3.2）：全屏提醒的判断、体检那一项、速记页的进出场动画三处加了版本分支。同样**没编译过、没有 13 的手机验过**：要验的是 13 上锁屏到点弹不弹全屏页、点「完成」无残留排期、体检「全屏 intent」是对勾、速记那张纸进出没有系统动画叠着。
 
-**10-15 开始拆 agent runtime**（方案在根目录 `REFACTOR_PLAN.md`，一步一步做，每步行为不变，做完删掉）。**第 1 步做完了：提示词各归各的** —— 助手的 system 全文在 `agent/prompt/AssistantPrompt`（原来的基础提示词 + 提醒、记账两段按原顺序写进去，`Feature.prompt` 删了），记账整理员的在 `ledger/organize/OrganizerPrompt`，派活的在 `reminder/relay/RelayPrompt`。助手、整理员两份、记忆整理员的 system 改前改后逐字节比对过，一样；派活删了一条和它自己的「gentle 一律 false」打架的轻提醒规则，是这一步唯一改的字。单元测试过了；`LiveGatewayTest` 加的派活那条没跑（要火山方舟的 key）。没装机。**第 2 步也做完了：runtime 抽成包** —— 循环、工具、问卡、上下文、调模型、`AgentActivity`、记忆的数据和规矩从 `agent` 挪进 `runtime/`（纯挪包，类名不变，没有一个是按全类名记在手机上的），`ArchitectureTest` 查 runtime 不碰 Android 和 app 里别的包。编译（debug、release）、单测过了；**没装机**（手机那会儿没连上）。**第 3 步也做完了：跑 agent 那一层 + 花名册** —— 根目录 `Agents.kt` 列出 4 个 agent（助手、记账整理员、派活、记忆整理员），都从 `AgentRuntime` 跑（前台 `run`、后台 `runOnce`），各自不再拼循环、手动记健康、事后 `as?` 取结果（整理员边跑边数记了几笔那一处还是 `as?`）；客户端按配置共用一个；debug 包里花名册、工具、问人三样对不上就崩（`AgentsTest` 拿真的四个先查过）。后台的派活、记忆整理员、整理员多了 `trace_<id>.txt`，导出诊断多一段「agent」。单测 142 条，137 过、5 条真网关的跳过；**没装机**。**第 4 步也做完了：拆接头 + 改名** —— `agent/` 拆成 `assistant/`（助手：agent、提示词、对话页、速记、记忆）和 `shell/`（壳），代码里不再叫 chat（`ChatViewModel` → `ConversationViewModel` 这类 12 个类，`Recall.conversation`、`AppNav.assistant`、`LedgerTools.forAssistant`）；接头拆成 `module/Module` + 两个插口 `assistant/skill/AssistantSkill`、`shell/entry/ShellEntry`，每个模块一个 `XxxModule`（+ `XxxSkill`、`XxxShell`），`Features.kt` 改名 `Modules.kt`。存在手机上的名字一个没改（`chat.db`、路由 `"chat"`、`chat-tidy-idle`……）；按全类名记的三个：`QuickAddActivity` 在 manifest 里留了旧名字的 alias，`TidyWorker` 在 `agent/memory/tidy/` 留了空壳子类，`ChatDatabase` 改名 `ConversationDatabase`、schemas 目录跟着改名（KSP 照新类名导出的 3.json 和原来的一样）。`ArchitectureTest` 补成了 DESIGN §2.2 那整张表。编译 debug、release（release 包里旧名字的空壳和 alias 都在）、单测 143 条过；**没装机**：方案里第 4 步要的「演一遍库迁移」和 release 覆盖装都还没做。**第 5 步也做完了：runtime 变成 Gradle 模块 `:runtime`**（`kotlin("jvm")`，和 app 同一个 Kotlin 2.0.21）：源码、测试挪进根目录 `runtime/`，openai-java 只在它那边，app 改依赖 `project(":runtime")` 加自己的 Jackson。拆开时编译器抓出两处：`MemoryJson` 只有 app 的两个记忆工具在用，挪回 `assistant/memory`；问卡里对 runtime 那几个属性的 smart cast 跨模块不成立，先取成局部变量。拆前拆后 release 包解析出来的依赖一样（137 个，版本都一样）；单测 `:runtime` 42 条、`:app` 100 条（5 条真网关的跳过）都过；release 包打得出来。**没装机**。跑单测现在是 `./gradlew :runtime:test :app:testDebugUnitTest`。
+**10-15 开始拆 agent runtime**（方案在根目录 `REFACTOR_PLAN.md`，一步一步做，每步行为不变，做完删掉）。**第 1 步做完了：提示词各归各的** —— 助手的 system 全文在 `assistant/AssistantPrompt`（原来的基础提示词 + 提醒、记账两段按原顺序写进去，`Feature.prompt` 删了），记账整理员的在 `ledger/organize/OrganizerPrompt`，派活的在 `reminder/relay/RelayPrompt`。助手、整理员两份、记忆整理员的 system 改前改后逐字节比对过，一样；派活删了一条和它自己的「gentle 一律 false」打架的轻提醒规则，是这一步唯一改的字。单元测试过了；`LiveGatewayTest` 加的派活那条没跑（要火山方舟的 key）。没装机。**第 2 步也做完了：runtime 抽成包** —— 循环、工具、问卡、上下文、调模型、`AgentActivity`、记忆的数据和规矩从 `agent` 挪进 `runtime/`（纯挪包，类名不变，没有一个是按全类名记在手机上的），`ArchitectureTest` 查 runtime 不碰 Android 和 app 里别的包。编译（debug、release）、单测过了；**没装机**（手机那会儿没连上）。**第 3 步也做完了：跑 agent 那一层 + 花名册** —— 根目录 `Agents.kt` 列出 4 个 agent（助手、记账整理员、派活、记忆整理员），都从 `AgentRuntime` 跑（前台 `run`、后台 `runOnce`），各自不再拼循环、手动记健康、事后 `as?` 取结果（整理员边跑边数记了几笔那一处还是 `as?`）；客户端按配置共用一个；debug 包里花名册、工具、问人三样对不上就崩（`AgentsTest` 拿真的四个先查过）。后台的派活、记忆整理员、整理员多了 `trace_<id>.txt`，导出诊断多一段「agent」。单测 142 条，137 过、5 条真网关的跳过；**没装机**。**第 4 步也做完了：拆接头 + 改名** —— `agent/` 拆成 `assistant/`（助手：agent、提示词、对话页、速记、记忆）和 `shell/`（壳），代码里不再叫 chat（`ChatViewModel` → `ConversationViewModel` 这类 12 个类，`Recall.conversation`、`AppNav.assistant`、`LedgerTools.forAssistant`）；接头拆成 `module/Module` + 两个插口 `assistant/plugin/AssistantPlugin`、`shell/entry/ShellEntry`，每个模块一个 `XxxModule`（+ `XxxPlugin`、`XxxShell`），`Features.kt` 改名 `Modules.kt`。存在手机上的名字一个没改（`chat.db`、路由 `"chat"`、`chat-tidy-idle`……）；按全类名记的三个：`QuickAddActivity` 在 manifest 里留了旧名字的 alias，`TidyWorker` 在 `agent/memory/tidy/` 留了空壳子类，`ChatDatabase` 改名 `ConversationDatabase`、schemas 目录跟着改名（KSP 照新类名导出的 3.json 和原来的一样）。`ArchitectureTest` 补成了 DESIGN §2.2 那整张表。编译 debug、release（release 包里旧名字的空壳和 alias 都在）、单测 143 条过；**没装机**：方案里第 4 步要的「演一遍库迁移」和 release 覆盖装都还没做。**第 5 步也做完了：runtime 变成 Gradle 模块 `:runtime`**（`kotlin("jvm")`，和 app 同一个 Kotlin 2.0.21）：源码、测试挪进根目录 `runtime/`，openai-java 只在它那边，app 改依赖 `project(":runtime")` 加自己的 Jackson。拆开时编译器抓出两处：`MemoryJson` 只有 app 的两个记忆工具在用，挪回 `assistant/memory`；问卡里对 runtime 那几个属性的 smart cast 跨模块不成立，先取成局部变量。拆前拆后 release 包解析出来的依赖一样（137 个，版本都一样）；单测 `:runtime` 42 条、`:app` 100 条（5 条真网关的跳过）都过；release 包打得出来。**没装机**。跑单测现在是 `./gradlew :runtime:test :app:testDebugUnitTest`。
+
+**10-16 复查后补了一轮**（同一个分支，方案第 8 节「复查后补的」）：
+- **改名**：给助手的插口 `AssistantSkill` 改叫 `AssistantPlugin`（包 `assistant/plugin`，`ReminderPlugin`、`LedgerPlugin`、`AssistantPlugins`）。skill 在 agent 那边指按需读进上下文的说明，这个插口偏偏不给提示词，见下面「容易忘的决定」。都是普通 object，没有按全类名记在手机上的。
+- **后台 agent 对不上也崩了**：以前 strict 查出来对不上只是抛，派活、整理员、记忆整理员外面都有兜底的 catch，会被吃成一条失败记录。现在抛的是 `AgentMisconfigured`，抛之前先交给 `AgentRuntime.install` 的 `onMisconfigured`，`DaodianApp` 在那里把它扔到主线程上再抛一次。
+- **谁在跑认花名册**：`AgentRuntime.exclusive(锁, 哪个 agent, 在做什么)`，记账两个 ViewModel 不再手写 `"organize"`；顶栏那一行的字没变（「后台在整理账目」）。导出诊断的「agent」那段多了归谁、什么时候醒。
+- **runtime 的内部件收起来了**：`AgentLoop`、`ResponsesClient`、`ToolRegistry` 改成 `internal`，app 跑 agent 只能走 `AgentRuntime`（`AgentLoop.ABORTED` 挪成 `Session.ABORTED`）。`LiveGatewayTest` 跟着改成装 `AgentRuntime`（strict）+ 各自的 `XxxAgent.build(...)`，助手带的是真机上那一套工具。
+- **提醒也有了工具工厂** `reminder/tools/ReminderTools`（同 `LedgerTools`）：`ReminderPlugin`、`RelayAgent`、`AgentsTest` 用同一份；`AgentsTest` 多查了一条助手过 strict。
+- 证据：`:runtime` 43 条单测过（云端用 Maven Central 的 GCS 镜像单独编的）；`ArchitectureTest` 单独跑过。**`:app` 没编译过、它的单测没跑**（云端拉不到 `dl.google.com`），本地要先跑 `./gradlew :runtime:test :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease`；`LiveGatewayTest` 没跑；没装机。
 
 真机是荣耀 LGE-AN10，模型是火山方舟 `deepseek-v4.1-flash`。下表「真机验过」一栏里，「09-24：」后面的是重排之后那一轮补验的，其余是重排之前在 main 上验的；早先用 adb 测的句子是英文，09-24 那轮是中文。
 
@@ -90,7 +98,7 @@ release 签名靠根目录的 `keystore.properties` + `daodian-release.keystore`
   - 响没响、准不准：app 内「投递日志」页 / `fire_log` 表
   - 语音：debug 包 `files/quick_trace.txt` 里 `voice ←` 那几行（对话页按住说话那一次开头是 `voice start (hold)`）。按住和上滑按理能用 adb 模拟（还没在这台机器上试过）：`adb shell input swipe x y x y 3000` 是原地按 3 秒，终点的 y 改小就是按着往上滑；按着的那几秒里另开一个 `screencap` 截文字框。说话得真人说
   - 库：`adb exec-out run-as com.abc.daodian.debug cat databases/<名字>.db > <名字>.db`（连 `-wal`、`-shm` 一起拷），再 `sqlite3`
-- **内测的人那边**（release 包，不能 run-as、没有 trace 文件）：让对方点设置 →「导出诊断」发过来。里面是版本、机型、体检、闹钟排期和最近 30 次响的漂移、派活收到的、各 app 抓了几条、整理 / 对账成没成、最近 5 次崩溃的堆栈（崩溃记在 `files/crash/`，`shell/diagnostics/CrashLog`）。只有状态和数，不带对话、标题、金额、通知原文；各模块的那一段在 `ShellEntry.diagnostics`，加的时候守这条。「agent」那段列花名册上的几个和各自的提示词版本
+- **内测的人那边**（release 包，不能 run-as、没有 trace 文件）：让对方点设置 →「导出诊断」发过来。里面是版本、机型、体检、闹钟排期和最近 30 次响的漂移、派活收到的、各 app 抓了几条、整理 / 对账成没成、最近 5 次崩溃的堆栈（崩溃记在 `files/crash/`，`shell/diagnostics/CrashLog`）。只有状态和数，不带对话、标题、金额、通知原文；各模块的那一段在 `ShellEntry.diagnostics`，加的时候守这条。「agent」那段列花名册上的几个：归谁、什么时候醒、各自的提示词版本
 - **到点全屏页只能靠肉眼或录屏**：`AlarmActivity` 是 `exported=false`，`am start` 起不来；关屏后隔几十秒截图只拍到黑屏（用户已经关掉了）；`appops` 里那条 `USE_FULL_SCREEN_INTENT rejectTime` 也不能当证据。
 - `adb install -r` 在这台机器上**不一定重启 app 进程**，装完用 `ps` 看启动时间，不然跑的还是旧代码。
   10-09 那次覆盖装完进程干脆没起来，`dumpsys alarm` 里旧闹钟原样还在，库要等第一次打开 app（或闹钟响）才被新代码打开、才迁移 —— 验迁移要先打开一次再拉库。
@@ -112,7 +120,7 @@ release 签名靠根目录的 `keystore.properties` + `daodian-release.keystore`
 
 - **`reminder/scheduling/` 和 `reminder/data/` 是唯一不允许出错的部分**（DESIGN §05）。AlarmManager 里的排期是易失的，Room 是唯一真相，四个重排触发源缺一个都可能漏提醒。
 - **界面整包可丢弃、可重画**（各模块的 `presentation/`、`assistant/conversation`、`shell`），改起来不用犹豫。
-- **依赖规则**（DESIGN §2.2 那张表，`ArchitectureTest` 照着扫 import）：`assistant` 不 import 模块、模块之间不互相 import、模块只碰两个插口包（`assistant/skill`、`shell/entry`）和 `module`、跨模块跳转只用路由；`runtime` 不碰 Android 和 app 里别的包。加功能先想它归哪个模块、要不要经接头；加模块 = `XxxModule` + `Modules.kt` 一行，加后台 agent = `XxxAgent` + `XxxPrompt` + `Agents.kt` 一行。
+- **依赖规则**（DESIGN §2.2 那张表，`ArchitectureTest` 照着扫 import）：`assistant` 不 import 模块、模块之间不互相 import、模块只碰两个插口包（`assistant/plugin`、`shell/entry`）和 `module`、跨模块跳转只用路由；`runtime` 不碰 Android 和 app 里别的包；app 跑 agent 只走 `AgentRuntime`（循环、调模型的客户端是 runtime 的 `internal`，碰不到）。加功能先想它归哪个模块、要不要经接头；加模块 = `XxxModule`（+ 要的话 `XxxPlugin`、`XxxShell`）+ `Modules.kt` 一行，加后台 agent = `XxxAgent` + `XxxPrompt` + `Agents.kt` 一行。
 - 换 Kotlin / AGP / Compose 版本前看 README「依赖版本」那条约束链，顺序不能反。
 - `minSdk` 是 **33**（10-15 为 Android 13 的内测者从 34 退回来，决策 3.2）：14 才有的接口要写版本分支，再往下不去。
 
@@ -130,6 +138,7 @@ release 签名靠根目录的 `keystore.properties` + `daodian-release.keystore`
 - 对话页说话是按住说、松手直接发、上滑取消，取消只留一行字；文字框是灰的，不用墨色实心块、不用朱砂（§8.3，用户 10-07 一样样挑过）。
 - 随话发图：＋ 在输入条最右、有东西可发时换成发送（设计稿「甲」，**不是** ＋ 和发送并排）；一句最多 4 张；图只跟最近 3 轮发给模型；模型看不了图单独报一句，不挂「手动填一条」、印不变灰；配置页不测图（§6.10，用户 10-12 定的）。
 - 每个 agent 的提示词写全在自己目录下，不拼别处的段落；模块只给工具和数据，不往助手的提示词里追加 —— 模块改了工具，回用它的 agent 的提示词里跟着改（§6.3 第 6 条，用户 10-15 定的）。
+- 模块给助手的插口叫 `AssistantPlugin`（`XxxPlugin`），**不叫 skill**：agent 那边 skill 指按需读进上下文的一段说明（提示词），这个插口偏偏不给提示词；以后真要按需加载某个模块的规矩，那才叫 skill（§2.2，用户 10-16 定的）。
 - 字体用系统泛型，没打包 Noto Serif SC —— 墨宋靠宋体挑大梁，真机上第一眼要看系统衬体的中文好不好看（§8.1）。
 - 到点全屏页是独立的 `AlarmActivity`（§5.6）。
 - 轻提醒（界面上就叫这个，**不叫「到点只发通知」**；开关底下两行小字解释它是什么，用户 10-11 定的）：只分两档、按条设、默认响铃，不加全局的「默认强度」；模型只认明说的，派活来的一律响铃；渠道单开（`gentle_v2`），不和当天事项共用；声音走通知音量再加一下震动，**不走闹钟音量**（静音时不该响）；不等人确认，送到了就算完，通知上没有「完成」（§5.6，用户 10-09 定的）。
@@ -142,7 +151,7 @@ release 签名靠根目录的 `keystore.properties` + `daodian-release.keystore`
 
 一行一条，细节在 DESIGN 对应那一节。
 
-- **键盘 inset**：manifest 没写 `windowSoftInputMode` 时默认 adjustPan 把整个窗口往上推，再叠上 Compose 的 `imePadding()`，输入框飞到半空。现在钉 `adjustResize` + `enableEdgeToEdge()`，inset 只留 Compose 一个来源，底部用 `ime.union(navigationBars)`。第二次：键盘弹起时列表从底下被压矮、最新一句压在输入框后面 —— `ChatScreen` 盯着视口高度，矮了多少往下滚多少。
+- **键盘 inset**：manifest 没写 `windowSoftInputMode` 时默认 adjustPan 把整个窗口往上推，再叠上 Compose 的 `imePadding()`，输入框飞到半空。现在钉 `adjustResize` + `enableEdgeToEdge()`，inset 只留 Compose 一个来源，底部用 `ime.union(navigationBars)`。第二次：键盘弹起时列表从底下被压矮、最新一句压在输入框后面 —— `ConversationScreen` 盯着视口高度，矮了多少往下滚多少。
 - **「停」半天没反应**：阻塞 HTTP 打断不了（§6.2 坑 1）。
 - **闲聊被当成建提醒**：提示词先分流（§6.3）。
 - **同一句中文模型有时只回「明白」不调工具**（英文版才调），是模型 / 提示词的问题，不是界面。

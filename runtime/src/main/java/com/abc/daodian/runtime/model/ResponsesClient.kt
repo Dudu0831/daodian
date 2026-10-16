@@ -39,8 +39,10 @@ import kotlinx.coroutines.withContext
 /**
  * [LlmClient] 的 Responses API 实现。流式为主，流没跑起来就退回一次性请求 ——
  * 第三方兼容网关不一定实现 SSE。取消和回退的规矩见 DESIGN.md §6.2。
+ *
+ * 只在 runtime 里用（`internal`）：app 跑 agent 走 `AgentRuntime`（按配置缓存一个它），测一下配置走 [ProviderTest]。
  */
-class ResponsesClient(private val profile: ProviderProfile) : LlmClient {
+internal class ResponsesClient(private val profile: ProviderProfile) : LlmClient {
 
     override val model: String get() = profile.model
 

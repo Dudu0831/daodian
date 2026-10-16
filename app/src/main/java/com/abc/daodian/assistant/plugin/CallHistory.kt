@@ -1,4 +1,4 @@
-package com.abc.daodian.assistant.skill
+package com.abc.daodian.assistant.plugin
 
 import android.content.Context
 import com.abc.daodian.assistant.conversation.data.ConversationStore

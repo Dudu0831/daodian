@@ -12,10 +12,10 @@ import com.abc.daodian.assistant.conversation.data.ConversationImageFiles
 import com.abc.daodian.assistant.conversation.data.ConversationStore
 import com.abc.daodian.assistant.memory.Recall
 import com.abc.daodian.assistant.memory.tidy.Tidy
+import com.abc.daodian.assistant.plugin.AssistantPlugins
+import com.abc.daodian.assistant.plugin.PendingTrigger
+import com.abc.daodian.assistant.plugin.Trigger
 import com.abc.daodian.assistant.provider.ProviderStore
-import com.abc.daodian.assistant.skill.AssistantSkills
-import com.abc.daodian.assistant.skill.PendingTrigger
-import com.abc.daodian.assistant.skill.Trigger
 import com.abc.daodian.runtime.AgentRuntime
 import com.abc.daodian.runtime.Input
 import com.abc.daodian.runtime.ask.AskAnswer
@@ -24,7 +24,6 @@ import com.abc.daodian.runtime.ask.AskUserTool
 import com.abc.daodian.runtime.ask.Asker
 import com.abc.daodian.runtime.ask.Pick
 import com.abc.daodian.runtime.engine.AgentEvent
-import com.abc.daodian.runtime.engine.AgentLoop
 import com.abc.daodian.runtime.engine.Session
 import com.abc.daodian.runtime.model.ApiHealth
 import com.abc.daodian.runtime.model.PingResult
@@ -98,7 +97,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
             val store = ConversationStore.get(app)
             val session = Session(store.load(), store)
             // app 在等你答问卡的时候被杀了：那次调用没拿到结果，补上「没答」—— 缺一个下一次请求就会被网关拒掉
-            session.closeDanglingCalls { if (it.name == AskUserTool.NAME) AskUserTool.UNANSWERED else AgentLoop.ABORTED }
+            session.closeDanglingCalls { if (it.name == AskUserTool.NAME) AskUserTool.UNANSWERED else Session.ABORTED }
             _messages.value = restoredMessages(session.turns, traced, ::newId) + _messages.value
             session
         } finally {
@@ -235,13 +234,13 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * app 自己开一轮（比如每晚对账：通知上点「现在」、记账页点「现在就说」）。开场白由模块给
-     * （[com.abc.daodian.assistant.skill.AssistantSkill.trigger]），画成一条分隔线，不是你的气泡。
+     * （[com.abc.daodian.assistant.plugin.AssistantPlugin.trigger]），画成一条分隔线，不是你的气泡。
      * [key] 形如 `ledger:check`。
      */
     fun startTrigger(key: String) = viewModelScope.launch {
         // 先看忙不忙再问模块：模块那边一接手就把通知收了、记成「对过了」，这时候再放弃就两头落空
         if (aiBusy) return@launch
-        val trigger = AssistantSkills.trigger(getApplication(), key) ?: return@launch
+        val trigger = AssistantPlugins.trigger(getApplication(), key) ?: return@launch
         if (aiBusy) return@launch
         when (trigger) {
             is Trigger.Note -> _messages.value = _messages.value + ConversationItem.AssistantTurn(
@@ -261,11 +260,11 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
      * 问过你、还等着你点的那一轮（通知弹了、还没对的每晚对账）：对话末尾一段虚线，
      * 点主按钮走 [startTrigger]，点「今天算了」走 [dismissTrigger]。从桌面图标进来也看得到
      */
-    val pendingTrigger: StateFlow<PendingTrigger?> = AssistantSkills.pendingTrigger(app)
+    val pendingTrigger: StateFlow<PendingTrigger?> = AssistantPlugins.pendingTrigger(app)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     fun dismissTrigger(key: String) = viewModelScope.launch {
-        AssistantSkills.dismissTrigger(getApplication(), key)
+        AssistantPlugins.dismissTrigger(getApplication(), key)
     }
 
     /** 从记账页「这笔不对？去对话里说」过来：把开头替你写好，放进输入框 */
@@ -409,7 +408,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 各题上顺手办了的事（挂上的标签），问各题 ref 的主人。交卷时问一次 */
     private suspend fun notesOf(request: AskRequest) =
-        request.questions.map { q -> q.ref?.let { AssistantSkills.askNote(getApplication(), it) } }
+        request.questions.map { q -> q.ref?.let { AssistantPlugins.askNote(getApplication(), it) } }
 
     /** 「其他…」那一题，在输入框里写的答案：落回那一题，卡片还等着你 */
     private fun fillAsk(text: String) {

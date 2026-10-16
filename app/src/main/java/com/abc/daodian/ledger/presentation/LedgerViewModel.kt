@@ -20,6 +20,7 @@ import com.abc.daodian.ledger.domain.RawNote
 import com.abc.daodian.ledger.domain.TagBoard
 import com.abc.daodian.ledger.domain.TxnBrief
 import com.abc.daodian.ledger.organize.OrganizeWorker
+import com.abc.daodian.ledger.organize.OrganizerAgent
 import com.abc.daodian.ledger.reconciliation.LedgerCheck
 import com.abc.daodian.runtime.AgentRuntime
 import com.abc.daodian.shared.format.Format
@@ -298,7 +299,7 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     /** 后台正在跑的 agent（顶栏印章、设置页都看它） */
     val running = AgentRuntime.running
 
-    val organizing: StateFlow<Boolean> = AgentRuntime.running.map { list -> list.any { it.id == "organize" } }
+    val organizing: StateFlow<Boolean> = AgentRuntime.running.map { list -> list.any { it.agent === OrganizerAgent } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     fun setOrganizeHours(hours: Int) = viewModelScope.launch {

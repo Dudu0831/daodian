@@ -46,10 +46,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.abc.daodian.assistant.memory.MemoryTrace
-import com.abc.daodian.assistant.skill.AssistantSkills
-import com.abc.daodian.assistant.skill.ToolTrace
-import com.abc.daodian.assistant.skill.TraceState
-import com.abc.daodian.assistant.skill.TraceView
+import com.abc.daodian.assistant.plugin.AssistantPlugins
+import com.abc.daodian.assistant.plugin.ToolTrace
+import com.abc.daodian.assistant.plugin.TraceState
+import com.abc.daodian.assistant.plugin.TraceView
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.theme.Motion
@@ -60,12 +60,12 @@ import com.abc.daodian.shared.ui.ChevronRightIcon
  *
  * 它是代码按工具结果画的，不是模型说的 —— 模型嘴上说「记下了」却没调工具，这里就是空的。
  * 所以它不能省：真机上出过只回一句「明白」、什么都没建的情形。
- * 字怎么写归模块（AssistantSkill.trace），这里只管画和点了去哪（[TraceView.route]）。
+ * 字怎么写归模块（AssistantPlugin.trace），这里只管画和点了去哪（[TraceView.route]）。
  */
 
 /** 痕上写什么由它的模块决定（记忆是 agent 自己的，先问它）；没人认领（不该发生）就只写工具名 */
 fun traceViewOf(block: TurnBlock.Trace): TraceView =
-    ToolTrace(block.tool, block.arguments, block.state, block.output, block.ref).let { MemoryTrace.of(it) ?: AssistantSkills.trace(it) }
+    ToolTrace(block.tool, block.arguments, block.state, block.output, block.ref).let { MemoryTrace.of(it) ?: AssistantPlugins.trace(it) }
         ?: TraceView("在办", if (block.state == TraceState.FAILED) "没办成" else "办了", block.tool)
 
 /** 对勾只在刚办成时描一次；列表滚回来、重启读回来的都直接画好 */

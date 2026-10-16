@@ -72,7 +72,7 @@ object Diagnostics {
 
         section("agent")
         AgentRuntime.agents.forEach { a ->
-            appendLine("${a.label}（${a.id}）· 提示词 ${a.prompts.joinToString("、") { it.version }}")
+            appendLine("${a.label}（${a.id}）· 归 ${a.owner} · ${a.wakes} · 提示词 ${a.prompts.joinToString("、") { it.version }}")
         }
 
         section("体检")

@@ -1,7 +1,7 @@
 package com.abc.daodian.reminder.tools
 
-import com.abc.daodian.assistant.skill.ToolTrace
-import com.abc.daodian.assistant.skill.TraceState
+import com.abc.daodian.assistant.plugin.ToolTrace
+import com.abc.daodian.assistant.plugin.TraceState
 import com.abc.daodian.reminder.domain.ReminderPlan
 import com.abc.daodian.runtime.tool.ToolContext
 import java.time.ZonedDateTime

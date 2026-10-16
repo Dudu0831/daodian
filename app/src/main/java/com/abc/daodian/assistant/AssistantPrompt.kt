@@ -9,7 +9,7 @@ import com.abc.daodian.runtime.engine.Item
  * 再加上它手上那几个模块工具的用法（提醒、记账）。见 DESIGN.md §6.3
  *
  * **模块不往这里追加段落**：模块只给工具（工具自己的说明跟着工具走）和数据（类别表这类垫在历史前面，
- * [com.abc.daodian.assistant.skill.AssistantSkill.background]），怎么用这些工具的规矩由助手在这里写全。
+ * [com.abc.daodian.assistant.plugin.AssistantPlugin.background]），怎么用这些工具的规矩由助手在这里写全。
  * 模块加了、删了、改了名工具，要回这里跟着改。
  *
  * system 必须逐字节稳定（前缀缓存），任何会变的东西 —— 当前时刻、用户是谁 —— 都不进这里。

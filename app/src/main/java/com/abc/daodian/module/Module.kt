@@ -1,7 +1,7 @@
 package com.abc.daodian.module
 
 import android.content.Context
-import com.abc.daodian.assistant.skill.AssistantSkill
+import com.abc.daodian.assistant.plugin.AssistantPlugin
 import com.abc.daodian.shell.entry.ShellEntry
 
 /**
@@ -22,7 +22,7 @@ interface Module {
     val label: String
 
     /** 给助手的：工具、现状、痕、例句、app 发起的一轮。不跟模型打交道的（通知监听层）是 null */
-    val assistant: AssistantSkill? get() = null
+    val assistant: AssistantPlugin? get() = null
 
     /** 给壳的：页面、抽屉卡、设置行、权限页的组、体检、诊断 */
     val shell: ShellEntry? get() = null

@@ -77,7 +77,7 @@
 
 两个 Gradle 模块：`:runtime` 和 `:app`（10-15 拆的）。`:app` 里最上面是壳和助手，中间三个模块，大家跑模型都用 `runtime`，最底下是地基（目录树见 [README](README.md)）：
 
-- **`assistant`** 助手：它的 agent 和提示词（§6.1、§6.3）、对话页、桌面速记、记忆。**代码只认识插口（`assistant/skill`），不 import 提醒和账**；助手的提示词里写着它们工具的用法（§6.3 第 6 条）。
+- **`assistant`** 助手：它的 agent 和提示词（§6.1、§6.3）、对话页、桌面速记、记忆。**代码只认识插口（`assistant/plugin`），不 import 提醒和账**；助手的提示词里写着它们工具的用法（§6.3 第 6 条）。
 - **`shell`** 宿主壳：导航、抽屉、设置页、权限页、模型配置页的框，导出诊断和崩溃记录。内容由模块经插口（`shell/entry`）塞；对话页是起点，所以它用得着助手。
 - **`runtime`** 跑 agent 的那一层：循环、工具接口、问卡协议、上下文（折叠、压缩）、调一次模型、`AgentRuntime`（跑一个 agent、后台谁在跑、按名字的锁）、记忆的数据和规矩。**纯 Kotlin，不认识 Android、不认识任何模块和对话页**：单独一个 Gradle 模块 `:runtime`（`kotlin("jvm")`），没有 android.jar、看不见 `:app`，这条由编译器管。10-15 从原来的 `agent` 里抽出来的。
 - **`reminder`** 提醒：断网、不经过模型也要能用。触发路径全在它的 `scheduling/` 和 `data/` 里。
@@ -90,7 +90,7 @@
 ```
 根目录                装配：Modules.kt（模块清单）、Agents.kt（agent 花名册）
 shell  →  assistant   壳用助手（对话页是起点）
-   ↑ 插口    ↑ 插口     shell/entry、assistant/skill，由各模块的 Module 交出去
+   ↑ 插口    ↑ 插口     shell/entry、assistant/plugin，由各模块的 Module 交出去
 reminder    ledger    订阅 → 存进自己的库 → 读懂、生成数据；各有自己的后台 agent
     ↓ 订阅    ↓
 intake                授权、连接、抓、按包名分发
@@ -102,19 +102,21 @@ shared                地基：没有状态
 
 | 插口 | 模块给什么 | 现在有的 |
 |---|---|---|
-| `assistant/skill/AssistantSkill`（放在模块的 `assistant/`） | 工具、垫在历史前面的现状（`background`，如记账的类别表和标签，§6.9）、写操作留什么痕（`trace`）、空状态例句、连不上模型时「手动填一条」去哪、app 自己发起的一轮（`trigger`，如每晚对账）、问过你还等你点的那一轮（`pendingTrigger`，对话末尾画成虚线段）、问卡上一题顺手办了什么（`askNote`，如挂上的标签，§6.6）和那一块怎么画（`AskAddon`）。**不给提示词**（§6.3 第 6 条） | `ReminderSkill`、`LedgerSkill` |
+| `assistant/plugin/AssistantPlugin`（放在模块的 `assistant/`） | 工具、垫在历史前面的现状（`background`，如记账的类别表和标签，§6.9）、写操作留什么痕（`trace`）、空状态例句、连不上模型时「手动填一条」去哪、app 自己发起的一轮（`trigger`，如每晚对账）、问过你还等你点的那一轮（`pendingTrigger`，对话末尾画成虚线段）、问卡上一题顺手办了什么（`askNote`，如挂上的标签，§6.6）和那一块怎么画（`AskAddon`）。**不给提示词**（§6.3 第 6 条） | `ReminderPlugin`、`LedgerPlugin` |
 | `shell/entry/ShellEntry`（放在模块的 `presentation/`） | 名字（`label`：「权限与监听」页上写「提醒要的」，导出诊断里那一段的标题）、自己的页面（路由以模块 id 开头）、抽屉里的一张纸、设置首页的行（`settingsEntries`：一个模块一行，标题 + 一句里面有什么，点进自己的设置页）、「权限与监听」页里的一组（`PermissionSection`）和首页那一行上的一句（`permissionStatus`）、体检项和结论底下补的一行、导出诊断里的一段 | `ReminderShell`、`LedgerShell`、`IntakeShell` |
 
-加模块 = 新目录 + `XxxModule`（要的话再加 `XxxSkill`、`XxxShell`）+ `Modules.kt` 里一行；它给助手的工具要在助手的提示词里写上用法。助手的工具顺序、抽屉里的纸、设置首页的行都按 `Modules.kt` 的顺序。要听通知的订阅者另外在 `SUBSCRIBERS` 里列（§2.3）；要在后台自己跑一个 agent，写 `XxxAgent` + `XxxPrompt`、`Agents.kt` 里加一行（§6.1）。
+给助手的那个**叫 plugin，不叫 skill**（10-16 从 `AssistantSkill` 改的名）：agent 那边说 skill，一般指按需读进上下文的一段说明，核心是提示词；这个插口偏偏不给提示词，给的是工具、数据和界面上的几块。以后真要按需加载某个模块的规矩，那才叫 skill，名字留着。
+
+加模块 = 新目录 + `XxxModule`（要的话再加 `XxxPlugin`、`XxxShell`）+ `Modules.kt` 里一行；它给助手的工具要在助手的提示词里写上用法。助手的工具顺序、抽屉里的纸、设置首页的行都按 `Modules.kt` 的顺序。要听通知的订阅者另外在 `SUBSCRIBERS` 里列（§2.3）；要在后台自己跑一个 agent，写 `XxxAgent` + `XxxPrompt`、`Agents.kt` 里加一行（§6.1）。
 
 **依赖规则**（单元测试 `ArchitectureTest` 照这张表扫 import）
 
 | 哪里 | 能 import app 里的哪些 |
 |---|---|
-| `runtime` | 只有自己 —— 单独的 Gradle 模块，编译器管，测试不查。要用 app 里的东西（模型配置存在哪、记忆库、trace 写到哪），由 app 实现它的接口装进去（`DaodianApp`） |
+| `runtime` | 只有自己 —— 单独的 Gradle 模块，编译器管，测试不查。要用 app 里的东西（模型配置存在哪、记忆库、trace 写到哪），由 app 实现它的接口装进去（`DaodianApp`）。反过来，app 跑 agent 只能走 `AgentRuntime`：循环（`AgentLoop`）、调模型的客户端（`ResponsesClient`）、工具注册表是 `internal`，app 碰不到（10-16） |
 | `assistant` | 自己、`runtime`、`shared` |
 | `shell` | 自己、`assistant`、`runtime`、`shared`、`update` |
-| `module` | 两个插口包 `assistant/skill`、`shell/entry` |
+| `module` | 两个插口包 `assistant/plugin`、`shell/entry` |
 | 模块的核心层（提醒的 `domain / data / application / scheduling / delivery`，记账的 `domain / data / capture`） | 自己、`shared`、`intake` 的核心（`Notice`、`NoticeSubscriber`、`Intake`、`IntakeRoutes`） |
 | 模块的其余部分 | 再加上 `runtime`、两个插口包、`module`。别的模块不碰 |
 | `intake` 的核心 | 自己、`shared` |
@@ -122,7 +124,7 @@ shared                地基：没有状态
 | `update`、`shared` | 自己、`shared` |
 | 根目录 | 随便用：只做装配 |
 
-测不出来、要自己守的两条：跨模块跳转只用路由字符串，模块不 import `MainActivity`，从外面拉起 app 走 `shared/navigation/Launch`（`route` 去哪页、`trigger` 开一轮 app 发起的、`say` 替你发一句话、`quickAdd` 拉起桌面速记）；模块要用对话记录里的东西走插口包（`assistant/skill/CallHistory`，如提醒编辑页的「依据」），不碰对话库。
+测不出来、要自己守的两条：跨模块跳转只用路由字符串，模块不 import `MainActivity`，从外面拉起 app 走 `shared/navigation/Launch`（`route` 去哪页、`trigger` 开一轮 app 发起的、`say` 替你发一句话、`quickAdd` 拉起桌面速记）；模块要用对话记录里的东西走插口包（`assistant/plugin/CallHistory`，如提醒编辑页的「依据」），不碰对话库。
 
 **路由**：助手 `chat`（对话页，起点）、`memory`；壳 `settings`、`permissions`、`provider`；提醒 `reminder/list`、`reminder/edit?id=`、`reminder/log`、`reminder/settings`、`reminder/relay/{id}`（派活名单上某个人的那一页）；记账 `ledger`、`ledger/category/…`、`ledger/txn/{id}`、`ledger/capture`、`ledger/settings`；通知监听 `intake/apps/{订阅者 id}`。
 路由常量放在 `AssistantRoutes` / `ShellRoutes` / `ReminderRoutes` / `LedgerRoutes` / `IntakeRoutes`，不挂在接头上 —— 通知、小组件（核心层）要用，又不该 import 接头。对话页那个字 `"chat"` 在 `Launch.HOME`，**不改**：通知栏里挂着的、小组件上的 PendingIntent 里存着它，改了点进来 NavHost 找不到页会崩。
@@ -133,7 +135,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 **三个库互不牵连**：`reminder.db`（提醒、投递日志）、`chat.db`（对话、记忆、整理记录）、`ledger.db`（账）。对话表、账表出岔子，连累不到闹钟。以后改表都是 version + 1、在各自 `autoMigrations` 里加一条。通知监听层不落库，只有一个 DataStore 记每个订阅者勾了哪些 app。（派活试验版另有 `relay.db`，转正时再写进来。）
 
 **挪包 = 改全类名**。通知使用权（`intake/NoticeListenerService`）、桌面小组件、已排的闹钟、manifest 里的组件、WorkManager 排着的 Worker 都按全类名记在手机上；Room 的 schemas 目录也按库类的全类名放（只在构建时要：库类改名把目录跟着改名就行，手机上认的是库文件名和表结构）。
-**内测之后不再让人连数据卸载**：要挪按全类名记的类，旧名字得留着 —— Activity 在 manifest 里留一个 `activity-alias` 指向新类，Worker 在旧位置留一个空壳子类。10-15 的 `QuickAddActivity`、`TidyWorker`（还有 `ChatDatabase` 改名 `ConversationDatabase`、schemas 目录跟着改）就是这么挪的；`agent/` 里那个空壳过两个版本删。存在手机上的名字（库文件、表名、文件目录、DataStore、WorkManager 唯一名、路由字符串、PendingIntent 里的 extra 键）一律不跟着代码改名。
+**内测之后不再让人连数据卸载**：要挪按全类名记的类，旧名字得留着 —— Activity 在 manifest 里留一个 `activity-alias` 指向新类，Worker 在旧位置留一个空壳子类。10-15 的 `QuickAddActivity`、`TidyWorker`（还有 `ChatDatabase` 改名 `ConversationDatabase`、schemas 目录跟着改）就是这么挪的；`agent/` 里那个空壳和 manifest 里速记的 alias 过两个版本一起删。存在手机上的名字（库文件、表名、文件目录、DataStore、WorkManager 唯一名、路由字符串、PendingIntent 里的 extra 键）一律不跟着代码改名。
 只挪了通知监听的，覆盖安装后重新开一次通知使用权就行（09-30 那次）。
 
 ### 2.3 通知监听层（intake）
@@ -362,7 +364,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 
 ### 6.1 循环
 
-一个 ReAct 循环（`runtime/engine/AgentLoop`）：调模型 → 执行工具 → `function_call_output` 回传 → 再调，直到模型只说话不调工具，或撞步数上限（6）。
+一个 ReAct 循环（`runtime/engine/AgentLoop`，runtime 内部用，app 不直接建）：调模型 → 执行工具 → `function_call_output` 回传 → 再调，直到模型只说话不调工具，或撞步数上限（6）。
 
 **系统里一共 4 个 agent**，列在根目录的花名册 `Agents.kt`（10-15 加的）。每个都是一个 `XxxAgent`（是谁、归谁、什么时候醒、`build(...)` 现建要跑的 `Agent`）加一份 `XxxPrompt`（§6.3 第 6 条）：
 
@@ -375,8 +377,8 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 
 桌面速记是助手的第二个入口（同一份 system 和工具），每晚对账是助手的一轮，配置页「测一下」只调一次模型 —— 这三样都不算单独的 agent。
 
-**都从 `runtime/AgentRuntime` 跑**：前台 `run`（事件流，界面边收边画）、后台 `runOnce`（跑完收成 `RunResult`，工具交的结构化结果用 `payloads<T>()` 取；没配模型直接 `NotConfigured`，不打网络）。它替调用方办掉：读当时的模型配置（`ModelSource`，app 装进来的是 `ProviderStore`）、按配置共用一个客户端、建循环、每次请求前交给 `Tracer`（debug 包写文件）、一轮结束记进 `ApiHealth`。要挂到顶栏、要拿锁的包一层 `exclusive`（`runOnce` 自己不挂：派活一直不在顶栏上）。
-**debug 包里跑之前查三样，对不上直接崩**：在花名册上（提示词也是它自己 `prompts` 里的一份）；手上的工具和 `Prompt.tools`（这份提示词照着写的工具）一样；问不了人的没带 `ask_user`。单元测试 `AgentsTest` 拿真的四个 agent 按这个规矩先查一遍。
+**都从 `runtime/AgentRuntime` 跑**：前台 `run`（事件流，界面边收边画）、后台 `runOnce`（跑完收成 `RunResult`，工具交的结构化结果用 `payloads<T>()` 取；没配模型直接 `NotConfigured`，不打网络）。它替调用方办掉：读当时的模型配置（`ModelSource`，app 装进来的是 `ProviderStore`）、按配置共用一个客户端、建循环、每次请求前交给 `Tracer`（debug 包写文件）、一轮结束记进 `ApiHealth`。要挂到顶栏、要拿锁的包一层 `exclusive(锁名, 哪个 agent, 在做什么)`（`runOnce` 自己不挂：派活一直不在顶栏上）：顶栏那一行写「后台在整理账目」，界面要认谁在跑，比的是花名册上的那个 agent（`it.agent === OrganizerAgent`），不比字符串。
+**debug 包里跑之前查三样，对不上直接崩**：在花名册上（提示词也是它自己 `prompts` 里的一份）；手上的工具和 `Prompt.tools`（这份提示词照着写的工具）一样；问不了人的没带 `ask_user`。对不上就不跑，抛 `AgentMisconfigured`。光抛不够：派活、整理员、记忆整理员外面都有兜底的 catch（一次失败只记一条，不连累别的），会把它吃成一条失败记录 —— 所以抛之前先交给 `install` 的 `onMisconfigured`，`DaodianApp` 在那里把它扔到主线程上再抛一次，前台、后台一样当场崩（10-16 补的）。单元测试 `AgentsTest` 拿真的四个 agent（整理员两份提示词）按这个规矩先查一遍，助手的工具用的是各模块背后同一个工厂（`ReminderTools`、`LedgerTools` 的 `forAssistant`）。
 
 | 包 | 职责 |
 |---|---|
@@ -435,7 +437,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 1. **HTTP 调用全程阻塞，协程取消打断不了它**。`createStreaming()` 要等响应头回来（首个 token 之前）才返回，`stream()` 的迭代也阻塞。以前包在 `withContext(IO)` 里、把 `close` 挂在 `invokeOnCompletion` 上 —— 那个回调要 Job **完成**才触发，Job 卡在阻塞调用里完成不了，于是点「停」要等到首个 token。
    现在阻塞活放在不随调用方取消的协程里（`ResponsesClient.detached`），调用方只挂起等结果：取消时立刻返回，顺手 `close()` 已连上的流；还没连上的由它连上后自己查到取消再关。SDK 的异步版不能替代：`AsyncStreamResponse.close()` 不取消底下的请求。
 2. **思考过程可能压根没有**。`reasoning*` 只有推理模型发；界面在没有思考块时要长得正常，一个字都还没来时显示墨条。思考**不进历史** —— 喂回给模型没意义，只会挤掉真正的上下文。
-3. **参数以 `…Done` 给的完整串为准**，不用 delta 拼出来的那份 —— 拼串可能缺尾巴。流着时从半截参数里抠标题（`assistant/skill/PartialArgs`）只拿来画。
+3. **参数以 `…Done` 给的完整串为准**，不用 delta 拼出来的那份 —— 拼串可能缺尾巴。流着时从半截参数里抠标题（`assistant/plugin/PartialArgs`）只拿来画。
 
 没设超时，用的是 openai-java 默认的 10 分钟。真机上出过一步走了近 3 分钟：界面一直是墨条 +「停」，状态是对的，只是慢。
 
@@ -509,7 +511,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 - **输入框**：问卡等着时，发出去的话都交给问卡。点了某题的「其他…」→ 句首垫题目、描朱砂边，只答那一题；否则算「直接说」—— 卡片收成「没点 · 你直接说了」，那句话画成你的气泡，模型拿原话去对。等你的时候发送键是箭头，不是「停」：是它在等你，不是你在等它。
 - **答**：「问」换成「答」，印盖下来 —— 整个对话唯一的重拍，不震动。卡框褪掉，每题收成一行「题目 答案」，没点的写「先放着」。
 - **结果怎么回给模型**：人话逐题列出，末行 `answer={…}` 机读 —— 重启后把问卡原样画回来靠它（`AskUserTool.answerOf`）。
-- **一题问的是一条记录**（`ref`，一笔账写「#12」）：认得它的模块在那题底下挂一块自己的东西（`AssistantSkill.AskAddon`），比如对账时「＋ 打标签」。那一块点了就落库，不等「就这样」；交卷时问一次模块办了什么（`AssistantSkill.askNote`），收起后淡淡接在答案后面（「和她吃饭 · 约会」），也写进回给模型的话（「这笔挂着标签『约会』，已经挂好了，别再打」），机读那行多一个 `notes`。agent 不知道标签是什么，只转交。
+- **一题问的是一条记录**（`ref`，一笔账写「#12」）：认得它的模块在那题底下挂一块自己的东西（`AssistantPlugin.AskAddon`），比如对账时「＋ 打标签」。那一块点了就落库，不等「就这样」；交卷时问一次模块办了什么（`AssistantPlugin.askNote`），收起后淡淡接在答案后面（「和她吃饭 · 约会」），也写进回给模型的话（「这笔挂着标签『约会』，已经挂好了，别再打」），机读那行多一个 `notes`。agent 不知道标签是什么，只转交。
 - **没答**（喊停、app 在等人时被杀）：记成「用户没回答」（§6.1）。
 - **桌面速记**：纸太小放不下问卡。模型一调 `ask_user`，速记这一轮作废，打开 app 到对话页、把那句话照常发出去（`Launch` 带 `say`）；这一轮已经办成了点什么就不带那句话，只打开对话页，免得办两遍。
 
@@ -557,7 +559,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 system（逐字节不变）
 [背景]  （app 附上的背景，不是用户说的）
         你记得的关于他的事：m3 · 9月20日 · 他说的「晚点」一般指晚上 9 点 …
-        各模块的现状（AssistantSkill.background）：记账的类别表（以这份为准）：支出类别：餐饮（外卖、堂食…）…
+        各模块的现状（AssistantPlugin.background）：记账的类别表（以这份为准）：支出类别：餐饮（外卖、堂食…）…
         更早的对话，摘要（到 9月24日 为止）：…
 [轮次]  摘要之后的，原样（最多 24 轮）
         · 更早的图折成一句（§6.8）
@@ -1020,7 +1022,7 @@ MagicOS 各版本菜单名有出入，按关键词找：
 
 **标签多了也只摆一行**（`ledger/domain/LedgerTags`）：候选放得下几个画几个（`OneLineRow`，放不下的不画），顺序是同一天别的几笔刚打的（今晚第一笔打了「约会」，后面几笔它排第一）→ 这家商户以前打过的 → 最近 30 天用得多的；挂着的留在原位，点了取下不会跳。想要的不在里面就点「＋」打字找：名字里有这几个字的都列出来，没有一模一样的末尾给「＋ 新建」；打的字把已有的包在里面（「约会花销」↔「约会」）就先问「用『约会』还是新建」；和类别同名的直接说那是类别。很久没用的（去年的旅行）自己掉出候选，打两个字就出来，不用归档，也没有管理页。取下后一笔都不挂的标签连名字一起删。
 
-**整理员自己打**：设置 → 记账 →「整理员自己打标签」，**默认关**。关着时整理员的 system 里写「标签不归你打」，`record_expenses` 连 `tags` 参数都没有；开着换一份 system（`LedgerPrompt.ORGANIZE_TAGGING`，`parsed_by` 带 `+tags`），输入里多一段「用户打过的标签」、每个带最近 3 笔，它照着学，有把握才打，只能用已有的（新名字代码直接丢掉，不新建、不为标签去问）。
+**整理员自己打**：设置 → 记账 →「整理员自己打标签」，**默认关**。关着时整理员的 system 里写「标签不归你打」，`record_expenses` 连 `tags` 参数都没有；开着换一份 system（`OrganizerPrompt.TAGGING`，`parsed_by` 带 `+tags`），输入里多一段「用户打过的标签」、每个带最近 3 笔，它照着学，有把握才打，只能用已有的（新名字代码直接丢掉，不新建、不为标签去问）。
 
 ### 10.5 表与统计
 
@@ -1105,6 +1107,6 @@ MagicOS 各版本菜单名有出入，按关键词找：
 内测的人手机上 logcat 看不到（这台 ROM 屏蔽第三方）、release 包不能 `run-as`、trace 文件只在 debug 包写 —— CLAUDE.md「怎么拿证据」那套全失效。所以：
 
 - **崩溃记录**（`shell/diagnostics/CrashLog`）：`DaodianApp.onCreate` 第一件事装上；崩了先把版本、机型、线程、堆栈写进 `files/crash/`，再交还系统原来的处理（照样弹「已停止运行」）。留最近 10 份。
-- **导出诊断**（设置 → 系统 →「导出诊断」，`shell/diagnostics/Diagnostics`）：生成一份 txt，交给系统分享（发微信）。7 天内崩过，这一行变红写次数。内容：版本、机型、ROM、时区、电池优化、精确闹钟、系统下一个闹钟是谁排的；模型服务（模型名、网关主机名、key 填没填）；体检；各模块一段；最近 5 次崩溃。
+- **导出诊断**（设置 → 系统 →「导出诊断」，`shell/diagnostics/Diagnostics`）：生成一份 txt，交给系统分享（发微信）。7 天内崩过，这一行变红写次数。内容：版本、机型、ROM、时区、电池优化、精确闹钟、系统下一个闹钟是谁排的；模型服务（模型名、网关主机名、key 填没填）；花名册上的几个 agent（名字、归谁、什么时候醒、提示词版本）；体检；各模块一段；最近 5 次崩溃。
 - **只写状态和数，不写内容**：没有对话、记忆、提醒标题、金额、商户、通知原文、key。各模块那一段由 `ShellEntry.diagnostics` 交上来（提醒：各状态条数、排着的下次时刻、最近 30 次响的漂移、派活名单几个人、收到的结果；记账：近 7 天每个 app 抓了几条、账的状态、最近 10 次整理 / 对账；通知监听：使用权、连没连着、谁听哪些包名）。加模块、加段的时候守这条；读库用 `rows()` 只数数、看状态列。
 

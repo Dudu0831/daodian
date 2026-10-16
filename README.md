@@ -65,14 +65,14 @@
 
 ```text
 runtime/src/main/java/com/abc/daodian/runtime/    :runtime —— 跑 agent 的那一层，纯 Kotlin，不认识 Android 和 :app
-├── engine/           ReAct 循环、Session、Item / Turn、事件
+├── engine/           ReAct 循环（internal）、Session、Item / Turn、事件
 ├── tool/             工具接口、注册表
 ├── ask/              问卡协议、ask_user
 ├── context/          每步喂哪些轮、折叠、压缩、垫在前面的那段
 ├── model/            调一次模型（流式 / 回退 / 停）、供应商配置的样子、健康状态、「测一下」
 ├── memory/           记忆的数据和规矩、垫在前面那段怎么拼
 ├── Agent.kt          AgentInfo（花名册上的一行）、Prompt、Agent、Input、RunResult
-└── AgentRuntime.kt   跑一个 agent（run / runOnce）、后台谁在跑、按名字的锁
+└── AgentRuntime.kt   跑一个 agent（run / runOnce，app 只走这里）、后台谁在跑、按名字的锁
 
 app/src/main/java/com/abc/daodian/                :app
 ├── DaodianApp.kt / MainActivity.kt   装配、唯一的宿主 Activity
@@ -80,7 +80,7 @@ app/src/main/java/com/abc/daodian/                :app
 ├── Agents.kt         花名册：系统里一共这几个 agent（助手、记账整理员、派活、记忆整理员）
 ├── assistant/        助手：它的 agent 和提示词、对话页、桌面速记、记忆。代码不认识提醒和账，经插口拿
 │   ├── AssistantAgent.kt / AssistantPrompt.kt / AssistantRoutes.kt
-│   ├── skill/          插口：AssistantSkill（模块给助手的工具、现状、痕、app 发起的一轮）、痕、CallHistory
+│   ├── plugin/         插口：AssistantPlugin（模块给助手的工具、现状、痕、app 发起的一轮）、痕、CallHistory
 │   ├── conversation/   对话页（回合、问卡、痕、Markdown、画图、随话发的图片）、chat.db
 │   ├── quick/          桌面速记
 │   ├── memory/         记忆、垫在历史前面的那一段、记忆整理员（DESIGN.md §6.9）
@@ -96,8 +96,8 @@ app/src/main/java/com/abc/daodian/                :app
 │   ├── domain/         计划、校验闸门、RRULE 子集
 │   ├── application/    Reminders：所有写操作的唯一入口
 │   ├── delivery/       通知、通知按钮、权限体检
-│   ├── assistant/      给助手的（ReminderSkill）
-│   ├── tools/          create_reminder、痕
+│   ├── assistant/      给助手的（ReminderPlugin）
+│   ├── tools/          create_reminder、痕、分给哪个 agent（ReminderTools）
 │   ├── widget/         桌面小组件
 │   ├── relay/          派活：订阅通知，名单上的人在微信里说的话交给派活 agent 建成提醒
 │   └── presentation/   给壳的（ReminderShell）、列表、编辑（逃生舱）、到点全屏页、投递日志、提醒设置页（含派活名单）、派活某个人的那一页
@@ -107,7 +107,7 @@ app/src/main/java/com/abc/daodian/                :app
 │   ├── reconciliation/ 每晚对账
 │   ├── domain/         流水、类别、护栏
 │   ├── data/           ledger.db
-│   ├── assistant/      给助手的（LedgerSkill）
+│   ├── assistant/      给助手的（LedgerPlugin）
 │   ├── tools/          查账 / 记账 / 改账 / 加类别、痕
 │   └── presentation/   给壳的（LedgerShell）、总览、类别、一笔、抓取页
 ├── intake/           通知监听。全 app 唯一的监听，按各模块勾的 app 分通知；只抓、只分，不存、不读懂（DESIGN.md §2.3）

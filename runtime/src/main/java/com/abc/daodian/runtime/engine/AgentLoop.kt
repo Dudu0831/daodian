@@ -1,5 +1,6 @@
 package com.abc.daodian.runtime.engine
 
+import com.abc.daodian.runtime.Agent
 import com.abc.daodian.runtime.ask.Asker
 import com.abc.daodian.runtime.context.Background
 import com.abc.daodian.runtime.context.ContextPolicy
@@ -28,13 +29,16 @@ import kotlinx.coroutines.flow.flow
  *
  * 写操作直接执行，不先问用户（DESIGN.md §6.1）。要问人是模型自己的决定：它调 `ask_user`，
  * 那个工具通过 [Asker] 找界面、挂起到用户答完。
+ *
+ * 只在 runtime 里用（`internal`）：app 一律从 [com.abc.daodian.runtime.AgentRuntime] 跑，
+ * 读配置、共用客户端、记健康、strict 检查都在那边。
  */
-class AgentLoop(
+internal class AgentLoop(
     private val llm: LlmClient,
     private val tools: ToolRegistry,
     private val system: String,
     private val context: ContextPolicy = LastTurns(),
-    private val maxSteps: Int = DEFAULT_MAX_STEPS,
+    private val maxSteps: Int = Agent.DEFAULT_MAX_STEPS,
     /** 每次真要发请求前看一眼发的是什么（垫了什么、原样带了哪几轮）。只给调试记录用，见 ContextTrace */
     private val onRequest: (preamble: Preamble?, sent: List<Turn>, request: LlmRequest) -> Unit = { _, _, _ -> }
 ) {
@@ -84,7 +88,7 @@ class AgentLoop(
             }
             emit(AgentEvent.Finished(session.current, StopReason.STEP_LIMIT))
         } finally {
-            session.closeDanglingCalls { tools[it.name]?.abortedOutput ?: ABORTED }
+            session.closeDanglingCalls { tools[it.name]?.abortedOutput ?: Session.ABORTED }
         }
     }
 
@@ -124,12 +128,5 @@ class AgentLoop(
         }
         emit(AgentEvent.ToolFinished(call, outcome))
         return Item.ToolResult(call.callId, outcome.output, outcome.ok, outcome.ref)
-    }
-
-    companion object {
-        const val DEFAULT_MAX_STEPS = 6
-
-        /** 回给模型的固定话术。写成它能照着往下接的样子 */
-        const val ABORTED = "这次调用没有执行：用户中途叫停了这一轮。"
     }
 }

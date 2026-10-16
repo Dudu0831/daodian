@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.abc.daodian.ledger.data.LedgerStore
 import com.abc.daodian.ledger.data.db.RawNotification
 import com.abc.daodian.ledger.organize.OrganizeWorker
+import com.abc.daodian.ledger.organize.OrganizerAgent
 import com.abc.daodian.runtime.AgentRuntime
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
@@ -37,7 +38,7 @@ class CaptureViewModel(app: Application) : AndroidViewModel(app) {
 
     val pending: StateFlow<Int> = dao.observePendingRaws().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val organizing: StateFlow<Boolean> = AgentRuntime.running.map { list -> list.any { it.id == "organize" } }
+    val organizing: StateFlow<Boolean> = AgentRuntime.running.map { list -> list.any { it.agent === OrganizerAgent } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     fun organizeNow() = OrganizeWorker.runNow(getApplication())

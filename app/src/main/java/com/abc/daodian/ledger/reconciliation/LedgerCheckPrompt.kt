@@ -34,7 +34,7 @@ object LedgerCheckPrompt {
                 append("\n\n正文被系统遮蔽、读不出金额的通知（也用 ask_user 问他那笔是多少钱、是什么，猜不出就不给选项；他说了就用 add_expense 记，raw_ids 填上这条）：")
                 unreadable.forEach { append('\n').append(LedgerText.raw(store.noteOf(it), zone)) }
             }
-            // 类别表不用附：对话里每句都垫着（LedgerSkill.background）
+            // 类别表不用附：对话里每句都垫着（LedgerPlugin.background）
         }
     }
 }

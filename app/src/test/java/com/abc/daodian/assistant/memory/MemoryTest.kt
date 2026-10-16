@@ -1,8 +1,8 @@
 package com.abc.daodian.assistant.memory
 
 import com.abc.daodian.assistant.memory.tidy.SaveTidyTool
-import com.abc.daodian.assistant.skill.ToolTrace
-import com.abc.daodian.assistant.skill.TraceState
+import com.abc.daodian.assistant.plugin.ToolTrace
+import com.abc.daodian.assistant.plugin.TraceState
 import com.abc.daodian.runtime.memory.Digest
 import com.abc.daodian.runtime.memory.Memory
 import com.abc.daodian.runtime.memory.MemoryEdit

@@ -88,10 +88,14 @@ class AgentRuntimeTest {
         llm: LlmClient,
         profile: ProviderProfile = configured,
         agents: List<AgentInfo> = listOf(Helper),
-        strict: Boolean = true
+        strict: Boolean = true,
+        onMisconfigured: (AgentMisconfigured) -> Unit = {}
     ) {
         clientsBuilt = 0
-        AgentRuntime.install(agents, { profile }, { NoMemory }, strict = strict, clientOf = { clientsBuilt++; llm })
+        AgentRuntime.install(
+            agents, { profile }, { NoMemory }, strict = strict, onMisconfigured = onMisconfigured,
+            clientOf = { clientsBuilt++; llm }
+        )
     }
 
     private fun call(name: String = "note_down") = StepOutput("", listOf(Item.ToolCall("c-$name", name, "{}")), "")
@@ -176,6 +180,19 @@ class AgentRuntimeTest {
     }
 
     @Test
+    fun `strict hands the problem to onMisconfigured before throwing, even when the caller swallows it`() = runBlocking {
+        val handed = mutableListOf<AgentMisconfigured>()
+        val llm = ScriptedLlm(say("你好"))
+        install(llm, onMisconfigured = { handed += it })
+        // 后台的调用方都这么兜底：一次失败只记一条。光靠抛，debug 包是崩不了的
+        val swallowed = runCatching { AgentRuntime.runOnce(Agent(Helper, NOTE, listOf(NoteTool("extra_tool"))), Input("在吗", now)) }
+        assertTrue("应该没跑成：$swallowed", swallowed.exceptionOrNull() is AgentMisconfigured)
+        assertEquals("抛之前先交给 onMisconfigured，一次", 1, handed.size)
+        assertTrue(handed.single().message.orEmpty(), "对不上" in handed.single().message.orEmpty())
+        assertEquals("没跑就不打网络", 0, llm.calls)
+    }
+
+    @Test
     fun `without strict a mismatch still runs`() = runBlocking {
         install(ScriptedLlm(say("你好")), strict = false)
         val result = AgentRuntime.runOnce(Agent(Helper, NOTE, listOf(NoteTool(), NoteTool("extra_tool"))), Input("在吗", now))
@@ -184,9 +201,10 @@ class AgentRuntimeTest {
 
     @Test
     fun `exclusive skips while someone holds the lock and shows who is running`() = runBlocking {
-        val inner = AgentRuntime.exclusive("test-lock", "outer", "外层") {
-            assertEquals(listOf("outer"), AgentRuntime.running.value.map { it.id })
-            AgentRuntime.exclusive("test-lock", "inner", "里层") { "跑了" }
+        val inner = AgentRuntime.exclusive("test-lock", Helper, "外层") {
+            assertEquals("挂的是花名册上那一个", listOf(Helper), AgentRuntime.running.value.map { it.agent })
+            assertEquals(listOf("外层"), AgentRuntime.running.value.map { it.label })
+            AgentRuntime.exclusive("test-lock", Helper, "里层") { "跑了" }
         }
         assertNull("锁被拿着时不排队，直接不跑", inner)
         assertTrue("跑完摘掉", AgentRuntime.running.value.isEmpty())
@@ -195,7 +213,7 @@ class AgentRuntimeTest {
     private suspend fun failure(block: suspend () -> Unit): String {
         try {
             block()
-        } catch (e: IllegalStateException) {
+        } catch (e: AgentMisconfigured) {
             return e.message.orEmpty()
         }
         fail("应该在跑之前就停下")

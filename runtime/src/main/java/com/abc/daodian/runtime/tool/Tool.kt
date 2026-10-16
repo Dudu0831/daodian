@@ -53,7 +53,7 @@ interface Tool {
 
     /**
      * 这次调用没跑完就被停掉（喊停、页面关了、app 被杀）时记进历史的结果。
-     * null = 用循环的通用说法（[com.abc.daodian.runtime.engine.AgentLoop.ABORTED]）
+     * null = 用循环的通用说法（[com.abc.daodian.runtime.engine.Session.ABORTED]）
      */
     val abortedOutput: String? get() = null
 
@@ -66,7 +66,8 @@ interface Tool {
     suspend fun execute(arguments: String, context: ToolContext): ToolOutcome
 }
 
-class ToolRegistry(tools: List<Tool>) {
+/** 一个 agent 手上的工具，按名字找。只在 runtime 里用：app 把工具列表交给 `Agent`，由 `AgentRuntime` 建它 */
+internal class ToolRegistry(tools: List<Tool>) {
 
     private val byName: Map<String, Tool> = tools.associateBy { it.name }
 

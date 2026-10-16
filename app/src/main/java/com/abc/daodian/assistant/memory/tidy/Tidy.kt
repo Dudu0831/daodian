@@ -73,7 +73,7 @@ object Tidy {
      */
     suspend fun run(context: Context, reason: String, turns: List<Turn>? = null): Result {
         val app = context.applicationContext
-        return AgentRuntime.exclusive(LOCK, "tidy", "整理记忆") { tidy(app, reason, turns) } ?: Result.Busy
+        return AgentRuntime.exclusive(LOCK, TidyAgent, "整理记忆") { tidy(app, reason, turns) } ?: Result.Busy
     }
 
     private suspend fun tidy(context: Context, reason: String, given: List<Turn>?): Result {

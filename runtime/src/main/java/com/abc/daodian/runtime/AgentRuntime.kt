@@ -48,7 +48,7 @@ fun interface Tracer {
  * 跑一次它替你办掉这几件：读当前的模型配置、按配置拿一个共用的客户端（不再每跑一次新建一个连接池）、
  * 建循环、每次请求前交给 [Tracer]、一轮结束记进 [ApiHealth]（顶栏那枚印）。
  * debug 包里（[install] 的 strict）还会先查：这个 agent 在花名册上、手上的工具和提示词对得上、问不了人的没带 `ask_user` ——
- * 对不上直接崩，当场发现。
+ * 对不上就不跑，抛 [AgentMisconfigured]，并交给 `onMisconfigured`（app 在那里让 debug 包当场崩）。
  *
  * 另外两件后台公共设施也在这里：**谁在跑**（[running]，给界面看）和**按名字的锁**（[exclusive] / [queued]）。
  * 只在一个进程里有效：WorkManager 的任务和界面在同一个进程，够用了。
@@ -61,6 +61,7 @@ object AgentRuntime {
         val memory: () -> MemoryBackend,
         val tracer: Tracer,
         val strict: Boolean,
+        val onMisconfigured: (AgentMisconfigured) -> Unit,
         val clientOf: (ProviderProfile) -> LlmClient
     )
 
@@ -72,7 +73,9 @@ object AgentRuntime {
      *
      * @param agents 花名册（根目录 `Agents.kt`）
      * @param memory 记忆库，用到时才取 —— 进程可能是闹钟拉起的，装的时候别去碰库
-     * @param strict debug 包开：花名册、工具、问人三样对不上就崩
+     * @param strict debug 包开：花名册、工具、问人三样对不上就不跑，抛 [AgentMisconfigured]
+     * @param onMisconfigured strict 查出对不上时，抛出去之前先交给它。后台的几个调用方都有兜底的 catch
+     *   （一次失败只记一条，不连累别的），光往上抛会被吃掉、只落成一条失败记录；app 在这里把它扔到主线程上，debug 包当场崩
      * @param clientOf 按配置建客户端。测试里换成假的
      */
     fun install(
@@ -81,11 +84,12 @@ object AgentRuntime {
         memory: () -> MemoryBackend,
         tracer: Tracer = Tracer { _, _, _, _ -> },
         strict: Boolean = false,
+        onMisconfigured: (AgentMisconfigured) -> Unit = {},
         clientOf: (ProviderProfile) -> LlmClient = ::ResponsesClient
     ) {
         require(agents.map { it.id }.distinct().size == agents.size) { "花名册上 id 重复：${agents.map { it.id }}" }
         synchronized(this) { cached = null }
-        setup = Setup(agents, models, memory, tracer, strict, clientOf)
+        setup = Setup(agents, models, memory, tracer, strict, onMisconfigured, clientOf)
     }
 
     private fun setup(): Setup = checkNotNull(setup) { "AgentRuntime 还没装（DaodianApp.onCreate）" }
@@ -165,18 +169,28 @@ object AgentRuntime {
             .onEach { if (it is AgentEvent.Finished || it is AgentEvent.Failed) ApiHealth.record(it) }
     }
 
-    /** debug 包里跑之前查一遍：在花名册上、提示词是它自己的、工具对得上、问不了人的没带 ask_user */
+    /** debug 包里跑之前查一遍；对不上先交给 onMisconfigured，再抛出去（这一轮不跑） */
     private fun check(s: Setup, agent: Agent) {
+        val problem = problemOf(s, agent) ?: return
+        val e = AgentMisconfigured(problem)
+        s.onMisconfigured(e)
+        throw e
+    }
+
+    /** 在花名册上、提示词是它自己的、工具对得上、问不了人的没带 ask_user。都对是 null */
+    private fun problemOf(s: Setup, agent: Agent): String? {
         val info = agent.info
-        check(s.agents.any { it === info }) { "「${info.label}」（${info.id}）不在花名册上：根目录 Agents.kt 加一行" }
-        check(agent.prompt in info.prompts) { "「${info.label}」跑的提示词（${agent.prompt.version}）不在它的 prompts 里" }
         val have = agent.tools.map { it.name }.toSet()
         val written = agent.prompt.tools
-        check(have == written) {
-            "「${info.label}」手上的工具和提示词（${agent.prompt.version}）对不上：多了 ${have - written}，少了 ${written - have}。" +
-                "去改它的提示词，连同 Prompt.tools"
+        return when {
+            s.agents.none { it === info } -> "「${info.label}」（${info.id}）不在花名册上：根目录 Agents.kt 加一行"
+            agent.prompt !in info.prompts -> "「${info.label}」跑的提示词（${agent.prompt.version}）不在它的 prompts 里"
+            have != written ->
+                "「${info.label}」手上的工具和提示词（${agent.prompt.version}）对不上：多了 ${have - written}，少了 ${written - have}。" +
+                    "去改它的提示词，连同 Prompt.tools"
+            !info.canAsk && AskUserTool.NAME in have -> "「${info.label}」问不了人，手上不该有 ${AskUserTool.NAME}"
+            else -> null
         }
-        check(info.canAsk || AskUserTool.NAME !in have) { "「${info.label}」问不了人，手上不该有 ${AskUserTool.NAME}" }
     }
 
     private var cached: Pair<ProviderProfile, LlmClient>? = null
@@ -193,8 +207,11 @@ object AgentRuntime {
 
     // ---------------- 谁在跑、按名字的锁 ----------------
 
-    /** 一个正在跑的后台 agent。[label] 是给人看的，比如「整理账目」 */
-    data class Running(val id: String, val label: String, val startedAt: Long)
+    /**
+     * 一个正在跑的后台 agent（花名册上的那一个，界面要认它就比 [agent]）。
+     * [label] 是给人看的「在做什么」，比如「整理账目」，顶栏写成「后台在整理账目」
+     */
+    data class Running(val agent: AgentInfo, val label: String, val startedAt: Long)
 
     private val _running = MutableStateFlow<List<Running>>(emptyList())
 
@@ -211,8 +228,8 @@ object AgentRuntime {
     private fun lock(name: String): Mutex = locks.getOrPut(name) { Mutex() }
 
     /** 跑 [block] 期间挂在 [running] 上，结束（包括抛出、被取消）就摘掉 */
-    private suspend fun <T> track(id: String, label: String, block: suspend () -> T): T {
-        val me = Running(id, label, System.currentTimeMillis())
+    private suspend fun <T> track(agent: AgentInfo, label: String, block: suspend () -> T): T {
+        val me = Running(agent, label, System.currentTimeMillis())
         _running.update { it + me }
         try {
             return block()
@@ -223,13 +240,14 @@ object AgentRuntime {
 
     /**
      * 拿不到锁就不跑，返回 null —— 后台任务用它：别人正在写就等下一轮，不排队堆积。
-     * 拿到了就挂上 [running] 跑完（顶栏看得到）。[runOnce] 自己不挂，要挂的包一层这个
+     * 拿到了就以 [agent] 的名义挂上 [running] 跑完（顶栏看得到，[label] 是那一行写的「在做什么」）。
+     * [runOnce] 自己不挂，要挂的包一层这个
      */
-    suspend fun <T> exclusive(lockName: String, id: String, label: String, block: suspend () -> T): T? {
+    suspend fun <T> exclusive(lockName: String, agent: AgentInfo, label: String, block: suspend () -> T): T? {
         val mutex = lock(lockName)
         if (!mutex.tryLock()) return null
         try {
-            return track(id, label, block)
+            return track(agent, label, block)
         } finally {
             mutex.unlock()
         }

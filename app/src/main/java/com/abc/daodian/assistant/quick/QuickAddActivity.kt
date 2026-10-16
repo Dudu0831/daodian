@@ -17,7 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Rect
 import com.abc.daodian.assistant.AssistantRoutes
-import com.abc.daodian.assistant.skill.AssistantSkills
+import com.abc.daodian.assistant.plugin.AssistantPlugins
 import com.abc.daodian.shared.navigation.Launch
 import com.abc.daodian.shared.theme.DaodianTheme
 
@@ -84,7 +84,7 @@ class QuickAddActivity : ComponentActivity() {
                     onVoice = ::requestVoice,
                     onClose = ::finish,
                     onOpen = { route -> openApp(route = route) },
-                    onManual = { openApp(route = AssistantSkills.manualEntry ?: AssistantRoutes.HOME) },
+                    onManual = { openApp(route = AssistantPlugins.manualEntry ?: AssistantRoutes.HOME) },
                     onOpenApp = { openApp(route = AssistantRoutes.HOME) },
                     onHandoff = { said -> if (said.isBlank()) openApp(route = AssistantRoutes.HOME) else openApp(say = said) }
                 )

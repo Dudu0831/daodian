@@ -1,9 +1,9 @@
 package com.abc.daodian.reminder.tools
 
-import com.abc.daodian.assistant.skill.PartialArgs
-import com.abc.daodian.assistant.skill.ToolTrace
-import com.abc.daodian.assistant.skill.TraceText
-import com.abc.daodian.assistant.skill.TraceView
+import com.abc.daodian.assistant.plugin.PartialArgs
+import com.abc.daodian.assistant.plugin.ToolTrace
+import com.abc.daodian.assistant.plugin.TraceText
+import com.abc.daodian.assistant.plugin.TraceView
 import com.abc.daodian.reminder.ReminderRoutes
 import com.abc.daodian.reminder.domain.PlanValidator
 import com.abc.daodian.reminder.domain.ReminderPlan

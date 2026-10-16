@@ -1,8 +1,8 @@
-package com.abc.daodian.assistant.skill
+package com.abc.daodian.assistant.plugin
 
 /*
  * 痕：一次写操作在对话里留下的一行小字。见 DESIGN.md §6.6
- * 字怎么写归模块（[AssistantSkill.trace]），怎么画、点了怎么跳归助手（assistant/conversation/TraceLine.kt）。
+ * 字怎么写归模块（[AssistantPlugin.trace]），怎么画、点了怎么跳归助手（assistant/conversation/TraceLine.kt）。
  */
 
 /** 痕的三种样子 */

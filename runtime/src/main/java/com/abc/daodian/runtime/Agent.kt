@@ -2,7 +2,6 @@ package com.abc.daodian.runtime
 
 import com.abc.daodian.runtime.context.ContextPolicy
 import com.abc.daodian.runtime.context.LastTurns
-import com.abc.daodian.runtime.engine.AgentLoop
 import com.abc.daodian.runtime.engine.Item
 import com.abc.daodian.runtime.engine.StopReason
 import com.abc.daodian.runtime.engine.Turn
@@ -50,8 +49,19 @@ data class Agent(
     val tools: List<Tool>,
     /** 每步喂哪些轮。后台的一次性 agent 只有当前这一轮 */
     val context: ContextPolicy = LastTurns(1),
-    val maxSteps: Int = AgentLoop.DEFAULT_MAX_STEPS
-)
+    /** 一轮最多调几次模型（调工具 → 拿结果 → 再调算一次） */
+    val maxSteps: Int = DEFAULT_MAX_STEPS
+) {
+    companion object {
+        const val DEFAULT_MAX_STEPS = 6
+    }
+}
+
+/**
+ * debug 包（[AgentRuntime.install] 的 strict）跑之前查出来对不上：不在花名册上、提示词不是它自己的、
+ * 手上的工具和提示词写的不一样、问不了人却带着 `ask_user`。消息里写着去哪改
+ */
+class AgentMisconfigured(message: String) : IllegalStateException(message)
 
 /**
  * 这一轮的开头。[trigger] = app 自己发起的（每晚对账），不是用户说的；[images] 是随这句话发的图片，

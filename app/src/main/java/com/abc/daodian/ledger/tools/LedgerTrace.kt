@@ -1,9 +1,9 @@
 package com.abc.daodian.ledger.tools
 
-import com.abc.daodian.assistant.skill.PartialArgs
-import com.abc.daodian.assistant.skill.ToolTrace
-import com.abc.daodian.assistant.skill.TraceText
-import com.abc.daodian.assistant.skill.TraceView
+import com.abc.daodian.assistant.plugin.PartialArgs
+import com.abc.daodian.assistant.plugin.ToolTrace
+import com.abc.daodian.assistant.plugin.TraceText
+import com.abc.daodian.assistant.plugin.TraceView
 import com.abc.daodian.ledger.LedgerRoutes
 import com.abc.daodian.ledger.domain.Money
 import com.fasterxml.jackson.databind.JsonNode

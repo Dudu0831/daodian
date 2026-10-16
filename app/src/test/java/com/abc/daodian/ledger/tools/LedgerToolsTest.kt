@@ -1,7 +1,7 @@
 package com.abc.daodian.ledger.tools
 
-import com.abc.daodian.assistant.skill.ToolTrace
-import com.abc.daodian.assistant.skill.TraceState
+import com.abc.daodian.assistant.plugin.ToolTrace
+import com.abc.daodian.assistant.plugin.TraceState
 import com.abc.daodian.ledger.domain.Actor
 import com.abc.daodian.ledger.domain.CategoryKind
 import com.abc.daodian.ledger.domain.CategoryNode

@@ -56,8 +56,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.abc.daodian.assistant.skill.AssistantSkill
-import com.abc.daodian.assistant.skill.AssistantSkills
+import com.abc.daodian.assistant.plugin.AssistantPlugin
+import com.abc.daodian.assistant.plugin.AssistantPlugins
 import com.abc.daodian.runtime.ask.AskQuestion
 import com.abc.daodian.runtime.ask.AskUserTool
 import com.abc.daodian.runtime.ask.Pick
@@ -287,11 +287,11 @@ private fun Question(
     }
 }
 
-/** 模块在这题底下挂的一块（记账：顺手打标签），见 [AssistantSkill.AskAddon]。不是它的 ref 就什么都不画 */
+/** 模块在这题底下挂的一块（记账：顺手打标签），见 [AssistantPlugin.AskAddon]。不是它的 ref 就什么都不画 */
 @Composable
 private fun Addon(ref: String) {
-    val skills = remember { AssistantSkills.skills }
-    skills.forEach { it.AskAddon(ref) }
+    val plugins = remember { AssistantPlugins.plugins }
+    plugins.forEach { it.AskAddon(ref) }
 }
 
 /**

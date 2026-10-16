@@ -2,7 +2,7 @@ package com.abc.daodian.assistant.memory
 
 import android.content.Context
 import com.abc.daodian.assistant.memory.tidy.TidyLog
-import com.abc.daodian.assistant.skill.AssistantSkills
+import com.abc.daodian.assistant.plugin.AssistantPlugins
 import com.abc.daodian.runtime.context.Background
 import com.abc.daodian.runtime.memory.MemoryPreamble
 
@@ -21,13 +21,13 @@ object Recall {
             val last = session.turns.lastOrNull()?.id ?: 0
             // 摘要盖到的轮次比现在还靠后：对话被清过，那段摘要说的是别的对话了
             val digest = TidyLog.get(app).digest()?.takeIf { it.through < last }
-            MemoryPreamble.of(MemoryBook.get(app).all(), digest, AssistantSkills.backgrounds(app))
+            MemoryPreamble.of(MemoryBook.get(app).all(), digest, AssistantPlugins.backgrounds(app))
         }
     }
 
     /** 桌面速记：一次性的对话，没有摘要，垫记忆和模块现状 —— 「老地方」「晚点」照样听得懂，归类照样认得类别 */
     fun quick(context: Context): Background {
         val app = context.applicationContext
-        return Background { MemoryPreamble.of(MemoryBook.get(app).all(), null, AssistantSkills.backgrounds(app)) }
+        return Background { MemoryPreamble.of(MemoryBook.get(app).all(), null, AssistantPlugins.backgrounds(app)) }
     }
 }

@@ -1,4 +1,4 @@
-package com.abc.daodian.assistant.skill
+package com.abc.daodian.assistant.plugin
 
 import android.content.Context
 import androidx.compose.runtime.Composable
@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.flowOf
  * **不给提示词**：怎么用这些工具，助手在自己的提示词里写全（`assistant/AssistantPrompt`），模块加了、改了工具要回去跟着改。
  * 页面、抽屉卡、设置行、体检、诊断给的是壳（`shell/entry/ShellEntry`），冷启动要做的事在模块接头上。
  */
-interface AssistantSkill {
+interface AssistantPlugin {
 
     /** 和模块的 id 一样（「ledger」）：trigger 键的前缀。装的时候根目录查一遍 */
     val id: String
@@ -73,9 +73,9 @@ sealed interface Trigger {
     data class Note(val text: String) : Trigger
 }
 
-/** 问过你、还等着你点的一轮（[AssistantSkill.pendingTrigger]） */
+/** 问过你、还等着你点的一轮（[AssistantPlugin.pendingTrigger]） */
 data class PendingTrigger(
-    /** 完整的键，`ledger:check`。点了交给 [AssistantSkills.trigger] */
+    /** 完整的键，`ledger:check`。点了交给 [AssistantPlugins.trigger] */
     val key: String,
     /** 虚线上的字。和那一轮开场白冒号前那段一样（「每晚对账」），点了之后原地换成的实线上也是它 */
     val label: String,

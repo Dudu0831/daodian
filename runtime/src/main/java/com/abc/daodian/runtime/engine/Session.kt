@@ -56,4 +56,12 @@ class Session(turns: List<Turn> = emptyList(), private val listener: Listener? =
         if (_turns.isEmpty()) return
         listener?.discarded(_turns.removeAt(_turns.lastIndex))
     }
+
+    companion object {
+        /**
+         * 被停掉、没轮到的调用回给模型的固定话术（[closeDanglingCalls]；工具自己有说法的用它的，
+         * 见 [com.abc.daodian.runtime.tool.Tool.abortedOutput]）。写成它能照着往下接的样子
+         */
+        const val ABORTED = "这次调用没有执行：用户中途叫停了这一轮。"
+    }
 }

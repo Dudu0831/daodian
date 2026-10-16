@@ -1,6 +1,6 @@
 package com.abc.daodian.assistant.conversation
 
-import com.abc.daodian.assistant.skill.TraceState
+import com.abc.daodian.assistant.plugin.TraceState
 import com.abc.daodian.runtime.ask.AskAnswer
 import com.abc.daodian.runtime.ask.AskUserTool
 import com.abc.daodian.runtime.ask.Pick

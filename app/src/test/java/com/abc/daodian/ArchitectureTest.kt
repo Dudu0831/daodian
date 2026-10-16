@@ -12,7 +12,7 @@ import org.junit.Test
  * |---|---|
  * | `assistant` | 自己、`runtime`、`shared` |
  * | `shell` | 自己、`assistant`、`runtime`、`shared`、`update` |
- * | `module` | 两个插口包 `assistant/skill`、`shell/entry` |
+ * | `module` | 两个插口包 `assistant/plugin`、`shell/entry` |
  * | 模块的核心层（提醒的 domain/data/application/scheduling/delivery，记账的 domain/data/capture） | 自己、`shared`、通知监听层的核心 |
  * | 模块的其余部分 | 再加上 `runtime`、两个插口包、`module`。别的模块不碰 |
  * | 通知监听层的核心 | 自己、`shared` |
@@ -77,7 +77,7 @@ class ArchitectureTest {
         private val ALWAYS = listOf("BuildConfig", "R")
 
         /** 模块能碰的两个插口包 */
-        private val PLUGS = listOf("assistant.skill", "shell.entry")
+        private val PLUGS = listOf("assistant.plugin", "shell.entry")
 
         /** 通知监听层的核心里，模块能碰的那几样（DESIGN.md §2.2 第 8 条） */
         private val INTAKE_CORE = listOf("intake.Notice", "intake.NoticeSubscriber", "intake.Intake", "intake.IntakeRoutes")
@@ -91,7 +91,7 @@ class ArchitectureTest {
             "ledger" to setOf("domain", "data", "capture")
         )
 
-        /** `assistant.skill.AssistantSkill` 在 `assistant.skill` 底下；`intake.IntakeModule` 不在 `intake.Intake` 底下 */
+        /** `assistant.plugin.AssistantPlugin` 在 `assistant.plugin` 底下；`intake.IntakeModule` 不在 `intake.Intake` 底下 */
         private fun String.isUnder(prefix: String): Boolean = this == prefix || startsWith("$prefix.")
     }
 }

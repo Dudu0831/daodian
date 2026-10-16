@@ -71,8 +71,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.abc.daodian.assistant.conversation.data.ConversationImageFiles
-import com.abc.daodian.assistant.skill.AssistantSkills
-import com.abc.daodian.assistant.skill.PendingTrigger
+import com.abc.daodian.assistant.plugin.AssistantPlugins
+import com.abc.daodian.assistant.plugin.PendingTrigger
 import com.abc.daodian.assistant.voice.VoiceInput
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
@@ -377,7 +377,7 @@ fun ConversationScreen(
     SideEffect { placedKeys = itemKeys }
 
     val running by vm.running.collectAsState()
-    val manualEntry = remember { AssistantSkills.manualEntry }
+    val manualEntry = remember { AssistantPlugins.manualEntry }
 
     Column(Modifier.fillMaxSize().background(colors.paper)) {
 
@@ -632,7 +632,7 @@ private fun EmptyState(
             Text("这样说就行", style = DaodianType.sectionLabel, color = colors.muted)
             Spacer(Modifier.height(6.dp))
 
-            AssistantSkills.examples.zip(ordinals).forEach { (prompt, ordinal) ->
+            AssistantPlugins.examples.zip(ordinals).forEach { (prompt, ordinal) ->
                 HorizontalDivider(color = colors.rule)
                 Row(
                     Modifier

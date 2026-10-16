@@ -3,7 +3,7 @@ package com.abc.daodian.reminder.presentation
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.abc.daodian.assistant.skill.CallHistory
+import com.abc.daodian.assistant.plugin.CallHistory
 import com.abc.daodian.reminder.application.Reminders
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase

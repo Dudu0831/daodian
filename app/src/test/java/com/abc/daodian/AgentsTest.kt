@@ -1,19 +1,18 @@
 package com.abc.daodian
 
+import com.abc.daodian.assistant.AssistantAgent
 import com.abc.daodian.assistant.AssistantPrompt
-import com.abc.daodian.assistant.memory.EditMemoryTool
 import com.abc.daodian.assistant.memory.FakeMemoryBook
 import com.abc.daodian.assistant.memory.tidy.TidyAgent
 import com.abc.daodian.ledger.domain.LedgerBackend
 import com.abc.daodian.ledger.organize.OrganizerAgent
 import com.abc.daodian.ledger.tools.LedgerTools
 import com.abc.daodian.reminder.relay.RelayAgent
-import com.abc.daodian.reminder.tools.CreateReminderTool
+import com.abc.daodian.reminder.tools.ReminderTools
 import com.abc.daodian.runtime.Agent
 import com.abc.daodian.runtime.AgentRuntime
 import com.abc.daodian.runtime.Input
 import com.abc.daodian.runtime.RunResult
-import com.abc.daodian.runtime.ask.AskUserTool
 import com.abc.daodian.runtime.model.LlmClient
 import com.abc.daodian.runtime.model.LlmEvent
 import com.abc.daodian.runtime.model.LlmRequest
@@ -34,8 +33,9 @@ import org.junit.Test
  * 提示词在它自己的 prompts 里、手上的工具和提示词写的对得上、问不了人的没带 ask_user。
  * 不用装机就知道 debug 包会不会一跑就崩。
  *
- * 工具要连库，这里用假的现建。助手的工具是各模块接头给的（要 Context，测试里建不出来），
- * 照各模块 `XxxSkill.tools` 的接法照搬一份：提醒给 create_reminder，记账给对话那四个。接法改了这里跟着改。
+ * 工具要连库，这里用假的现建。助手的工具是各模块接头给的（`XxxPlugin.tools` 要 Context，测试里建不出来），
+ * 这里调的是它们背后同一个工厂（[ReminderTools.forAssistant]、[LedgerTools.forAssistant]），按 `Modules.kt` 的顺序拼。
+ * 模块加了插件（新的 `XxxPlugin`）这里要跟着加一段。
  */
 class AgentsTest {
 
@@ -72,10 +72,19 @@ class AgentsTest {
         }
     }
 
+    /** 和真机上一样的一套：助手自己的两样 + 提醒、记账给的 */
+    private fun assistantTools() =
+        AssistantAgent.tools(FakeMemoryBook(), ReminderTools.forAssistant { _, _ -> 1L } + LedgerTools.forAssistant(ledger))
+
     @Test
     fun `the assistant prompt is written for the tools the modules hand over`() {
-        val tools = listOf(AskUserTool(), EditMemoryTool(FakeMemoryBook()), CreateReminderTool { _, _ -> 1L }) + LedgerTools.forAssistant(ledger)
-        assertEquals(AssistantPrompt.TOOLS, tools.map { it.name }.toSet())
+        assertEquals(AssistantPrompt.TOOLS, assistantTools().map { it.name }.toSet())
+    }
+
+    @Test
+    fun `the assistant passes the strict checks`() {
+        val result = strictRun(AssistantAgent.build(assistantTools()))
+        assertTrue("助手没过检查：$result", result is RunResult.Done)
     }
 
     @Test

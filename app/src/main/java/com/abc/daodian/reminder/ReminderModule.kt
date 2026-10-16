@@ -3,7 +3,7 @@ package com.abc.daodian.reminder
 import android.content.Context
 import android.util.Log
 import com.abc.daodian.module.Module
-import com.abc.daodian.reminder.assistant.ReminderSkill
+import com.abc.daodian.reminder.assistant.ReminderPlugin
 import com.abc.daodian.reminder.delivery.Notifier
 import com.abc.daodian.reminder.presentation.ReminderShell
 import com.abc.daodian.reminder.scheduling.Rescheduler
@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
 
 /**
  * 提醒的接头。提醒本身不靠它活着：排期、到点、重排、巡检都在 scheduling / delivery 里，
- * 断网、不经过模型（手动填一条）照样响。这里只是把它交出去：给助手的（[ReminderSkill]）、给壳的（[ReminderShell]），
+ * 断网、不经过模型（手动填一条）照样响。这里只是把它交出去：给助手的（[ReminderPlugin]）、给壳的（[ReminderShell]），
  * 和冷启动要做的事。
  */
 object ReminderModule : Module {
@@ -25,7 +25,7 @@ object ReminderModule : Module {
 
     override val id = ID
     override val label = LABEL
-    override val assistant get() = ReminderSkill
+    override val assistant get() = ReminderPlugin
     override val shell get() = ReminderShell
 
     override fun onAppStart(context: Context) {

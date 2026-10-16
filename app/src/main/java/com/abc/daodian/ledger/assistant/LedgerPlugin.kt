@@ -2,11 +2,11 @@ package com.abc.daodian.ledger.assistant
 
 import android.content.Context
 import androidx.compose.runtime.Composable
-import com.abc.daodian.assistant.skill.AssistantSkill
-import com.abc.daodian.assistant.skill.PendingTrigger
-import com.abc.daodian.assistant.skill.ToolTrace
-import com.abc.daodian.assistant.skill.TraceView
-import com.abc.daodian.assistant.skill.Trigger
+import com.abc.daodian.assistant.plugin.AssistantPlugin
+import com.abc.daodian.assistant.plugin.PendingTrigger
+import com.abc.daodian.assistant.plugin.ToolTrace
+import com.abc.daodian.assistant.plugin.TraceView
+import com.abc.daodian.assistant.plugin.Trigger
 import com.abc.daodian.ledger.LedgerModule
 import com.abc.daodian.ledger.LedgerRoutes
 import com.abc.daodian.ledger.data.LedgerStore
@@ -25,7 +25,7 @@ import kotlinx.coroutines.flow.map
  * 记账给助手的：查 / 记 / 改 / 加类别四个工具和它们留的痕、每句垫着的类别表和标签、每晚对账那一轮、
  * 对账问卡上一笔底下顺手打标签的那一块。怎么用这些工具写在助手自己的提示词里（`assistant/AssistantPrompt`「记账」）。
  */
-object LedgerSkill : AssistantSkill {
+object LedgerPlugin : AssistantPlugin {
 
     override val id = LedgerModule.ID
 

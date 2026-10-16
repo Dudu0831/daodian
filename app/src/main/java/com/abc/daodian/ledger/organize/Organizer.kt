@@ -73,7 +73,7 @@ object Organizer {
      */
     suspend fun run(context: Context, reason: String, respectCooldown: Boolean = true): Result {
         val app = context.applicationContext
-        return AgentRuntime.exclusive(LedgerTools.LOCK, "organize", "整理账目") { organize(app, reason, respectCooldown) }
+        return AgentRuntime.exclusive(LedgerTools.LOCK, OrganizerAgent, "整理账目") { organize(app, reason, respectCooldown) }
             ?: Result.Busy
     }
 
