@@ -1,6 +1,6 @@
 # 改造方案：拆出 agent runtime
 
-2026-10-15 定的方向。**第 1–5 步做完了（10-15，都没装机）**，10-16 复查后又补了一轮（第 8 节末尾「复查后补的」），剩第 6 步（可选）；第 4 步要的两项真机验证、第 5 步的装机说一句还欠着。做完一步在第 8 节打勾；全部做完后，要紧的决定写进 DESIGN（§2.2、§06），这份删掉（和当初的 `TEST_PLAN.md` 一样）。
+2026-10-15 定的方向。**第 1–5 步做完了（10-15，都没装机）**，10-16 复查后又补了一轮（第 8 节末尾「复查后补的」），剩第 6 步（可选）。10-16 本地编过、release 包覆盖装到用户手机上，用户自己测过说没问题，合进了 `main`（第 8 节末尾「复查后补的」的验）；debug 包上演库迁移、strict 故意改坏那条没做。做完一步在第 8 节打勾；全部做完后，要紧的决定写进 DESIGN（§2.2、§06），这份删掉（和当初的 `TEST_PLAN.md` 一样）。
 
 ## 0 一句话
 
@@ -478,7 +478,8 @@ MODULES.forEach { it.onAppStart(this) }
 - [x] 文档：DESIGN §2.2（插口为什么叫 plugin、runtime 那行、alias 和空壳一起删）、§6.1、§10.4 的旧名字、§11.3；CLAUDE.md 现状、容易忘的决定、两处旧名字；README 目录树；manifest 里 alias 的注释不再指向这份文件。
 - [ ] 验：
   - [x] `:runtime` 单测 43 条过（云端用 Maven Central 的 GCS 镜像单独编）；`ArchitectureTest` 单独跑过。
-  - [ ] **`:app` 没编译过**（云端拉不到 `dl.google.com`）：本地跑 `./gradlew :runtime:test :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease`。
+  - [x] 10-16 本地：`./gradlew :runtime:test :app:testDebugUnitTest :app:assembleRelease` 过（`:runtime` 43 条、`:app` 101 条，5 条真网关的跳过）。
+  - [x] 10-16 release 包（8 / 0.1.6，签名对）覆盖装到用户手机：退出原因 `PACKAGE UPDATED`、新进程起来，`dumpsys alarm` 装前装后一样（四条），监听连着；用户自己按第 4 步那张清单测过，说没问题，细项没逐条记。这一条也顶了第 2–5 步「装机说一句」和第 4 步的 release 覆盖装。
   - [ ] `LiveGatewayTest` 改写后没跑（要火山方舟的 key）。
   - [ ] 装 debug 包：故意改坏一个后台 agent 的 `Prompt.tools`，触发它（比如整理员点「现在整理」），确认当场崩、崩溃记录里是 `AgentMisconfigured`；改回来。顶栏整理账目时那一圈细线照旧转、记账页「整理中」照旧亮。
 
