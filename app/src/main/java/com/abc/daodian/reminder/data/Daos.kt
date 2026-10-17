@@ -41,6 +41,24 @@ interface ReminderDao {
 
     @Query("UPDATE reminders SET nextTriggerAt = :at, updatedAt = :now WHERE id = :id")
     suspend fun setNextTrigger(id: Long, at: Long, now: Long)
+
+    /**
+     * 重复的定时提醒排到 [at]，稍后记下的那一刻一并作废。响完排下一次、稍后着点「完成」都走这里。
+     * 见 [com.abc.daodian.reminder.scheduling.Series]
+     */
+    @Query("UPDATE reminders SET nextTriggerAt = :at, seriesNextAt = NULL, updatedAt = :now WHERE id = :id")
+    suspend fun advance(id: Long, at: Long, now: Long)
+
+    /**
+     * 稍后：这一次挪到 [at]，保持 SCHEDULED。[seriesNextAt] 是重复提醒这一串本来的下一次，一次性的传 null。
+     * 见 [com.abc.daodian.reminder.scheduling.Series]
+     */
+    @Query("UPDATE reminders SET status = 'SCHEDULED', nextTriggerAt = :at, seriesNextAt = :seriesNextAt, updatedAt = :now WHERE id = :id")
+    suspend fun snooze(id: Long, at: Long, seriesNextAt: Long?, now: Long)
+
+    /** 时区变了、稍后着的重复提醒：稍后那一刻不动，重算的是这一串本来的下一次。见 Rescheduler.recomputeForTimeZone */
+    @Query("UPDATE reminders SET seriesNextAt = :at, updatedAt = :now WHERE id = :id")
+    suspend fun setSeriesNext(id: Long, at: Long, now: Long)
 }
 
 @Dao

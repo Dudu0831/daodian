@@ -63,6 +63,14 @@ data class Reminder(
     @ColumnInfo(defaultValue = "0")
     val gentle: Boolean = false,
 
+    /**
+     * 重复的定时提醒被「稍后」时，这一串本来的下一次（epoch millis）；null = 没在稍后。
+     *
+     * 稍后只挪刚响的这一次：[nextTriggerAt] 换成稍后那一刻（调度层照旧只看它），这一串本来的下一次先存在这儿，
+     * 稍后那次响完回到它。一次性的稍后不用它。见 [com.abc.daodian.reminder.scheduling.Series]、DESIGN.md §5.6
+     */
+    val seriesNextAt: Long? = null,
+
     val createdAt: Long,
     val updatedAt: Long
 )

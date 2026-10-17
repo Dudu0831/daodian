@@ -84,7 +84,10 @@ class Rescheduler(private val context: Context) {
 
         dao.wallClockAnchored().forEach { r ->
             val localTime = r.localTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() } ?: return@forEach
-            val current = ZonedDateTime.ofInstant(Instant.ofEpochMilli(r.nextTriggerAt), zone)
+            // 稍后着的重复提醒：稍后那一刻是绝对的（「十分钟后」），不动；要重算的是这一串本来的下一次（Series）
+            val snoozed = r.seriesNextAt
+            val base = snoozed ?: r.nextTriggerAt
+            val current = ZonedDateTime.ofInstant(Instant.ofEpochMilli(base), zone)
             val retargeted = current.with(localTime)
             val next = if (retargeted.toInstant().toEpochMilli() > now) {
                 retargeted
@@ -92,10 +95,14 @@ class Rescheduler(private val context: Context) {
                 Rrule.nextAfter(r.rrule, retargeted, zone) ?: retargeted.plusDays(1)
             }
             val newAt = next.toInstant().toEpochMilli()
-            if (newAt != r.nextTriggerAt) {
-                cancel(r.id)
-                dao.setNextTrigger(r.id, newAt, now)
-                dao.byId(r.id)?.let { schedule(it) }
+            if (newAt != base) {
+                if (snoozed != null) {
+                    dao.setSeriesNext(r.id, newAt, now)
+                } else {
+                    cancel(r.id)
+                    dao.setNextTrigger(r.id, newAt, now)
+                    dao.byId(r.id)?.let { schedule(it) }
+                }
                 changed++
             }
         }

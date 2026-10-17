@@ -150,10 +150,11 @@ object Reminders {
         } else {
             val existing = dao.byId(id) ?: return
             rescheduler.cancel(id)
+            // 时间是这一下重新定的：稍后着的话，记下的那一刻作废（Series）
             val updated = existing.copy(
                 title = title, note = note, nextTriggerAt = triggerAt, rrule = rrule,
                 localTime = localTime, wallClockAnchored = wallClockAnchored, dueDay = dueDay, gentle = gentle,
-                status = ReminderStatus.SCHEDULED, updatedAt = now
+                seriesNextAt = null, status = ReminderStatus.SCHEDULED, updatedAt = now
             )
             dao.update(updated)
             rescheduler.schedule(updated)
