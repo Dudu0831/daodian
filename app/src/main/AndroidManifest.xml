@@ -92,6 +92,22 @@
             android:targetActivity=".assistant.quick.QuickAddActivity"
             android:exported="false" />
 
+        <!--
+            探路：当系统的「默认数字助理」（设置 → 应用 → 默认应用 → 数字助理）。处理 ACTION_ASSIST 的 Activity 就够资格进那张单子，
+            选上后长按电源键 / 从角上划叫出的是速记那张纸。ROLE_ASSISTANT 不能由 app 申请，只能人去设置里选。
+            要看的是 MagicOS 列不列第三方、长按电源键是不是锁给了 YOYO；放的话再上 VoiceInteractionService（读屏幕）。
+            exported 必须 true（系统来发）；速记不读 intent 里的任何东西，别的 app 拉起它也只是开一张空纸
+        -->
+        <activity-alias
+            android:name=".assistant.quick.AssistEntry"
+            android:targetActivity=".assistant.quick.QuickAddActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity-alias>
+
         <!-- 闹钟到点。只接收我们自己的 PendingIntent，不对外暴露 -->
         <receiver
             android:name=".reminder.scheduling.AlarmReceiver"
