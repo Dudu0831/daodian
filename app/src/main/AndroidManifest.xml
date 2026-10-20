@@ -92,6 +92,50 @@
             android:targetActivity=".assistant.quick.QuickAddActivity"
             android:exported="false" />
 
+        <!--
+            探路：读屏幕（assistant/screen）。被选成「辅助应用」时系统一直绑着 ScreenAssistService，
+            我们自己的磁贴调它的 showSession，系统把当前屏幕的文字和截图交给会话。
+            BIND_VOICE_INTERACTION 保证只有系统绑得上；识别服务是系统硬要的占位，谁调都回错
+        -->
+        <service
+            android:name=".assistant.screen.ScreenAssistService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/screen_assist" />
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".assistant.screen.ScreenAssistSessionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION" />
+
+        <service
+            android:name=".assistant.screen.ScreenRecognitionService"
+            android:exported="true"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+            </intent-filter>
+        </service>
+
+        <!-- 下拉栏的「到点看一眼」。BIND_QUICK_SETTINGS_TILE 保证只有系统绑得上 -->
+        <service
+            android:name=".assistant.screen.ScreenTile"
+            android:exported="true"
+            android:icon="@drawable/ic_widget_mic"
+            android:label="到点看一眼"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <!-- 闹钟到点。只接收我们自己的 PendingIntent，不对外暴露 -->
         <receiver
             android:name=".reminder.scheduling.AlarmReceiver"

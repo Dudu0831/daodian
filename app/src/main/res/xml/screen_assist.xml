@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 探路：读屏幕的辅助应用（assistant/screen/ScreenAssistService）。recognitionService 是系统硬要的，见 ScreenRecognitionService -->
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="com.abc.daodian.assistant.screen.ScreenAssistSessionService"
+    android:recognitionService="com.abc.daodian.assistant.screen.ScreenRecognitionService"
+    android:supportsAssist="true"
+    android:supportsLaunchVoiceAssistFromKeyguard="false" />
