@@ -2,7 +2,6 @@ package com.abc.daodian.assistant.quick
 
 import android.Manifest
 import android.app.Activity
-import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -72,10 +71,6 @@ class QuickAddActivity : ComponentActivity() {
         anchor = anchorOf(intent)
         mic = micOf(intent)
         QuickTrace.log(this, "activity onCreate sourceBounds=${intent.sourceBounds} restored=${savedInstanceState != null}")
-        // 探路「默认数字助理」：叫出来的是不是这里、系统认没认我们当助理（manifest 里 AssistEntry 那条）
-        if (intent.action == Intent.ACTION_ASSIST) {
-            QuickTrace.log(this, "assist launch roleHeld=${getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_ASSISTANT)}")
-        }
         if (savedInstanceState == null) requestVoice()
 
         setContent {
