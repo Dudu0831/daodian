@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import com.abc.daodian.reminder.delivery.FireProbe
 import com.abc.daodian.reminder.delivery.NotificationActionReceiver
 
 /**
@@ -21,6 +22,8 @@ class AlarmActivity : ComponentActivity() {
         val reminderId = intent.getLongExtra(EXTRA_REMINDER_ID, -1L)
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "到点了"
         val now = System.currentTimeMillis()
+        // 转屏、切深色重建时不再记一遍
+        if (savedInstanceState == null) FireProbe.shown(this, reminderId)
 
         setContent {
             // 钉死深色：半夜三点是这一屏最常见的使用场景，见 DESIGN.md §08「到点全屏页」。

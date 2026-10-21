@@ -64,7 +64,7 @@ object HealthCheck {
                         "重要性 ${channel.importance}（HIGH），会弹横幅"
                     else ->
                         "重要性 ${channel.importance}，低于请求的 4 —— ROM 静默降级了。" +
-                            "后果是有声音但不弹横幅，目前靠 full-screen intent 兜着。" +
+                            "后果是有声音但不弹横幅，全屏页也不弹（重要性低于 4 系统就不起全屏 intent）。" +
                             "去设置里手动调成「紧急」"
                 },
                 fixIntent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)

@@ -86,7 +86,8 @@ object Notifier {
 
         // Android 14+ 收紧了全屏 intent，拿不到就安静降级成 heads-up，不要崩。13 上声明了就有（决策 3.2）。
         // 全屏页是独立的 AlarmActivity（响铃屏），不是打开 app 本体的那个宿主 Activity。
-        if (canUseFullScreenIntent(context)) {
+        val fullScreen = canUseFullScreenIntent(context)
+        if (fullScreen) {
             val ring = PendingIntent.getActivity(
                 context,
                 reminder.id.toInt(),
@@ -106,6 +107,7 @@ object Notifier {
             != PackageManager.PERMISSION_GRANTED
         ) {
             Log.e(TAG, "通知权限被拒，id=${reminder.id}「${reminder.title}」没能送达用户！去「体检」页处理")
+            FireProbe.fired(context, reminder.id, "响铃", CHANNEL_ID, fullScreen, sent = false)
             return false
         }
 
@@ -115,13 +117,15 @@ object Notifier {
         // 不在 AlarmActivity 里自己放铃：亮屏时系统只给 heads-up、不起全屏页，那条路就又只响一下了。
         val notification = builder.build().apply { flags = flags or Notification.FLAG_INSISTENT }
 
-        return try {
+        val sent = try {
             NotificationManagerCompat.from(context).notify(reminder.id.toInt(), notification)
             true
         } catch (e: SecurityException) {
             Log.e(TAG, "发通知被系统拒绝，id=${reminder.id}", e)
             false
         }
+        FireProbe.fired(context, reminder.id, "响铃", CHANNEL_ID, fullScreen, sent)
+        return sent
     }
 
     fun cancel(context: Context, reminderId: Long) {
@@ -185,6 +189,7 @@ object Notifier {
             != PackageManager.PERMISSION_GRANTED
         ) {
             Log.e(TAG, "通知权限被拒，轻提醒 id=${reminder.id}「${reminder.title}」没能送达用户！去「体检」页处理")
+            FireProbe.fired(context, reminder.id, "轻提醒", GENTLE_CHANNEL_ID, fullScreen = null, sent = false)
             return false
         }
 
@@ -199,13 +204,15 @@ object Notifier {
         val body = timedBody(reminder, lateBy)
         if (body.isNotEmpty()) builder.setContentText(body)
 
-        return try {
+        val sent = try {
             NotificationManagerCompat.from(context).notify(reminder.id.toInt(), builder.build())
             true
         } catch (e: SecurityException) {
             Log.e(TAG, "发通知被系统拒绝，轻提醒 id=${reminder.id}", e)
             false
         }
+        FireProbe.fired(context, reminder.id, "轻提醒", GENTLE_CHANNEL_ID, fullScreen = null, sent)
+        return sent
     }
 
     // ---------------- 当天事项：晚上收尾时安静地提一次 ----------------
@@ -242,6 +249,7 @@ object Notifier {
             != PackageManager.PERMISSION_GRANTED
         ) {
             Log.e(TAG, "通知权限被拒，当天事项 id=${reminder.id}「${reminder.title}」没能送达用户！去「体检」页处理")
+            FireProbe.fired(context, reminder.id, "当天", DAY_CHANNEL_ID, fullScreen = null, sent = false)
             return false
         }
 
@@ -265,7 +273,7 @@ object Notifier {
             .addAction(0, "完成", actionIntent(context, reminder.id, NotificationActionReceiver.ACTION_DONE))
             .build()
 
-        return try {
+        val sent = try {
             NotificationManagerCompat.from(context).notify(reminder.id.toInt(), child)
             refreshDaySummary(context, alert = true)
             true
@@ -273,6 +281,8 @@ object Notifier {
             Log.e(TAG, "发通知被系统拒绝，当天事项 id=${reminder.id}", e)
             false
         }
+        FireProbe.fired(context, reminder.id, "当天", DAY_CHANNEL_ID, fullScreen = null, sent)
+        return sent
     }
 
     /**
