@@ -13,6 +13,7 @@
 - 库：`reminder.db` v3、`chat.db` v3。库升上去之后旧版本打不开，只能往前走。
 
 **main 上有、还没在真机上验过的**（细项见下表）
+- **10-21 权限页每一行随时能点**（`shell/PermissionsScreen.HealthRow`、`HealthCheck.manualIntent`）：好着的行也整行可点、右边淡箭头；「应用启动管理」跳荣耀系统管家那一页（manifest `<queries>` 里声明了 action，解析不到退应用详情页）；电池优化好着时跳系统列表。没核的：「精确闹钟」好着时点进去是不是一闪就退（只有 `USE_EXACT_ALARM`）。
 - **10-21 导出诊断的「全屏没弹」「只响不震」**（`reminder/ReminderDiagnostics`、`reminder/delivery/FireProbe`）：导出的声音、免打扰、渠道、振动、全屏许可几段在荣耀上读不读得出来（整表读设置那几行可能是空的）；到点后 `files/fire_probe.txt` 有没有那一刻的样子和「全屏页起来了 · 发出后 N ms」两行。
 - **10-21 每晚对账「弹了通知、点进去什么都没有」**（`ledger/reconciliation/LedgerCheck.asks`，三处只认 3 天内的）：是从代码上推出来的，没核对用户那几条「看不清」是不是真在 3 天以前；装上后到点看还弹不弹，弹了点进去要有东西可对。
 - **10-18 0.1.8 里的两样**：重复提醒的「完成」「稍后」（`Series`，见表里调度内核那一行）；整理员把转进来的钱记成收入（`organize-v8`），没拿真通知验过。

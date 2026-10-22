@@ -1,6 +1,8 @@
 package com.abc.daodian.shell
 
 import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -31,6 +33,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.ui.CheckIcon
+import com.abc.daodian.shared.ui.ChevronRightIcon
 import com.abc.daodian.shared.ui.FixLink
 import com.abc.daodian.shared.ui.GroupLabel
 import com.abc.daodian.shared.ui.GroupRule
@@ -61,9 +64,17 @@ fun PermissionsScreen(uis: List<ShellEntry>, onBack: () -> Unit, open: (String) 
         onPauseOrDispose { }
     }
 
+    // 跳不过去（ROM 没有那一页）就退到系统的应用详情页，不让点了没反应
     fun launch(intent: Intent?) {
         intent ?: return
-        runCatching { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        runCatching { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.onFailure {
+            runCatching {
+                context.startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+        }
     }
 
     Column(Modifier.fillMaxSize().background(colors.paper)) {
@@ -139,13 +150,16 @@ private fun Verdict(items: List<HealthItem>, uis: List<ShellEntry>) {
 
 /**
  * 体检行。好着的只占一行（对勾 + 名字），不再把「已授予」之类的废话摊开；
- * 缺的那项才展开说后果，整行可点，右边一个「去开」。查不到的写清楚怎么手动设，右边一个「手动」
+ * 缺的那项才展开说后果，右边一个「去开」。查不到的写清楚怎么手动设，右边一个「手动」。
+ * 有跳转的行不管好没好都整行可点：好着的也可能想进去看一眼、调一下（比如渠道重要性看着是 4，横幅样式还想改），
+ * 好着时右边是一个淡箭头
  */
 @Composable
 private fun HealthRow(item: HealthItem, onFix: () -> Unit) {
     val colors = DaodianColors.current
+    val onClick = if (item.fixIntent != null) onFix else null
     if (item.ok == null) {
-        SettingRow(title = item.label, note = item.detail, leading = { Marker(ok = null) }) { OutlineBadge("手动") }
+        SettingRow(title = item.label, note = item.detail, onClick = onClick, leading = { Marker(ok = null) }) { OutlineBadge("手动") }
         return
     }
     SettingRow(
@@ -153,9 +167,13 @@ private fun HealthRow(item: HealthItem, onFix: () -> Unit) {
         note = if (item.ok) null else item.detail,
         titleColor = if (item.ok) colors.ink2 else colors.ink,
         noteColor = colors.red,
-        onClick = if (!item.ok && item.fixIntent != null) onFix else null,
+        onClick = onClick,
         leading = { Marker(ok = item.ok) }
     ) {
-        if (!item.ok && item.fixIntent != null) FixLink()
+        when {
+            item.fixIntent == null -> {}
+            item.ok -> ChevronRightIcon(size = 13.dp, tint = colors.muted)
+            else -> FixLink()
+        }
     }
 }

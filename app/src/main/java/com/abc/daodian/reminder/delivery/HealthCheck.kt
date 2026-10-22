@@ -28,6 +28,16 @@ object HealthCheck {
     const val MANUAL_LABEL = "应用启动管理"
     const val MANUAL_DETAIL = "查不到，只能手动设：设置 → 应用启动管理 → 到点 → 关掉自动管理 → 三个开关全开"
 
+    /**
+     * 「应用启动管理」那一页。荣耀的系统管家有这个 action（真机上 dumpsys 查到的）；
+     * 别家手机解析不到，就退到系统的应用详情页
+     */
+    fun manualIntent(context: Context): Intent {
+        val honor = Intent("hihonor.intent.action.HSM_STARTUPAPP_MANAGER")
+        return if (honor.resolveActivity(context.packageManager) != null) honor
+        else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+    }
+
     fun run(context: Context): List<Item> {
         val am = context.getSystemService(AlarmManager::class.java)
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -75,7 +85,12 @@ object HealthCheck {
                 label = "电池优化白名单",
                 ok = pm.isIgnoringBatteryOptimizations(pkg),
                 detail = "荣耀上这项没开，深度休眠时大概率漏提醒",
-                fixIntent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$pkg"))
+                // 已经在白名单里时，请求那个弹框什么都不弹；改去系统的电池优化列表，想关回去也在那儿
+                fixIntent = if (pm.isIgnoringBatteryOptimizations(pkg)) {
+                    Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                } else {
+                    Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$pkg"))
+                }
             ),
             Item(
                 label = "全屏 intent",

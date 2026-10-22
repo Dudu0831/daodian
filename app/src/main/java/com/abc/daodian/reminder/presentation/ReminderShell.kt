@@ -73,7 +73,7 @@ object ReminderShell : ShellEntry {
 
     override fun health(context: Context): List<HealthItem> =
         HealthCheck.run(context).map { HealthItem(it.label, it.ok, it.detail, it.fixIntent) } +
-            HealthItem(HealthCheck.MANUAL_LABEL, ok = null, detail = HealthCheck.MANUAL_DETAIL, fixIntent = null)
+            HealthItem(HealthCheck.MANUAL_LABEL, ok = null, detail = HealthCheck.MANUAL_DETAIL, fixIntent = HealthCheck.manualIntent(context))
 
     override suspend fun diagnostics(context: Context): String =
         withContext(Dispatchers.IO) { ReminderDiagnostics.build(context) }

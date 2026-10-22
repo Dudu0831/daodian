@@ -25,6 +25,10 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- 权限页「应用启动管理」那一行直接跳荣耀系统管家的那一页（HealthCheck.manualIntent） -->
+        <intent>
+            <action android:name="hihonor.intent.action.HSM_STARTUPAPP_MANAGER" />
+        </intent>
     </queries>
 
     <!--

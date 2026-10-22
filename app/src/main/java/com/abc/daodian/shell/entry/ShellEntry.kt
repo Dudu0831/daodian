@@ -63,7 +63,7 @@ data class PermissionStatus(val text: String, val ok: Boolean)
 
 /**
  * 体检的一项。[ok] = null 是查不到、只能手动设的（MagicOS 的「应用启动管理」）。
- * [fixIntent] 是「去开」跳到哪儿。
+ * [fixIntent] 是点这一行跳到哪儿：缺的时候去开，好着的时候也能点进去看、改。
  */
 data class HealthItem(
     val label: String,
