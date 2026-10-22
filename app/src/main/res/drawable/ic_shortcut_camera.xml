@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 长按桌面图标那一项「拍一张」的图标：和 app 图标同一张纸色底，墨绿描一台相机（Icons.kt CameraIcon 的形状） -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/icon_bg" />
+    <foreground android:drawable="@drawable/ic_shortcut_camera_foreground" />
+</adaptive-icon>

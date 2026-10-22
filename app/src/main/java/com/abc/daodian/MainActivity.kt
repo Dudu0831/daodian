@@ -21,6 +21,7 @@ import com.abc.daodian.assistant.quick.WidgetFrame
 import com.abc.daodian.shared.navigation.Launch
 import com.abc.daodian.shared.theme.DaodianTheme
 import com.abc.daodian.shell.AppNavHost
+import com.abc.daodian.shell.AppShortcuts
 import com.abc.daodian.update.Updates
 
 /** 唯一的宿主 Activity：挂上 shell 的导航，其余都在里面 */
@@ -49,6 +50,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // 内测的检查更新：开 app 时查一次，有新版本抽屉的「设置」那行就写出来
         Updates.check(this)
+        // 长按桌面图标的「拍一张」。设不上（启动器不支持）不影响别的
+        runCatching { AppShortcuts.install(this) }
 
         // POST_NOTIFICATIONS 是唯一需要运行时申请的权限，见设计文档 §5.2
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)

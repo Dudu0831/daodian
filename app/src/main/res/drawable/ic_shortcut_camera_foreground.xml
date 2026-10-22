@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  「拍一张」的相机，照 app 图标的画法：实心墨绿渐变的机身、纸色的镜头，画在 108 画布正中、宽 46。
+  荣耀的长按菜单只画图标不写字，所以不能是细线小图标 —— 摆在 app 图标旁边要一眼看出是一家的
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 荣耀画快捷方式图标比 app 图标多留一圈边，整体放大 1.3 倍才和旁边的气泡一般大；圆形遮罩的启动器上机身四角会切掉一点 -->
+    <group
+        android:scaleX="1.3"
+        android:scaleY="1.3"
+        android:pivotX="54"
+        android:pivotY="54">
+    <path android:pathData="M39,40 L45.5,40 L48,35.6 Q49,34 51,34 L57,34 Q59,34 60,35.6 L62.5,40 L69,40 Q77,40 77,48 L77,65 Q77,73 69,73 L39,73 Q31,73 31,65 L31,48 Q31,40 39,40 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="36"
+                android:startY="36"
+                android:endX="72"
+                android:endY="74"
+                android:startColor="@color/icon_green_hi"
+                android:endColor="@color/icon_green_lo" />
+        </aapt:attr>
+    </path>
+    <!-- 镜头：纸色一圈，里面墨绿，左上一点高光 -->
+    <path
+        android:fillColor="@color/icon_face"
+        android:pathData="M43.5,56.5 A10.5,10.5 0 1,0 64.5,56.5 A10.5,10.5 0 1,0 43.5,56.5 Z" />
+    <path
+        android:fillColor="@color/icon_green_fold"
+        android:pathData="M47.5,56.5 A6.5,6.5 0 1,0 60.5,56.5 A6.5,6.5 0 1,0 47.5,56.5 Z" />
+    <path
+        android:fillColor="@color/icon_face"
+        android:pathData="M49.6,54.2 A1.8,1.8 0 1,0 53.2,54.2 A1.8,1.8 0 1,0 49.6,54.2 Z" />
+    <!-- 闪光灯 -->
+    <path
+        android:fillColor="@color/icon_face"
+        android:pathData="M68,47 A2,2 0 1,0 72,47 A2,2 0 1,0 68,47 Z" />
+    </group>
+</vector>

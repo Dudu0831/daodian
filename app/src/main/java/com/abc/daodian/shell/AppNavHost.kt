@@ -65,8 +65,11 @@ fun AppNavHost(
     val uis = remember { ShellEntries.entries }
 
     // 回对话页：把上面的页弹掉，对话页还是原来那一个。以前是连对话页一起弹掉再新建一个，
-    // 已经在对话页时也会新旧两页叠着淡变一遍、滚动位置不同，整屏内容叠影跳动（速记交话、对账通知「现在」都走这里）
+    // 已经在对话页时也会新旧两页叠着淡变一遍、滚动位置不同，整屏内容叠影跳动（速记交话、对账通知「现在」都走这里）。
+    // 已经停在对话页就什么都不做：popBackStack 一页没弹时返回 false，以前会再 navigate 一个对话页叠上去 ——
+    // 返回键要按两下才出得去；「拍一张」的相机是从底下那一页开的，拍回来的图落在那一页，看得见的这一页收不到
     fun toAssistant() {
+        if (navController.currentDestination?.route == AssistantRoutes.HOME) return
         if (!navController.popBackStack(AssistantRoutes.HOME, inclusive = false)) navController.navigate(AssistantRoutes.HOME)
     }
 
@@ -93,12 +96,14 @@ fun AppNavHost(
     LaunchedEffect(request) {
         val r = request ?: return@LaunchedEffect
         val route = r.route
-        if (route == null || route == AssistantRoutes.HOME || r.trigger != null || r.say != null) toAssistant()
+        if (route == null || route == AssistantRoutes.HOME || r.trigger != null || r.say != null || r.camera) toAssistant()
         else navController.navigate(route) { launchSingleTop = true }
         // 每晚对账通知上点「现在」：回对话页，开一轮对账
         r.trigger?.let(vm::startTrigger)
         // 桌面速记交过来的一句话：回对话页，照常发出去（正忙就先放进输入框）
         r.say?.let { if (vm.aiBusy) vm.prefill(it) else vm.sendMessage(it) }
+        // 长按图标的「拍一张」：回对话页，相机由对话页开（拍回来的要进它那一行）
+        if (r.camera) vm.askCamera()
         onRequestHandled()
     }
 

@@ -122,6 +122,10 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     var imageNote by mutableStateOf<String?>(null)
         private set
 
+    /** 从桌面长按图标点了「拍一张」，等对话页去开相机。界面取走后调 [consumeCameraAsk] */
+    var cameraAsked by mutableStateOf(false)
+        private set
+
     /** 最后一句用户说的话，失败后「重试」用得上 */
     private var lastUserInput: String? = null
 
@@ -191,6 +195,14 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
 
     fun consumeImageNote() {
         imageNote = null
+    }
+
+    fun askCamera() {
+        cameraAsked = true
+    }
+
+    fun consumeCameraAsk() {
+        cameraAsked = false
     }
 
     /** 相册里选回来的。一张张缩小、存好再排进去；超出 [ConversationImageFiles.MAX_PER_MESSAGE] 的不要 */

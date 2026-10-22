@@ -242,6 +242,17 @@ fun ConversationScreen(
         }
     }
 
+    // 桌面长按图标点了「拍一张」：直接开相机，拍回来的和点 ＋ 拍的一样排进待发那一行，配不配话你定
+    LaunchedEffect(vm.cameraAsked) {
+        if (!vm.cameraAsked) return@LaunchedEffect
+        vm.consumeCameraAsk()
+        if (pendingImages.size >= ConversationImageFiles.MAX_PER_MESSAGE) {
+            voiceNote = "一句话最多带 ${ConversationImageFiles.MAX_PER_MESSAGE} 张，先发掉再拍"
+        } else {
+            openCamera()
+        }
+    }
+
     // 加图时要说的一句（读不了、超了张数）：和「没听清」走同一个地方
     LaunchedEffect(vm.imageNote) {
         vm.imageNote?.let {
