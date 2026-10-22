@@ -8,7 +8,7 @@
 
 **手机和线上**
 - 真机是荣耀 LGE-AN10（Android 15），模型是火山方舟 `deepseek-v4.1-flash`。
-- 线上：**0.1.8 / versionCode 10**（10-18 用 `scripts/publish.sh` 发的，`latest.json`、蒲公英整包 SHA-256、旧版 0.1.7 分段下载都核过）。
+- 线上：**0.1.9 / versionCode 11**（10-22 用 `scripts/publish.sh` 发的：拍一张、权限页随时能点、每晚对账修、诊断补到点那一刻；脚本自己核了蒲公英整包 SHA-256 和原下载地址的转接）。上一版 0.1.8（10）是 10-18 发的。
 - 用户手机：release 包 `com.abc.daodian` 是 **0.1.8（10）**，10-19 09:18 装的（是不是从设置 →「版本」升上来的没查）；debug 包 `com.abc.daodian.debug` 也在（10-22 装的，带「拍一张」）。两个包是两个 app（§11.1）。
 - 库：`reminder.db` v3、`chat.db` v3。库升上去之后旧版本打不开，只能往前走。
 
