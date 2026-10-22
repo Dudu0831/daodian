@@ -48,6 +48,14 @@ object LedgerCheck {
     private const val SNOOZE_MILLIS = 60 * 60 * 1000L
     /** 问过之后最多等你这么久。下一晚到点会重新问一遍，这是闹钟没响时的兜底 */
     private const val OPEN_MILLIS = 24 * 60 * 60 * 1000L
+    /** 读不出金额的通知只问最近这么多天的；更早的问了也想不起来，留在「抓到的通知」里 */
+    private const val UNREADABLE_MILLIS = 3 * 24 * 60 * 60 * 1000L
+
+    /**
+     * 这条读不出金额的通知还算不算要问。弹通知数笔数、对话页虚线段、开对账列清单三处都只认它 ——
+     * 以前开对账只拿 3 天内的、另两处不限日期，过了 3 天没对的那条每晚弹通知、点进去却没东西可对
+     */
+    fun asks(postTime: Long, now: Long): Boolean = postTime >= now - UNREADABLE_MILLIS
 
     const val ACTION_FIRE = "com.abc.daodian.ledger.CHECK_FIRE"
     const val ACTION_LATER = "com.abc.daodian.ledger.CHECK_LATER"
@@ -100,7 +108,8 @@ object LedgerCheck {
 
         val store = LedgerStore.get(app)
         val pending = store.query(ExpenseQuery(state = TxnState.PENDING, limit = 200)).size
-        val unreadable = store.dao.unreadableRaws().size
+        val now = System.currentTimeMillis()
+        val unreadable = store.dao.unreadableRaws().count { asks(it.postTime, now) }
         if (pending + unreadable == 0) {
             dismiss(app)
             LedgerSettings.setCheckOpenAt(app, 0)
@@ -148,11 +157,12 @@ object LedgerCheck {
         val app = context.applicationContext
         val dao = LedgerStore.get(app).dao
         return combine(
-            LedgerSettings.checkOpenAtFlow(app), dao.observePendingTxns(), dao.observeUnreadableRaws()
+            LedgerSettings.checkOpenAtFlow(app), dao.observePendingTxns(), dao.observeUnreadablePostTimes()
         ) { at, pending, unreadable ->
-            // 和通知上的笔数同一个算法（[check]）；在对话里随口说清楚了几笔，这里跟着少
-            val count = pending + unreadable
-            if (at > 0 && count > 0 && System.currentTimeMillis() - at < OPEN_MILLIS) Waiting(at, count) else null
+            // 和通知上的笔数同一个算法（[check]、[asks]）；在对话里随口说清楚了几笔，这里跟着少
+            val now = System.currentTimeMillis()
+            val count = pending + unreadable.count { asks(it, now) }
+            if (at > 0 && count > 0 && now - at < OPEN_MILLIS) Waiting(at, count) else null
         }
     }
 

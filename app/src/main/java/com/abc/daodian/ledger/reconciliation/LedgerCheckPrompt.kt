@@ -12,15 +12,12 @@ import java.time.ZoneId
  */
 object LedgerCheckPrompt {
 
-    /** 最近这么多天里读不出金额的通知也拿出来问；更早的问了也想不起来 */
-    private const val UNREADABLE_DAYS = 3L
-
-    /** 没有要问的就是 null */
+    /** 没有要问的就是 null。读不出金额的通知哪几条要问，和通知上数笔数一样认 [LedgerCheck.asks] */
     suspend fun build(store: LedgerStore): String? {
         val zone = ZoneId.systemDefault()
         val pending = store.query(ExpenseQuery(state = TxnState.PENDING, limit = 30)).reversed()
-        val since = System.currentTimeMillis() - UNREADABLE_DAYS * 24 * 3600 * 1000
-        val unreadable = store.dao.unreadableRaws().filter { it.postTime >= since }
+        val now = System.currentTimeMillis()
+        val unreadable = store.dao.unreadableRaws().filter { LedgerCheck.asks(it.postTime, now) }
         if (pending.isEmpty() && unreadable.isEmpty()) return null
         return buildString {
             // 「以这份为准」那句是真机上踩出来的：对话里留着账本重建前聊过的几笔，模型认定「已经处理过」一笔没问
