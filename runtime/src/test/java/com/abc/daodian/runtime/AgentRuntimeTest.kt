@@ -1,6 +1,9 @@
 package com.abc.daodian.runtime
 
 import com.abc.daodian.runtime.ask.AskUserTool
+import com.abc.daodian.runtime.context.Background
+import com.abc.daodian.runtime.context.LastTurns
+import com.abc.daodian.runtime.context.Preamble
 import com.abc.daodian.runtime.engine.AgentEvent
 import com.abc.daodian.runtime.engine.Item
 import com.abc.daodian.runtime.engine.Session
@@ -14,6 +17,7 @@ import com.abc.daodian.runtime.model.LlmClient
 import com.abc.daodian.runtime.model.LlmEvent
 import com.abc.daodian.runtime.model.LlmException
 import com.abc.daodian.runtime.model.LlmRequest
+import com.abc.daodian.runtime.model.PingResult
 import com.abc.daodian.runtime.model.ProviderProfile
 import com.abc.daodian.runtime.model.StepOutput
 import com.abc.daodian.runtime.tool.Tool
@@ -54,9 +58,11 @@ class AgentRuntimeTest {
     private class ScriptedLlm(vararg steps: Any) : LlmClient {
         private val left = ArrayDeque(steps.toList())
         var calls = 0
+        val requests = mutableListOf<LlmRequest>()
 
         override fun step(request: LlmRequest): Flow<LlmEvent> = flow {
             calls++
+            requests += request
             when (val next = left.removeFirst()) {
                 is StepOutput -> emit(LlmEvent.Done(next))
                 is Throwable -> throw next
@@ -218,5 +224,46 @@ class AgentRuntimeTest {
         }
         fail("应该在跑之前就停下")
         error("走不到")
+    }
+
+    @Test
+    fun `test sends what the next line of the conversation would send and does nothing else`() = runBlocking {
+        install(ScriptedLlm(say("好")))
+        val earlier = Session()
+        AgentRuntime.run(Agent(Helper, NOTE, listOf(NoteTool())), earlier, Input("先前那句", now)).toList()
+        val before = earlier.turns
+        val probe = ScriptedLlm(call())
+        install(probe)
+        // 助手那样带好几轮（默认只带当前这一轮）
+        val result = AgentRuntime.test(
+            Agent(Helper, NOTE, listOf(NoteTool()), context = LastTurns(24)), configured, earlier,
+            background = { Preamble("记得的事") }
+        )
+
+        assertTrue("回了一个调用也算通：$result", result is PingResult.Ok)
+        val sent = probe.requests.single()
+        assertEquals("记得的事", sent.background)
+        assertEquals("你是测试用的帮手。", sent.system)
+        assertEquals(listOf("note_down"), sent.tools.map { it.name })
+        val said = sent.input.filterIsInstance<Item.UserMessage>().map { it.text }
+        assertEquals("历史照带，后面接一句测试话", listOf("先前那句", "你好"), said)
+        assertEquals("不执行工具、不写进对话", before, earlier.turns)
+    }
+
+    @Test
+    fun `test fails when the gateway answers with nothing`() = runBlocking {
+        install(ScriptedLlm(say("")))
+        val result = AgentRuntime.test(Agent(Helper, NOTE, listOf(NoteTool())), configured, Session(), Background.NONE)
+        assertTrue("空回复不算通：$result", result is PingResult.Failed)
+        assertTrue(ApiHealth.state.value is ApiState.Down)
+    }
+
+    @Test
+    fun `test does not touch the model when the boxes are not filled`() = runBlocking {
+        val llm = ScriptedLlm()
+        install(llm)
+        val result = AgentRuntime.test(Agent(Helper, NOTE, listOf(NoteTool())), ProviderProfile("", "", ""), Session(), Background.NONE)
+        assertTrue(result is PingResult.Failed)
+        assertEquals(0, llm.calls)
     }
 }

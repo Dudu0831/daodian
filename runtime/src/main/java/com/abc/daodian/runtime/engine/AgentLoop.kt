@@ -92,8 +92,25 @@ internal class AgentLoop(
         }
     }
 
-    /** 调一次模型，把过程事件转发出去，返回这一步的产出 */
-    private suspend fun FlowCollector<AgentEvent>.callModel(step: Int, session: Session, background: Background): StepOutput {
+    /**
+     * 「测一下」：照着 [session] 接下来说 [input] 时真要发的那样拼请求（同样的垫底、同样挑轮次、同样的工具），
+     * 只调一次模型就停 —— 不执行工具、不写进 [session]，也不交给 onRequest（调试记录里只该有真发生的）。
+     * 一个字、一个调用都没回来也算没通：聊天里那就是一句空回复
+     */
+    suspend fun probe(session: Session, input: String, now: ZonedDateTime, background: Background): StepOutput {
+        val scratch = Session(session.turns)
+        scratch.begin(Item.UserMessage(input, now))
+        var output: StepOutput? = null
+        llm.step(request(scratch, background).request).collect { if (it is LlmEvent.Done) output = it.output }
+        val out = output ?: throw LlmException("模型调用结束了，但没有给出结果")
+        if (out.text.isBlank() && out.toolCalls.isEmpty()) throw LlmException("网关回了，但一个字都没有")
+        return out
+    }
+
+    /** 这一步要发的请求，连同垫了什么、带了哪几轮 */
+    private class Fed(val preamble: Preamble?, val sent: List<Turn>, val request: LlmRequest)
+
+    private suspend fun request(session: Session, background: Background): Fed {
         val preamble = background.of(session)
         val all = session.turns
         // 摘要盖住的轮次不再原样喂；当前这一轮无论如何都在
@@ -105,9 +122,15 @@ internal class AgentLoop(
             tools = tools.all,
             background = preamble?.text
         )
-        onRequest(preamble, sent, request)
+        return Fed(preamble, sent, request)
+    }
+
+    /** 调一次模型，把过程事件转发出去，返回这一步的产出 */
+    private suspend fun FlowCollector<AgentEvent>.callModel(step: Int, session: Session, background: Background): StepOutput {
+        val fed = request(session, background)
+        onRequest(fed.preamble, fed.sent, fed.request)
         var output: StepOutput? = null
-        llm.step(request).collect { event ->
+        llm.step(fed.request).collect { event ->
             if (event is LlmEvent.Done) output = event.output
             emit(AgentEvent.Model(step, event))
         }

@@ -9,7 +9,7 @@
 **手机和线上**
 - 真机是荣耀 LGE-AN10（Android 15），模型是火山方舟 `deepseek-v4.1-flash`。
 - 线上：**0.1.9 / versionCode 11**（10-22 用 `scripts/publish.sh` 发的：拍一张、权限页随时能点、每晚对账修、诊断补到点那一刻；脚本自己核了蒲公英整包 SHA-256 和原下载地址的转接）。上一版 0.1.8（10）是 10-18 发的。
-- 用户手机：release 包 `com.abc.daodian` 是 **0.1.8（10）**，10-19 09:18 装的（是不是从设置 →「版本」升上来的没查）；debug 包 `com.abc.daodian.debug` 也在（10-22 装的，带「拍一张」）。两个包是两个 app（§11.1）。
+- 用户手机：release 包 `com.abc.daodian` 是**本地打的 0.1.9（11）**，10-24 用 adb 覆盖装的，带还没提交的「两种协议」，和线上 0.1.9 不是同一个包（版本号没加）；debug 包 `com.abc.daodian.debug` 也在（10-22 装的，带「拍一张」）。两个包是两个 app（§11.1）。
 - 库：`reminder.db` v3、`chat.db` v3。库升上去之后旧版本打不开，只能往前走。
 
 **main 上有、还没在真机上验过的**（细项见下表）
@@ -22,6 +22,7 @@
 - **10-15 `minSdk` 33**（决策 3.2）：没有 Android 13 的手机验过 —— 锁屏到点弹不弹全屏页、点「完成」无残留排期、体检「全屏 intent」是对勾、速记那张纸进出没有系统动画叠着。
 
 **还没提交的**
+- **10-23 两种协议 + 「测一下」照聊天发**（DESIGN §6.2；`runtime/model/ChatCompletionsClient`、`StreamingClient`、`AgentRuntime.test`；配置页「接口」两选一）：JVM 测试过了、debug 包打得出来，**没装机、没打过真网关**（手机当时没连上）。要验：配置页选 Chat Completions 测一下、聊几句带工具调用的（建提醒）、带图的一句；`LiveGatewayTest` 加 `DAODIAN_API=chat` 跑一遍；只认 chat 的那家网关上，选 Responses 时「测一下」要报错。
 - **10-21 长按桌面图标的「拍一张」**（§6.10，`shell/AppShortcuts`）：debug 包上 `dumpsys shortcut` 里有这一项，用户试过。从桌面进来拍的图不进输入框，原因是叠了第二个对话页，已修（`AppNavHost.toAssistant()`）：从外面进来后按返回一下就回桌面，app 关着、开着两种都验过。修完后拍照进输入框要用户再试一次。
 
 **还开着的事**

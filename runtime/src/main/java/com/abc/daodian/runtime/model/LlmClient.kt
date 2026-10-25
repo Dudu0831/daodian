@@ -53,3 +53,9 @@ interface LlmClient {
 
     fun step(request: LlmRequest): Flow<LlmEvent>
 }
+
+/** 按配置里选的协议建客户端 */
+internal fun clientFor(profile: ProviderProfile): LlmClient = when (profile.api) {
+    ProviderProfile.Api.RESPONSES -> ResponsesClient(profile)
+    ProviderProfile.Api.CHAT -> ChatCompletionsClient(profile)
+}

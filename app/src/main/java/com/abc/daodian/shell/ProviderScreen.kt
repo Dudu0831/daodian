@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import com.abc.daodian.assistant.conversation.ConversationViewModel
 import com.abc.daodian.assistant.provider.ProviderStore
 import com.abc.daodian.runtime.model.PingResult
+import com.abc.daodian.runtime.model.ProviderProfile
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.ui.PaperSwitch
@@ -51,9 +52,9 @@ import kotlinx.coroutines.launch
 /**
  * 模型服务配置页 —— 顶栏那枚印 → 纸签末行「改配置」进来的地方。见 DESIGN.md 决策 8.4
  *
- * 三格 + 一个开关：网关地址、key、模型，外加「先想一想再答」（[com.abc.daodian.runtime.model.ProviderProfile.thinking]）。
+ * 三格 + 两样选择：网关地址、走哪种接口（[ProviderProfile.Api]）、key、模型，外加「先想一想再答」（[ProviderProfile.thinking]）。
  *
- * 「测一下」用框里**正在填**的值，不用先保存。测没过也能存 ——
+ * 「测一下」用框里**正在填**的值，不用先保存；发的是这段对话下一句真要发的请求，聊天里会出的错这里就会出。测没过也能存 ——
  * 有些网关对这句测试话会挑刺，正式调用反而是通的，拦死了就没法绕过去了。
  */
 @Composable
@@ -67,6 +68,7 @@ fun ProviderScreen(vm: ConversationViewModel, onBack: () -> Unit) {
     var apiKey by remember { mutableStateOf("") }
     var model by remember { mutableStateOf("") }
     var thinking by remember { mutableStateOf(false) }
+    var api by remember { mutableStateOf(ProviderProfile.Api.RESPONSES) }
     var keyShown by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
     var ping by remember { mutableStateOf<PingResult?>(null) }
@@ -79,16 +81,17 @@ fun ProviderScreen(vm: ConversationViewModel, onBack: () -> Unit) {
             apiKey = profile.apiKey
             model = profile.model
             thinking = profile.thinking
+            api = profile.api
             loaded = true
         }
     }
 
     val dirty = loaded &&
         (baseUrl != profile.baseUrl || apiKey != profile.apiKey || model != profile.model ||
-            thinking != profile.thinking)
+            thinking != profile.thinking || api != profile.api)
 
     fun save() {
-        vm.saveProvider(baseUrl, apiKey, model, thinking)
+        vm.saveProvider(baseUrl, apiKey, model, thinking, api)
         onBack()
     }
 
@@ -110,6 +113,17 @@ fun ProviderScreen(vm: ConversationViewModel, onBack: () -> Unit) {
             FieldLabel("网关地址")
             Field(baseUrl, { baseUrl = it; ping = null }, "https://api.example.com/v1")
             Help("填到 /v1 为止，后面的路径 app 自己拼")
+            Spacer(Modifier.height(22.dp))
+
+            FieldLabel("接口")
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ApiChoice("Responses", api == ProviderProfile.Api.RESPONSES) { api = ProviderProfile.Api.RESPONSES; ping = null }
+                ApiChoice("Chat Completions", api == ProviderProfile.Api.CHAT) { api = ProviderProfile.Api.CHAT; ping = null }
+            }
+            Help(
+                if (api == ProviderProfile.Api.CHAT) "走 /chat/completions，几乎每家都认"
+                else "走 /responses。网关只认 /chat/completions 的，选右边那个"
+            )
             Spacer(Modifier.height(22.dp))
 
             FieldLabel("KEY")
@@ -166,7 +180,7 @@ fun ProviderScreen(vm: ConversationViewModel, onBack: () -> Unit) {
                             testing = true
                             ping = null
                             scope.launch {
-                                ping = vm.testProvider(baseUrl, apiKey, model, thinking)
+                                ping = vm.testProvider(baseUrl, apiKey, model, thinking, api)
                                 testing = false
                             }
                         }
@@ -216,6 +230,7 @@ fun ProviderScreen(vm: ConversationViewModel, onBack: () -> Unit) {
                     apiKey = seed.apiKey
                     model = seed.model
                     thinking = seed.thinking
+                    api = seed.api
                     ping = null
                 }
             )
@@ -239,6 +254,21 @@ fun ProviderScreen(vm: ConversationViewModel, onBack: () -> Unit) {
 private fun FieldLabel(text: String) {
     val colors = DaodianColors.current
     Text(text, style = DaodianType.sectionLabel, color = colors.muted, modifier = Modifier.padding(bottom = 8.dp))
+}
+
+/** 两样里选一样：选中的墨色实心，另一样和「测一下」同一个描边 */
+@Composable
+private fun ApiChoice(label: String, selected: Boolean, onClick: () -> Unit) {
+    val colors = DaodianColors.current
+    val shape = RoundedCornerShape(22.dp)
+    Box(
+        Modifier
+            .then(if (selected) Modifier.background(colors.solid, shape) else Modifier.border(1.dp, colors.rule2, shape))
+            .clickable(enabled = !selected, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Text(label, style = DaodianType.bodySmall, color = if (selected) colors.onSolid else colors.ink)
+    }
 }
 
 @Composable

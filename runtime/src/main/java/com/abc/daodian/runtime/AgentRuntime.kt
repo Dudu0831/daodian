@@ -13,14 +13,17 @@ import com.abc.daodian.runtime.memory.MemoryBackend
 import com.abc.daodian.runtime.memory.MemoryPreamble
 import com.abc.daodian.runtime.model.ApiHealth
 import com.abc.daodian.runtime.model.LlmClient
+import com.abc.daodian.runtime.model.LlmException
 import com.abc.daodian.runtime.model.LlmRequest
+import com.abc.daodian.runtime.model.PingResult
 import com.abc.daodian.runtime.model.ProviderProfile
-import com.abc.daodian.runtime.model.ResponsesClient
+import com.abc.daodian.runtime.model.clientFor
 import com.abc.daodian.runtime.tool.Tool
 import com.abc.daodian.runtime.tool.ToolContext
 import com.abc.daodian.runtime.tool.ToolEffect
 import com.abc.daodian.runtime.tool.ToolOutcome
 import com.abc.daodian.runtime.tool.ToolRegistry
+import java.time.ZonedDateTime
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -85,7 +88,7 @@ object AgentRuntime {
         tracer: Tracer = Tracer { _, _, _, _ -> },
         strict: Boolean = false,
         onMisconfigured: (AgentMisconfigured) -> Unit = {},
-        clientOf: (ProviderProfile) -> LlmClient = ::ResponsesClient
+        clientOf: (ProviderProfile) -> LlmClient = ::clientFor
     ) {
         require(agents.map { it.id }.distinct().size == agents.size) { "花名册上 id 重复：${agents.map { it.id }}" }
         synchronized(this) { cached = null }
@@ -151,6 +154,28 @@ object AgentRuntime {
         return checkNotNull(end) { "「${agent.info.label}」这一轮没有结束事件" }
     }
 
+    /**
+     * 配置页「测一下」：用**传进来的**配置（框里正在填的，不用先保存），把 [session] 下一句说「你好」时
+     * 真要发的那个请求发一次 —— 同一份 system、同样的工具、同样垫记忆和摘要、同样带着最近的历史（图也在里面）。
+     * 只调一步，不执行工具、不落进对话。聊天里会出的错，这里就会出；不另外拿 `/models` 之类的接口试探 ——
+     * 那种测通了不代表正式调用能通，「绿灯」比没有还坏。
+     */
+    suspend fun test(agent: Agent, profile: ProviderProfile, session: Session, background: Background): PingResult {
+        if (!profile.isConfigured) return PingResult.Failed("三格还没填全", profile.redacted())
+        val s = setup()
+        if (s.strict) check(s, agent)
+        val loop = AgentLoop(s.clientOf(profile), ToolRegistry(agent.tools), agent.prompt.text, agent.context, agent.maxSteps)
+        val started = System.currentTimeMillis()
+        return try {
+            loop.probe(session, "你好", ZonedDateTime.now(), background)
+            ApiHealth.recordOk()
+            PingResult.Ok(System.currentTimeMillis() - started)
+        } catch (e: LlmException) {
+            ApiHealth.recordDown(e)
+            PingResult.Failed(ApiHealth.humanize(e.message.orEmpty(), e), e.message.orEmpty())
+        }
+    }
+
     private fun events(
         agent: Agent,
         profile: ProviderProfile,
@@ -196,7 +221,7 @@ object AgentRuntime {
     private var cached: Pair<ProviderProfile, LlmClient>? = null
 
     /**
-     * 按配置缓存一份客户端，大家共用 —— [ResponsesClient] 自带一个 OkHttp 客户端，跑一次新建一个等于白扔掉连接池。
+     * 按配置缓存一份客户端，大家共用 —— 客户端自带一个 OkHttp 客户端，跑一次新建一个等于白扔掉连接池。
      * 配置一改，下一次跑就换过去
      */
     @Synchronized

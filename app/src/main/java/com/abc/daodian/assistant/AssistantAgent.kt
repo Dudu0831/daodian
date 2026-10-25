@@ -41,9 +41,6 @@ object AssistantAgent : AgentInfo {
     fun build(tools: List<Tool>): Agent =
         Agent(this, AssistantPrompt.PROMPT, tools, policy(staleOf(tools), LastTurns(Compaction.HARD_CAP)))
 
-    /** 常量，逐字节稳定（前缀缓存） */
-    val system: String get() = AssistantPrompt.SYSTEM
-
     fun tools(context: Context): List<Tool> = tools(MemoryBook.get(context), AssistantPlugins.tools(context))
 
     /**

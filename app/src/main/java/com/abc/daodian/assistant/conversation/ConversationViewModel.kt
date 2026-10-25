@@ -27,7 +27,7 @@ import com.abc.daodian.runtime.engine.AgentEvent
 import com.abc.daodian.runtime.engine.Session
 import com.abc.daodian.runtime.model.ApiHealth
 import com.abc.daodian.runtime.model.PingResult
-import com.abc.daodian.runtime.model.ProviderTest
+import com.abc.daodian.runtime.model.ProviderProfile
 import java.io.File
 import java.time.ZonedDateTime
 import java.util.concurrent.atomic.AtomicLong
@@ -487,10 +487,11 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------- 供应商配置（顶栏印章 → 纸签 → 配置页）----------------
 
     /** 存完下一句话就用新的；上一家的成绩不算到新一家头上，所以状态清空 */
-    fun saveProvider(baseUrl: String, apiKey: String, model: String, thinking: Boolean) = viewModelScope.launch {
-        ProviderStore.save(getApplication(), baseUrl, apiKey, model, thinking)
-        ApiHealth.reset()
-    }
+    fun saveProvider(baseUrl: String, apiKey: String, model: String, thinking: Boolean, api: ProviderProfile.Api) =
+        viewModelScope.launch {
+            ProviderStore.save(getApplication(), baseUrl, apiKey, model, thinking, api)
+            ApiHealth.reset()
+        }
 
     /** 恢复成打包时那份（secrets.properties） */
     fun resetProvider() = viewModelScope.launch {
@@ -498,18 +499,25 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
         ApiHealth.reset()
     }
 
-    /** 测一下框里正在填的这份，不用先保存。带的是和真实请求一样的 system 和工具 */
-    suspend fun testProvider(baseUrl: String, apiKey: String, model: String, thinking: Boolean): PingResult =
-        ProviderTest.run(
+    /**
+     * 测一下框里正在填的这份，不用先保存。发的是这段对话下一句真要发的请求：
+     * 同样的 system、工具、垫的记忆和摘要、最近的历史（`AgentRuntime.test`）—— 聊天里会出的错，这里就会出
+     */
+    suspend fun testProvider(baseUrl: String, apiKey: String, model: String, thinking: Boolean, api: ProviderProfile.Api): PingResult {
+        val app = getApplication<Application>()
+        return AgentRuntime.test(
+            AssistantAgent.build(app),
             profile.value.copy(
                 baseUrl = ProviderStore.normalizeBaseUrl(baseUrl),
                 apiKey = apiKey.trim(),
                 model = model.trim(),
-                thinking = thinking
+                thinking = thinking,
+                api = api
             ),
-            system = AssistantAgent.system,
-            tools = AssistantAgent.tools(getApplication())
+            session.await(),
+            Recall.conversation(app)
         )
+    }
 
     private companion object {
         /** 只有一题的卡，点了之后停这么久再收起：让你看清点的是哪个（动效稿「点选」那一拍） */

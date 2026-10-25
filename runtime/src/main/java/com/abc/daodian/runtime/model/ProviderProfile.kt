@@ -1,7 +1,7 @@
 package com.abc.daodian.runtime.model
 
 /**
- * 换供应商 = 改这几个字段。走的是 Responses API（`POST {baseUrl}/responses`）。
+ * 换供应商 = 改这几个字段。协议两种都有（[api]），各家网关认哪种不一样。
  *
  * 默认值来自根目录的 `secrets.properties`（不进 git，见 .gitignore），构建时注入 BuildConfig，
  * 由 app 那边的 `ProviderStore.seed` 读；运行时以 `ProviderStore` 里存的为准。
@@ -14,14 +14,25 @@ data class ProviderProfile(
      * 让模型先想再答。开：`reasoning.effort=medium` + `summary=auto`（要了摘要才会发思考流）；
      * 关：`effort=none`。默认关 —— 建提醒这种短句，多想一轮换来的是多等几秒。
      */
-    val thinking: Boolean = false
+    val thinking: Boolean = false,
+    /** 走哪种协议。默认 Responses：以前只有它，存过的配置没这个字段时照旧 */
+    val api: Api = Api.RESPONSES
 ) {
+
+    enum class Api {
+        /** `POST {baseUrl}/responses` */
+        RESPONSES,
+
+        /** `POST {baseUrl}/chat/completions`：只认这个的网关不少 */
+        CHAT
+    }
+
     /** 没填 key 或 baseUrl 就别去打网络了，直接走手动录入那条逃生舱路径 */
     val isConfigured: Boolean
         get() = apiKey.isNotBlank() && baseUrl.isNotBlank() && model.isNotBlank()
 
     /** 日志/界面上展示用，绝不能打印完整 key */
     fun redacted(): String =
-        "ProviderProfile(baseUrl=$baseUrl, model=$model, thinking=$thinking, " +
+        "ProviderProfile(baseUrl=$baseUrl, api=$api, model=$model, thinking=$thinking, " +
             "key=${if (apiKey.isBlank()) "<未填>" else "***" + apiKey.takeLast(4)})"
 }

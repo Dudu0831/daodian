@@ -76,7 +76,9 @@ class LiveGatewayTest {
         profile = ProviderProfile(
             baseUrl = setting("DAODIAN_BASE_URL", "LLM_BASE_URL").removeSuffix("/"),
             apiKey = setting("DAODIAN_KEY", "LLM_API_KEY"),
-            model = setting("DAODIAN_MODEL", "LLM_MODEL")
+            model = setting("DAODIAN_MODEL", "LLM_MODEL"),
+            // DAODIAN_API=chat 走 /chat/completions，不设走 /responses
+            api = if (System.getenv("DAODIAN_API").equals("chat", ignoreCase = true)) ProviderProfile.Api.CHAT else ProviderProfile.Api.RESPONSES
         )
         assumeTrue("供应商没配全（secrets.properties 或环境变量）", profile.isConfigured)
     }

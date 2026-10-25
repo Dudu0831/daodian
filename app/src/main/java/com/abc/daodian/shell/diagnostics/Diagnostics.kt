@@ -9,6 +9,7 @@ import androidx.core.content.FileProvider
 import com.abc.daodian.BuildConfig
 import com.abc.daodian.assistant.provider.ProviderStore
 import com.abc.daodian.runtime.AgentRuntime
+import com.abc.daodian.runtime.model.ProviderProfile
 import com.abc.daodian.shared.format.DiagnosticText.time
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shell.entry.ShellEntries
@@ -68,7 +69,7 @@ object Diagnostics {
         val profile = runCatching { ProviderStore.flow(context).first() }.getOrNull()
         if (profile == null) appendLine("读不到")
         else appendLine(
-            if (profile.isConfigured) "${profile.model} · ${Format.host(profile.baseUrl)} · key 已填 · 思考${if (profile.thinking) "开" else "关"}"
+            if (profile.isConfigured) "${profile.model} · ${Format.host(profile.baseUrl)} · ${if (profile.api == ProviderProfile.Api.CHAT) "chat" else "responses"} · key 已填 · 思考${if (profile.thinking) "开" else "关"}"
             else "没配好（网关、key、模型有一项空着）"
         )
 

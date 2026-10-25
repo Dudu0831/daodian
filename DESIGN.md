@@ -393,7 +393,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 | `runtime/memory/` | 记忆的数据、改法（`MemoryBackend`）和规矩（`MemoryRules`） |
 | `assistant/memory/` | 记忆库（`MemoryBook`）、垫在前面的那段（`Recall`）、`edit_memory`；`tidy/` 是后台整理（§6.9） |
 | `runtime/AgentRuntime`、`runtime/Agent` | 跑一个 agent（上面那段）；后台谁在跑（顶栏印外转一圈细线）；按名字的锁（账本一把锁） |
-| `runtime/model/` | 只管调一次模型（§6.2），不认识任何工具；供应商配置长什么样（`ProviderProfile`）、`ApiHealth`、「测一下」。配置存在哪（DataStore）是 `assistant/provider/ProviderStore`（决策 8.4） |
+| `runtime/model/` | 只管调一次模型（§6.2），不认识任何工具；两种协议的客户端、供应商配置长什么样（`ProviderProfile`）、`ApiHealth`。「测一下」在 `AgentRuntime.test`。配置存在哪（DataStore）是 `assistant/provider/ProviderStore`（决策 8.4） |
 | `assistant/AssistantPrompt` | 助手的 system 全文（`AssistantPrompt`），模块不往里追加（§6.3 第 6 条） |
 | `assistant/AssistantAgent` | 助手：system、收工具（问人 + 记忆 + 各模块给的）、喂哪些轮 |
 
@@ -423,7 +423,11 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 
 ### 6.2 调模型：流式、回退、停
 
-`runtime/model/ResponsesClient` 走 `responses().createStreaming()`，事件对到界面上：
+两种协议，配置页「接口」里选（`ProviderProfile.api`，默认 Responses，10-23 加的）：`ResponsesClient` 走 `/responses`，`ChatCompletionsClient` 走 `/chat/completions` —— 有的网关只认后者。流式、回退、取消是两家共用的 `StreamingClient`，下面的规矩两边一样。Chat 那边：system 是第一条消息；assistant 的话和紧跟的调用并成一条带 `tool_calls` 的消息；流里调用按 `index` 一截截来，收到 `finish_reason` 才算收全（断在半路的调用不算）；思考只接 DeepSeek 一类在 delta 上多给的 `reasoning_content`；思考关着时不带 `reasoning_effort`（不少只认 chat 的网关不认 `none`）。
+
+**「测一下」发的就是聊天下一句真要发的请求**（`AgentRuntime.test`）：框里正在填的配置、同一份 system 和工具、同样垫记忆和摘要、同样带最近的历史（图也在），后面接一句「你好」，只调一步、不执行工具、不落进对话；一个字、一个调用都没回来也算没通。以前只发一句「你好」不带历史、回空也算通，测得过、聊天却报错。
+
+`ResponsesClient` 的事件对到界面上：
 
 | SDK 事件 | 界面 |
 |---|---|

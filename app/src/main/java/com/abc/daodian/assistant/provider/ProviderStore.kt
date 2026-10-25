@@ -28,6 +28,7 @@ object ProviderStore {
     private val API_KEY = stringPreferencesKey("api_key")
     private val MODEL = stringPreferencesKey("model")
     private val THINKING = booleanPreferencesKey("thinking")
+    private val API = stringPreferencesKey("api")
 
     /** 打包时那份。设置页的「恢复成打包时的配置」把三格填回它 */
     val seed: ProviderProfile
@@ -55,15 +56,27 @@ object ProviderStore {
             } else {
                 seed
             }
-            base.copy(thinking = p[THINKING] ?: seed.thinking)
+            base.copy(
+                thinking = p[THINKING] ?: seed.thinking,
+                // 存的是枚举名；没存过（这个字段是后加的）或认不出来都当 Responses，以前只有它
+                api = p[API]?.let { name -> ProviderProfile.Api.entries.firstOrNull { it.name == name } } ?: seed.api
+            )
         }
 
-    suspend fun save(context: Context, baseUrl: String, apiKey: String, model: String, thinking: Boolean) {
+    suspend fun save(
+        context: Context,
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        thinking: Boolean,
+        api: ProviderProfile.Api
+    ) {
         context.applicationContext.providerDataStore.edit { p ->
             p[BASE_URL] = normalizeBaseUrl(baseUrl)
             p[API_KEY] = apiKey.trim()
             p[MODEL] = model.trim()
             p[THINKING] = thinking
+            p[API] = api.name
         }
     }
 
@@ -73,7 +86,7 @@ object ProviderStore {
     }
 
     /**
-     * 粘过来的地址十有八九带着尾巴。SDK 自己会拼 `/responses`，
+     * 粘过来的地址十有八九带着尾巴。SDK 自己会拼 `/responses` 或 `/chat/completions`，
      * 这里只留到 `/v1` 为止，多出来的路径原样留着会拼成 `/v1/responses/responses`。
      */
     fun normalizeBaseUrl(raw: String): String {
