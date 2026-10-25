@@ -34,8 +34,8 @@ android {
         minSdk = 33          // DESIGN 决策 3.2：为了 Android 13 的内测者从 34 退回来，14 才有的接口三处版本分支
         targetSdk = 35
         // 发出去的每个包 versionCode 都要 +1：同号、降号覆盖不上
-        versionCode = 11
-        versionName = "0.1.9"
+        versionCode = 12
+        versionName = "0.1.10"
 
         // 本地语音识别（sherpa-onnx）的 native 库四个 ABI 加起来 70MB+，真机只要 arm64 那份
         ndk { abiFilters += "arm64-v8a" }
