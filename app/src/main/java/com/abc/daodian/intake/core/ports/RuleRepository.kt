@@ -21,4 +21,7 @@ interface RuleRepository {
 
     /** 设置页上删 */
     suspend fun delete(id: Long)
+
+    /** 删了又点撤销：原样放回去，编号不变（收件箱里记着它的编号） */
+    suspend fun restore(rule: Rule)
 }

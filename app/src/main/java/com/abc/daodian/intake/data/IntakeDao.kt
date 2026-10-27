@@ -135,6 +135,26 @@ interface IntakeDao {
     )
     suspend fun reportLatest(noticeId: Long, target: String, text: String, route: String?, at: Long)
 
+    // ---------------- 记录页 ----------------
+
+    /** 收件箱里全部（办完的只留 30 天，不会太多），新的在前 */
+    @Query("SELECT * FROM notices ORDER BY receivedAt DESC, id DESC")
+    fun observeNotices(): Flow<List<NoticeRow>>
+
+    @Query("SELECT * FROM notice_rules")
+    fun observeNoticeRules(): Flow<List<NoticeRuleRow>>
+
+    @Query("SELECT * FROM handoffs ORDER BY id")
+    fun observeHandoffs(): Flow<List<HandoffRow>>
+
+    /** 记录页点「再试」：管家办了 3 次没办成的，放回待办重新数 */
+    @Query("UPDATE notices SET state = 'PENDING', attempts = 0 WHERE id = :id AND state = 'FAILED'")
+    suspend fun retryNotice(id: Long)
+
+    /** 记录页点「再试」：交了 3 次没交出去的，放回待交重新数 */
+    @Query("UPDATE handoffs SET state = 'DUE', attempts = 0, error = NULL WHERE id = :id AND state = 'FAILED'")
+    suspend fun retryHandoff(id: Long)
+
     // ---------------- 清 ----------------
 
     @Query("DELETE FROM notice_rules WHERE noticeId IN (SELECT id FROM notices WHERE state = 'DONE' AND doneAt < :before)")

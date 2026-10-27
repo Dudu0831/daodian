@@ -10,4 +10,18 @@ object IntakeRoutes {
     const val APPS = "intake/apps/{id}"
 
     fun apps(subscriberId: String) = "intake/apps/$subscriberId"
+
+    /** 听通知的规则（新链路，DESIGN.md §12.2） */
+    const val RULES = "intake/rules"
+
+    const val RULE = "intake/rule/{id}"
+
+    fun rule(id: Long) = "intake/rule/$id"
+
+    /** 收到的通知：收件箱的记录（§12.3） */
+    const val NOTICES = "intake/notices"
+
+    const val NOTICE = "intake/notice/{id}"
+
+    fun notice(id: Long) = "intake/notice/$id"
 }

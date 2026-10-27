@@ -20,6 +20,10 @@ import com.abc.daodian.BuildConfig
 import com.abc.daodian.intake.Intake
 import com.abc.daodian.intake.IntakeRoutes
 import com.abc.daodian.intake.NoticeRouting
+import com.abc.daodian.intake.core.inbox.InboxState
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
@@ -35,7 +39,8 @@ import com.abc.daodian.shared.ui.activityViewModel
 
 /**
  * 「权限与监听」页里通知监听层那几组：通知使用权、监听连没连着（重连）、扫一遍，
- * 谁在听（按模块，点进勾选页）、按 app 看。全 app 只有这一个监听（DESIGN.md §2.3）。
+ * 谁在听（按模块，点进勾选页）、按 app 看。新链路开着时后两组换成规则、收到的通知两个入口（[HubGroup]）。
+ * 全 app 只有这一个监听（DESIGN.md §2.3）。
  * 通知使用权**不算进体检结论**：它挂了记账、派活收不到，但不影响提醒响（DESIGN.md §9.1）。
  */
 @Composable
@@ -54,13 +59,19 @@ fun IntakePermissionSection(open: (String) -> Unit) {
         onPauseOrDispose { }
     }
     val busy = action == ListenerAction.Sweeping || action == ListenerAction.Reconnecting
-    val who = Intake.subscribers.joinToString("、") { it.label }
+    val routing by vm.routing.collectAsState()
+    val hub = routing == NoticeRouting.HUB
+    val who = if (hub) "通知" else Intake.subscribers.joinToString("、") { it.label }
 
-    GroupLabel("${who}要的")
+    GroupLabel(if (hub) "听通知要的" else "${who}要的")
     PaperGroup {
         SettingRow(
             title = "通知使用权",
-            note = if (granted) "挂了${who}收不到，不影响提醒响" else "没开，${who}都收不到 —— 点这里去系统设置里打开「到点」",
+            note = when {
+                hub -> if (granted) null else "没开，听不到通知 —— 点这里去系统设置里打开「到点」"
+                granted -> "挂了${who}收不到，不影响提醒响"
+                else -> "没开，${who}都收不到 —— 点这里去系统设置里打开「到点」"
+            },
             noteColor = if (granted) colors.muted else colors.red,
             titleColor = if (granted) colors.ink2 else colors.ink,
             onClick = { runCatching { context.startActivity(vm.grantIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } },
@@ -81,13 +92,19 @@ fun IntakePermissionSection(open: (String) -> Unit) {
             GroupRule()
             SettingRow(
                 title = "扫一遍通知栏",
-                note = resultOf(action) ?: "实时回调会漏。还挂在通知栏里的，再交给勾了它的模块一次；划掉了的，系统不留",
+                note = resultOf(action) ?: if (hub) null else "实时回调会漏。还挂在通知栏里的，再交给勾了它的模块一次；划掉了的，系统不留",
                 noteColor = if (action is ListenerAction.NotConnected) colors.red else colors.muted,
                 leading = { Marker(null) }
             ) {
                 Action(if (action == ListenerAction.Sweeping) "在扫……" else "扫一遍", enabled = !busy) { vm.sweep() }
             }
         }
+    }
+
+    if (hub) {
+        HubGroup(open)
+        if (BuildConfig.DEBUG) RoutingGroup(vm)
+        return
     }
 
     GroupLabel("谁在听")
@@ -125,6 +142,53 @@ fun IntakePermissionSection(open: (String) -> Unit) {
     }
 
     if (BuildConfig.DEBUG) RoutingGroup(vm)
+}
+
+/** 新链路的两个入口：规则、收到的通知（设计稿方向 B：https://claude.ai/artifact/Qg7TytQpTJd5N4CtuacTB8） */
+@Composable
+private fun HubGroup(open: (String) -> Unit) {
+    val inbox = activityViewModel<InboxViewModel>()
+    val colors = DaodianColors.current
+    val rules by inbox.ruleItems.collectAsState()
+    val entries by inbox.entries.collectAsState()
+    val on = rules.orEmpty().count { it.rule.enabled }
+    val off = rules.orEmpty().size - on
+    val today = LocalDate.now()
+    val zone = ZoneId.systemDefault()
+    val list = entries.orEmpty()
+    val todayCount = list.count { Instant.ofEpochMilli(it.row.receivedAt).atZone(zone).toLocalDate() == today }
+    val waiting = list.count { it.row.state in setOf(InboxState.WAITING, InboxState.PENDING, InboxState.WORKING) }
+    val failed = list.count { e -> e.outcomes.any { it.tone == Tone.BAD } }
+
+    GroupLabel("听通知")
+    PaperGroup {
+        SettingRow(
+            title = "规则",
+            note = if (off > 0) "$off 条停着" else null,
+            onClick = { open(IntakeRoutes.RULES) }
+        ) {
+            if (rules != null) {
+                Text("$on", style = DaodianType.settingValue, color = colors.ink)
+                Spacer(Modifier.width(10.dp))
+            }
+            ChevronRightIcon(size = 13.dp, tint = colors.muted)
+        }
+        GroupRule()
+        SettingRow(
+            title = "收到的通知",
+            note = entries?.let {
+                listOfNotNull(
+                    "今天 $todayCount 条",
+                    if (waiting > 0) "$waiting 条还没办" else null,
+                    if (failed > 0) "$failed 条没办成" else null
+                ).joinToString(" · ")
+            },
+            noteColor = if (failed > 0) colors.red else colors.muted,
+            onClick = { open(IntakeRoutes.NOTICES) }
+        ) {
+            ChevronRightIcon(size = 13.dp, tint = colors.muted)
+        }
+    }
 }
 
 /**

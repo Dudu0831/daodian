@@ -35,6 +35,13 @@ class RoomRuleRepository(db: IntakeDatabase) : RuleRepository {
 
     override suspend fun delete(id: Long) = write { dao.deleteRule(id) }
 
+    override suspend fun restore(rule: Rule) = write {
+        dao.insertRule(
+            RuleRow(rule.id, rule.name, RuleCodec.encode(rule.hard), rule.soft, rule.enabled, rule.createdAt)
+        )
+        Unit
+    }
+
     private suspend fun <T> write(block: suspend () -> T): T = lock.withLock {
         try {
             block()

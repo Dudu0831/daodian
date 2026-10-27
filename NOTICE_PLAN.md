@@ -395,8 +395,11 @@ data class Receipt(val handoffId: Long, val text: String, val route: String? = n
 
 ### 第 7 步：界面（先出设计稿）
 
-- [ ] 设计稿：规则页（一条一行、点进去看硬条件 / 软规则 / 最近进来的、停 + 撤销）、收件箱记录页
-- [ ] 「权限与监听」页的「谁在听」「按 app 看」换掉；提醒设置里的派活一组去掉
+- [x] 设计稿（<https://claude.ai/artifact/Qg7TytQpTJd5N4CtuacTB8>，10-27 用户选了方向 B，**固定的说明字少写**）：「权限与监听」→「规则」/「收到的通知」两个入口；规则页分在听 / 停了；一条规则 = 在听开关、听什么、进来之后、最近进来的、删掉（退回规则页给 5 秒撤销）；收到的通知按天分组，底下写变成了什么，没办成的带「再试」；一条通知 = 全文、中了的规则、办成了什么（点进那条提醒）
+- [x] 代码：`intake/presentation/InboxScreens.kt`、`InboxViewModel.kt`（四页共用，读 `intake.db` 的 Flow）；路由 `intake/rules`、`intake/rule/{id}`、`intake/notices`、`intake/notice/{id}`；`RuleRepository.restore`（撤销删除，编号不变）；Dao 加了记录页的三个 Flow 和两个「再试」
+- [x] 「权限与监听」页：**新链路开着时**「谁在听」「按 app 看」换成两个入口、组名改「听通知要的」、去掉使用权和扫一遍的说明；老链路原样（release 第 8 步才切）
+- **挪到第 8 步的**：提醒设置里派活那一组 —— 提醒模块看不到开关（模块不 import intake 的开关），老链路还在用它，切换那一版连 `Relay` 一起删
+- **10-27 用户在真机（debug 包）上逐页看过，说都对**：入口两行、规则页停 / 开 / 删 + 撤销、一条规则、收到的通知、一条通知、开关关掉变回老样子
 
 ### 第 8 步：切换发版
 

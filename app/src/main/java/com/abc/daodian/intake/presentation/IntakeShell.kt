@@ -37,6 +37,14 @@ object IntakeShell : ShellEntry {
         composable(IntakeRoutes.APPS, arguments = listOf(navArgument("id") { type = NavType.StringType })) {
             AppPickerScreen(vm = viewModel(), onBack = nav::back)
         }
+        composable(IntakeRoutes.RULES) { RulesScreen(onBack = nav::back, open = nav::open) }
+        composable(IntakeRoutes.RULE, arguments = listOf(navArgument("id") { type = NavType.LongType })) {
+            RuleScreen(id = it.arguments?.getLong("id") ?: 0L, onBack = nav::back, open = nav::open)
+        }
+        composable(IntakeRoutes.NOTICES) { NoticesScreen(onBack = nav::back, open = nav::open) }
+        composable(IntakeRoutes.NOTICE, arguments = listOf(navArgument("id") { type = NavType.LongType })) {
+            NoticeScreen(id = it.arguments?.getLong("id") ?: 0L, onBack = nav::back, open = nav::open)
+        }
     }
 
     @Composable

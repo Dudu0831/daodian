@@ -65,6 +65,14 @@ object NoticeHub {
         return Wired(pipeline, scheduler)
     }
 
+    /** 去处的人话名字（「提醒」），记录页用。不认识的（模块后来拿掉了）原样返回 */
+    fun label(id: String): String = targets.firstOrNull { it.id == id }?.label ?: id
+
+    /** 叫一下管家（记录页点了「再试」） */
+    fun poke(context: Context) {
+        wired(context).scheduler.poke()
+    }
+
     /** 过一遍流水线，都过完才返回。返回落没落进收件箱（新存、补规则、改判都算） */
     internal suspend fun receive(context: Context, notice: Notice, lastLook: Boolean): Boolean =
         wired(context).pipeline.run(notice, lastLook)?.stored != null

@@ -53,6 +53,9 @@ class FakeRules(var list: List<Rule> = emptyList()) : RuleRepository {
     override suspend fun delete(id: Long) {
         list = list.filterNot { it.id == id }
     }
+    override suspend fun restore(rule: Rule) {
+        list = (list + rule).sortedBy { it.id }
+    }
 }
 
 /** 内存里的收件箱：找 Existing、照 Landing 落，和 Room 那份该做的一样。管家那几样这里用不着 */
