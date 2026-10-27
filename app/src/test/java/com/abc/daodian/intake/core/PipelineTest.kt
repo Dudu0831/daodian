@@ -27,7 +27,8 @@ class PipelineTest {
     private val rules = FakeRules(listOf(parcel, bank, wife))
     private val inbox = FakeInbox()
     private val reread = mutableListOf<Notice>()
-    private val pipeline = Pipeline.standard(rules, inbox, { reread += it }, now = { 0 })
+    private var pokes = 0
+    private val pipeline = Pipeline.standard(rules, inbox, { reread += it }, { pokes++ }, now = { 0 })
 
     private fun run(n: Notice, last: Boolean = false): Catch? = runBlocking { pipeline.run(n, last) }
 
@@ -53,6 +54,7 @@ class PipelineTest {
         assertEquals(PENDING, row.state)
         assertEquals(setOf(1L), row.rules)
         assertTrue(reread.isEmpty())
+        assertEquals("重复的那次不再叫管家", 1, pokes)
     }
 
     @Test
@@ -83,6 +85,7 @@ class PipelineTest {
         run(hidden)
         assertEquals(WAITING, inbox.rows.values.single().state)
         assertEquals(1, reread.size)
+        assertEquals("等着的不叫管家", 0, pokes)
         run(hidden.copy(how = "retry+5s"))
         assertEquals(1, reread.size)
 
@@ -91,6 +94,7 @@ class PipelineTest {
         assertEquals(PENDING, row.state)
         assertFalse(row.redacted)
         assertEquals("取件码 3-2-1088", row.text)
+        assertEquals(1, pokes)
     }
 
     @Test

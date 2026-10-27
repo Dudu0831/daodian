@@ -41,13 +41,14 @@ class Pipeline(private val stages: List<Stage>) {
     }
 
     companion object {
-        /** 标准的四段：整理格式 → 对硬条件 → 落收件箱 → 遮蔽版叫重读 */
+        /** 标准的四段：整理格式 → 对硬条件 → 落收件箱 → 叫重读、叫管家 */
         fun standard(
             rules: RuleRepository,
             inbox: InboxRepository,
             reread: (Notice) -> Unit,
+            pending: () -> Unit,
             now: () -> Long = System::currentTimeMillis,
             formats: (String) -> NoticeFormat = Formats::of
-        ) = Pipeline(listOf(Normalize(formats), Match(rules), Store(inbox, now), Wake(reread)))
+        ) = Pipeline(listOf(Normalize(formats), Match(rules), Store(inbox, now), Wake(reread, pending)))
     }
 }

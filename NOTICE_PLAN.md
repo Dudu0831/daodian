@@ -1,6 +1,6 @@
 # 改造方案：通知管家（规则、收件箱、子代理）
 
-2026-10-26 定的方向，**第 1–3 步做完了（10-26，没接线）**。为什么这样分、要守的规矩在 DESIGN §2.3、§12；这份只管怎么落：目录、接口、库、步骤、测试。做完一步在第 8 节打勾；全部做完后，要紧的决定并进 DESIGN，这份删掉（和 `REFACTOR_PLAN.md` 一样）。
+2026-10-26 定的方向，**第 1–4 步做完了（10-26，没接线）**。为什么这样分、要守的规矩在 DESIGN §2.3、§12；这份只管怎么落：目录、接口、库、步骤、测试。做完一步在第 8 节打勾；全部做完后，要紧的决定并进 DESIGN，这份删掉（和 `REFACTOR_PLAN.md` 一样）。
 
 ## 0 一句话
 
@@ -32,8 +32,8 @@ NoticeListenerService（不改名、不挪）
          Normalize   按包名挑整理格式 → 整理过的标题、正文
          Match       每条启用的规则对一遍硬条件 → 中了哪几条 / 遮蔽版待定 / 没中
          Store       中了的进收件箱（按指纹去重）；没中的扔
-         Wake        遮蔽版 → 叫监听层 5s / 30s / 2min 重读；有新待办 → 通知调度
-  └─ StewardScheduler   待办数变了 → 防抖 3 秒 → Steward.runOnce()（一次只跑一个）
+         Wake        遮蔽版 → 叫监听层 5s / 30s / 2min 重读；落成待办 → 叫调度（poke）
+  └─ StewardScheduler   有人叫 → 防抖 3 秒 → Steward.runOnce() + Dispatcher.runOnce()（一次只跑一轮）
        Steward          取一批待办 → 拼输入 → AgentRuntime.runOnce(StewardAgent)
                         工具只产出「决定」（交给谁 / 不相关）→ 一个事务写进收件箱和交接表
   └─ Dispatcher         交接表里待交的 → targets[to].accept(...) → 回执写回收件箱；失败重试 3 次
@@ -104,7 +104,7 @@ reminder/notice/                           取代 reminder/relay/
 | **Pipeline（Chain of Responsibility）** | 收：Normalize → Match → Store → Wake，每一段可以叫停 | 以后要加一道（比如全局隐私闸）= 插一段，前后都不动；每一段能单独测 |
 | **Repository（Ports & Adapters）** | `core/ports` 只有接口，Room 实现在 `data/` | 核心是纯 Kotlin，JVM 单测用内存假实现，不起 Android |
 | **State（状态机）** | 收件箱一行：待办 → 办着 → 办完 / 没办成，转移表写死 | 不会出现「办完了又退回待办」这种乱跳；转移表单测 |
-| **Observer + 防抖** | `InboxRepository.pending()` 是个 Flow，调度器订阅它、`debounce(3s)` | 收和办解开：流水线不知道管家存在，只往库里写 |
+| **Observer + 防抖** | 流水线的 `Wake` 落成待办时叫一声（回调），调度器把叫声 `debounce(3s)` | 收和办解开：流水线只知道「有人要听」，不知道管家存在。**不盯待办数**：管家跑失败把一批放回待办，待办数一变又叫醒自己，就成了每 3 秒一次的死循环（第 4 步改的） |
 | **Command** | 管家的工具不直接改库，只往 `DecisionBuffer` 里放「决定」；一轮跑完一个事务落库 | 模型跑到一半断了，什么都没写，下次整批重来；决定能单测、能重放 |
 | **Transactional Outbox** | 决定落库时同一个事务写 `handoffs`（待交）；`Dispatcher` 另起去交 | 模块 `accept` 抛错、进程被杀都不丢：交接在库里，下次接着交。管家不用等模块干完 |
 | **Plugin / Registry（开闭原则）** | 去处由 `Module.notice` 交上来，`Intake.install` 收齐 | 加一个模块不改 intake、不改管家的提示词（去处清单自动多一行） |
@@ -251,10 +251,12 @@ data class Receipt(val handoffId: Long, val text: String, val route: String? = n
 
 ### 4.6 管家
 
-- `StewardScheduler`：`install` 时订阅 `pendingCount()`，`filter { it > 0 }.debounce(3_000)` → `Steward.runOnce()`；`IntakeModule.onAppStart`、`Dispatcher` 重试后也踢一下。`Mutex` 保证一次一个。
-- `StewardInput`：从稳定到常变排 —— 去处清单（按 `Modules.kt` 顺序）→ 启用中的规则（按 id）→ 记忆 → 这一批。前两段只在规则、模块变了时变，单测守「同样的规则拼出来逐字节一样」（前缀缓存）。
-- `AgentRuntime.runOnce`，不挂顶栏（界面上不露面，DESIGN §12.4），debug 包 trace 写 `files/trace_steward.txt`。
-- 每批最多 20 条。没配模型：不跑，待办留着。
+- `StewardScheduler`：叫声（`poke`）→ `debounce(3_000)` → 跑一轮（管家 + 交接）。流水线落成待办、`IntakeModule.onAppStart` 叫它；一轮说「还有」（这一批满了、有没覆盖全的）就再叫自己一次 —— 没覆盖全的有次数上限，不会空转；**整批跑失败不再叫**，等下一次来了新的或打开 app。`collect` 一次只跑一轮，跑着时又叫的跑完再防抖一次。
+- `Steward.runOnce`：没配模型就不领（待办留着）→ 领一批 → 中了的规则后来停了、删了的，代码直接标「规则停了」（管家看不到它的软规则）→ 剩下的交模型 → `settle` 一个事务。跑模型那一下可以换（`ask`），单测换成照剧本回话的假网关，走的是真的 `AgentRuntime`（strict）。
+- `StewardInput`：去处清单 → 启用中的规则这两段垫在背景里，**排在记忆后面**（`MemoryPreamble.of(memories, null, listOf(standing))`，和对话页垫模块现状一样）；这一批是输入。两段都只在规则、模块、记忆变了时变，前缀照样稳。
+- `AgentRuntime.runOnce`，不挂顶栏（界面上不露面，DESIGN §12.4），debug 包 trace 写 `files/trace_steward.txt`（runtime 按 agent id 写，不用另加）。
+- 每批最多 20 条，一轮最多 8 步（一步里能并着调好几个工具）。
+- `Dispatcher`：去处 id → `Accept`（`suspend (List<Handed>) -> List<Receipt>`，装的时候拿 `NoticeTarget.accept` 绑上 Context），不碰 Android，JVM 能测。按去处分好交；抛错的整组、没回执的那条算没交成，第 3 次标交不出；没有这个去处（模块删了）的同样记一次没交成。交接重试也只在下一轮时：不另排闹钟。
 
 ### 4.7 助手的工具
 
@@ -349,9 +351,12 @@ data class Receipt(val handoffId: Long, val text: String, val route: String? = n
 
 ### 第 4 步：管家
 
-- [ ] `StewardAgent`、`StewardPrompt`（`steward-v1`）、`HandOffTool`、`IgnoreTool`
-- [ ] `Steward`、`StewardScheduler`、`Dispatcher`
-- [ ] `LiveGatewayTest` 加一组：造好的几条通知 + 几条规则打真网关，看交给谁、附言写了什么
+- [x] `StewardAgent`（id `steward`）、`StewardPrompt`（`steward-v1`）、`HandOffTool`、`IgnoreTool`（`StewardTools.kt`）
+- [x] `Steward`、`StewardScheduler`、`Dispatcher`；`HandoffRepository` 和 `RoomHandoffRepository`；`Wake` 加了叫调度那一下
+- [x] 花名册六个（加了管家）、`ArchitectureTest`（`intake` 除 `core/` 外能用 `runtime`）
+- [x] 单测 `StewardRunTest`：落库、错了退回再改、没覆盖全回待办、整批失败不算次数、没配模型不领、规则停了不叫模型、交接三种结果、交不出、防抖合并
+- [ ] `LiveGatewayTest` 加了一条（`steward follows the soft rules…`）：四条通知三条规则打真网关，看交给谁、附言带没带 18:00、广告标没标不相关，再拿附言喂提醒子代理看建出来是不是 18:00。**还没跑**：要真 key（命令见 CLAUDE.md「打真网关」那条，`--tests '*LiveGatewayTest*steward*'`）
+- **第 3 次交不出要不要通知你**：先不通知，记录页（第 7 步）上看得到；以前派活带暗号的没接住会弹一条。第 10 节第 8 条
 
 ### 第 5 步：助手建规则
 
@@ -410,3 +415,4 @@ data class Receipt(val handoffId: Long, val text: String, val route: String? = n
 5. **提醒子代理重复建**：进程在「建好」和「写回执」之间被杀会多一条。要根治得在 `reminder.db` 记来源，碰了不该碰的库；先接受。
 6. **收件箱里的原文要不要在记录页上全文可看**：隐私上和「抓到的通知」一样（只在本机），倾向能看。
 7. **整批跑失败算不算一次**（第 1 步先定成不算）：断网时算的话，几条通知很快就被耗成「没办成」，账就断了。代价是万一有一条每次都让网关报错（内容审核），它会一直拖着同一批。真碰上再改：比如失败后下一批只领一条。
+8. **交接第 3 次交不出时通知不通知**（第 4 步先定成不通知）：提醒子代理连着三次没跑成（断网、模型挂了），这件事就没建成，你不看记录页不会知道。倾向通知一条「有 N 件事没接住」，点开是记录页 —— 等第 7 步有了记录页再加。

@@ -17,7 +17,7 @@ interface InboxRepository {
      */
     suspend fun receive(n: Normalized, matched: Set<Long>, lastLook: Boolean, at: Long): Stored?
 
-    /** 待办几条。管家的调度订阅它（Observer），变了防抖 3 秒再叫管家 */
+    /** 待办几条（界面、诊断看）。管家不靠它醒，靠 `Wake` 叫 */
     fun pendingCount(): Flow<Int>
 
     /**

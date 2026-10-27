@@ -5,9 +5,25 @@ import com.abc.daodian.assistant.memory.FakeMemoryBook
 import com.abc.daodian.assistant.memory.tidy.SaveTidyTool
 import com.abc.daodian.assistant.memory.tidy.TidyAgent
 import com.abc.daodian.assistant.memory.tidy.TidyText
+import com.abc.daodian.intake.core.CMB
+import com.abc.daodian.intake.core.FakeInbox
+import com.abc.daodian.intake.core.FakeRules
+import com.abc.daodian.intake.core.NAMES
+import com.abc.daodian.intake.core.SMS
+import com.abc.daodian.intake.core.WECHAT
+import com.abc.daodian.intake.core.notice
+import com.abc.daodian.intake.core.pipeline.Pipeline
+import com.abc.daodian.intake.core.rule
+import com.abc.daodian.intake.core.rule.RuleDraft
+import com.abc.daodian.intake.core.steward.Destination
+import com.abc.daodian.intake.steward.Steward
+import com.abc.daodian.ledger.capture.LedgerNoticeTarget
 import com.abc.daodian.ledger.domain.LedgerBackend
 import com.abc.daodian.ledger.tools.LedgerTools
 import com.abc.daodian.reminder.domain.ReminderPlan
+import com.abc.daodian.reminder.notice.ReminderNoticeAgent
+import com.abc.daodian.reminder.notice.ReminderNoticePrompt
+import com.abc.daodian.reminder.notice.ReminderNoticeTarget
 import com.abc.daodian.reminder.relay.RelayAgent
 import com.abc.daodian.reminder.relay.RelayPrompt
 import com.abc.daodian.reminder.tools.CreateReminderTool
@@ -175,6 +191,57 @@ class LiveGatewayTest {
         println("闲聊：${chitchat.reply}")
         assertTrue("闲聊那句没正常结束：$chitchat", chitchat is RunResult.Done)
         assertTrue("闲聊不该建：$plans", plans.isEmpty())
+    }
+
+    /**
+     * 通知管家（§12.4）照规则定去处：快递短信交提醒、附言带上 18:00；驿站的广告不相关；招行交记账；
+     * 老婆带暗号的交提醒。再拿快递那条的附言喂提醒子代理，建出 18:00 的提醒
+     */
+    @Test
+    fun `steward follows the soft rules and the reminder sub agent follows the note`() = runBlocking {
+        install(FakeMemoryBook("他一般 18:00 下班"))
+        val rules = FakeRules(
+            listOf(
+                rule(1, RuleDraft(name = "快递到了提醒取", apps = listOf(SMS), bodyAny = listOf("取件码", "驿站"), soft = "快递到了驿站或快递柜，当天 18:00 提醒我去取，标题带上取件码；广告、寄件优惠不算")),
+                rule(2, RuleDraft(name = "招商银行记账", apps = listOf(CMB), soft = "这个 app 的通知都交给记账")),
+                rule(3, RuleDraft(name = "老婆派的事", apps = listOf(WECHAT), title = "老婆", startsWith = "到点", soft = "她让我做的事建成提醒，一律响铃；闲聊、她自己的安排不算"))
+            )
+        )
+        val inbox = FakeInbox()
+        val pipeline = Pipeline.standard(rules, inbox, {}, {}, now = { 0 })
+        pipeline.run(notice(SMS, "菜鸟驿站", "【菜鸟驿站】您的包裹已到幸福里驿站，凭取件码 3-2-1088 领取", key = "a"))
+        pipeline.run(notice(SMS, "菜鸟驿站", "【菜鸟】双十一寄件 5 折，驿站寄快递更划算，退订回 T", key = "b"))
+        pipeline.run(notice(CMB, "招商银行", "您尾号 8837 的信用卡 10 月 26 日 12:03 消费 58.00 元", key = "c"))
+        pipeline.run(notice(WECHAT, "老婆(2条)", "[2条]老婆: 到点 晚上回来带瓶酱油", key = "d"))
+        assertEquals(4, inbox.rows.size)
+
+        val now = ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).withHour(15).withMinute(0)
+        val destinations = listOf(
+            Destination(LedgerNoticeTarget.ID, LedgerNoticeTarget.label, LedgerNoticeTarget.brief),
+            Destination(ReminderNoticeTarget.ID, ReminderNoticeTarget.label, ReminderNoticeTarget.brief)
+        )
+        val result = Steward(inbox, rules, destinations, NAMES, now = { now }).runOnce()
+        println("管家：$result\n交接：${inbox.handoffs}\n说法：${inbox.decided}")
+        assertTrue("管家没正常结束：$result", result is Steward.Result.Done)
+        assertEquals("四条都有说法", setOf(1L to 1L, 2L to 1L, 3L to 2L, 4L to 3L), inbox.decided.keys)
+        val parcel = inbox.handoffs.single { it.noticeId == 1L }
+        assertEquals("reminder", parcel.to)
+        assertTrue("附言要带钟点：${parcel.note}", parcel.note.contains("18:00") || parcel.note.contains("18点"))
+        assertTrue("广告不相关：${inbox.decided[2L to 1L]}", inbox.decided[2L to 1L]!!.startsWith("不相关"))
+        assertEquals("ledger", inbox.handoffs.single { it.noticeId == 3L }.to)
+        assertEquals("reminder", inbox.handoffs.single { it.noticeId == 4L }.to)
+
+        val plans = mutableListOf<ReminderPlan>()
+        val agent = ReminderNoticeAgent.build { plan, _ -> plans += plan; 2001L }
+        val input = ReminderNoticePrompt.input("短信", "菜鸟驿站", "【菜鸟驿站】您的包裹已到幸福里驿站，凭取件码 3-2-1088 领取", redacted = false, note = parcel.note)
+        val run = AgentRuntime.runOnce(agent, Input(input, now), AgentRuntime.memory)
+        println("提醒子代理：$run\n建的：$plans")
+        val plan = plans.singleOrNull()
+        assertNotNull("应该恰好建一条：$plans", plan)
+        assertFalse("说了钟点，不是当天事项：$plan", plan!!.allDay)
+        assertEquals("18:00 提醒：$plan", 18, java.time.OffsetDateTime.parse(plan.firstTriggerAt).atZoneSameInstant(ZoneId.of("Asia/Shanghai")).hour)
+        assertTrue("标题带取件码：${plan.title}", plan.title.contains("3-2-1088"))
+        assertFalse("附言没说轻提醒：$plan", plan.gentle)
     }
 
     /** 整理员（§6.9）：看一段对话，交上记忆和摘要；账目、一次性的事不进记忆，摘要不写「已经办好」 */

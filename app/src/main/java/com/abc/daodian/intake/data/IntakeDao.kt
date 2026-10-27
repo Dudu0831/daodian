@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import com.abc.daodian.intake.core.inbox.HandoffState
 import com.abc.daodian.intake.core.inbox.InboxState
 import kotlinx.coroutines.flow.Flow
 
@@ -95,6 +96,23 @@ interface IntakeDao {
 
     @Insert
     suspend fun insertHandoff(h: HandoffRow): Long
+
+    // ---------------- 交接 ----------------
+
+    @Query("SELECT * FROM handoffs WHERE state = 'DUE' ORDER BY createdAt, id LIMIT :limit")
+    suspend fun dueHandoffs(limit: Int): List<HandoffRow>
+
+    @Query("SELECT * FROM handoffs WHERE id = :id")
+    suspend fun handoff(id: Long): HandoffRow?
+
+    @Query("SELECT * FROM notices WHERE id IN (:ids)")
+    suspend fun notices(ids: List<Long>): List<NoticeRow>
+
+    @Query("UPDATE handoffs SET state = 'DELIVERED', error = NULL, receipt = :receipt, route = :route, reportedAt = :at WHERE id = :id")
+    suspend fun delivered(id: Long, receipt: String, route: String?, at: Long)
+
+    @Query("UPDATE handoffs SET state = :state, attempts = :attempts, error = :error WHERE id = :id")
+    suspend fun missed(id: Long, state: HandoffState, attempts: Int, error: String)
 
     // ---------------- 回执 ----------------
 

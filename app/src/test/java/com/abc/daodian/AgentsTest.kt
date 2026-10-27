@@ -4,6 +4,8 @@ import com.abc.daodian.assistant.AssistantAgent
 import com.abc.daodian.assistant.AssistantPrompt
 import com.abc.daodian.assistant.memory.FakeMemoryBook
 import com.abc.daodian.assistant.memory.tidy.TidyAgent
+import com.abc.daodian.intake.core.steward.DecisionBuffer
+import com.abc.daodian.intake.steward.StewardAgent
 import com.abc.daodian.ledger.domain.LedgerBackend
 import com.abc.daodian.ledger.organize.OrganizerAgent
 import com.abc.daodian.ledger.tools.LedgerTools
@@ -65,6 +67,7 @@ class AgentsTest {
         listOf(
             OrganizerAgent.build(ledger, { "test" }, tagging = false),
             OrganizerAgent.build(ledger, { "test" }, tagging = true),
+            StewardAgent.build(DecisionBuffer(emptyList(), listOf("ledger", "reminder")), listOf("ledger", "reminder")),
             RelayAgent.build { _, _ -> 1L },
             ReminderNoticeAgent.build { _, _ -> 1L },
             TidyAgent.build(FakeMemoryBook(), compact = true, remember = true)
@@ -91,7 +94,7 @@ class AgentsTest {
 
     @Test
     fun `the roster lists each agent once`() {
-        assertEquals(listOf("assistant", "organizer", "relay", "reminder-notice", "tidy"), AGENTS.map { it.id })
+        assertEquals(listOf("assistant", "organizer", "steward", "relay", "reminder-notice", "tidy"), AGENTS.map { it.id })
         assertTrue("只有助手能问人", AGENTS.filter { it.canAsk }.map { it.id } == listOf("assistant"))
     }
 }

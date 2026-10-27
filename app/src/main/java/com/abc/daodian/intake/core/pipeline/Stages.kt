@@ -35,11 +35,15 @@ class Store(private val inbox: InboxRepository, private val now: () -> Long) : S
     }
 }
 
-/** 新存下的遮蔽版：叫监听层过一会儿重读（5 秒、30 秒、2 分钟，DESIGN.md §2.3） */
-class Wake(private val reread: (Notice) -> Unit) : Stage {
+/**
+ * 落下之后叫人：新存下的遮蔽版叫监听层过一会儿重读（5 秒、30 秒、2 分钟，DESIGN.md §2.3）；
+ * 有了待办叫管家的调度（它防抖 3 秒）。只在「来了新的」时叫，不盯待办数 —— 管家跑失败把一批放回待办，不该又叫醒自己
+ */
+class Wake(private val reread: (Notice) -> Unit, private val pending: () -> Unit) : Stage {
     override suspend fun handle(c: Catch): Catch {
         val s = c.stored
         if (s != null && s.fresh && s.state == InboxState.WAITING) reread(c.n.raw)
+        if (s?.state == InboxState.PENDING) pending()
         return c
     }
 }
