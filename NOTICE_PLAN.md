@@ -355,7 +355,7 @@ data class Receipt(val handoffId: Long, val text: String, val route: String? = n
 - [x] `Steward`、`StewardScheduler`、`Dispatcher`；`HandoffRepository` 和 `RoomHandoffRepository`；`Wake` 加了叫调度那一下
 - [x] 花名册六个（加了管家）、`ArchitectureTest`（`intake` 除 `core/` 外能用 `runtime`）
 - [x] 单测 `StewardRunTest`：落库、错了退回再改、没覆盖全回待办、整批失败不算次数、没配模型不领、规则停了不叫模型、交接三种结果、交不出、防抖合并
-- [ ] `LiveGatewayTest` 加了一条（`steward follows the soft rules…`）：四条通知三条规则打真网关，看交给谁、附言带没带 18:00、广告标没标不相关，再拿附言喂提醒子代理看建出来是不是 18:00。**还没跑**：要真 key（命令见 CLAUDE.md「打真网关」那条，`--tests '*LiveGatewayTest*steward*'`）
+- [x] `LiveGatewayTest` 加了一条（`steward follows the soft rules…`）：四条通知三条规则打真网关，看交给谁、附言带没带 18:00、广告标没标不相关，再拿附言喂提醒子代理看建出来是不是 18:00。**10-27 在火山方舟 `deepseek-v4.1-flash`（Responses）上过了**，约 6 秒：快递 → 提醒「18:00 提醒取快递，标题带取件码 3-2-1088（幸福里驿站）」，寄件优惠 → 不相关「寄件优惠广告」，招行 → 记账（附言空），老婆带暗号 → 提醒；子代理建了 18:00「取快递 3-2-1088（幸福里驿站）」，不是轻提醒。没跑 `DAODIAN_API=chat`
 - **第 3 次交不出要不要通知你**：先不通知，记录页（第 7 步）上看得到；以前派活带暗号的没接住会弹一条。第 10 节第 8 条
 
 ### 第 5 步：助手建规则
