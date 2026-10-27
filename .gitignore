@@ -22,3 +22,8 @@ keystore.properties
 .local/
 
 __pycache__/
+/promo/
+/manual/
+/dist/
+/.kotlin/
+/scripts/
