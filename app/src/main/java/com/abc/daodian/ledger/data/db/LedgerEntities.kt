@@ -49,7 +49,12 @@ data class RawNotification(
     val state: RawState = RawState.PENDING,
     /** 忽略 / 看不清的理由（模型写的） */
     val stateNote: String? = null,
-    val processedAt: Long? = null
+    val processedAt: Long? = null,
+    /**
+     * 从通知管家交来的那一条在 `intake.db` 收件箱里的 id，整理完照它回写（DESIGN.md §12.5）。
+     * v2 加的；以前直接从监听层收的、v1 的旧行都是 null。只是个数，不和 `intake.db` 连表
+     */
+    val noticeId: Long? = null
 )
 
 @Entity(tableName = "txn", indices = [Index("day"), Index("state"), Index("merchantId")])

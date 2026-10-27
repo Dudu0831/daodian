@@ -1,0 +1,394 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "ac9f1e89ac2c6827b2573e7eb6b8dce6",
+    "entities": [
+      {
+        "tableName": "rules",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `hard` TEXT NOT NULL, `soft` TEXT NOT NULL, `enabled` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `stoppedAt` INTEGER)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hard",
+            "columnName": "hard",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "soft",
+            "columnName": "soft",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "enabled",
+            "columnName": "enabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stoppedAt",
+            "columnName": "stoppedAt",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "notices",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `pkg` TEXT NOT NULL, `notifKey` TEXT NOT NULL, `postTime` INTEGER NOT NULL, `at` INTEGER NOT NULL, `title` TEXT, `text` TEXT, `extra` TEXT, `extras` TEXT NOT NULL, `redacted` INTEGER NOT NULL, `how` TEXT NOT NULL, `fingerprint` TEXT NOT NULL, `normTitle` TEXT, `normBody` TEXT, `state` TEXT NOT NULL, `attempts` INTEGER NOT NULL, `receivedAt` INTEGER NOT NULL, `doneAt` INTEGER)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pkg",
+            "columnName": "pkg",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notifKey",
+            "columnName": "notifKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "postTime",
+            "columnName": "postTime",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "at",
+            "columnName": "at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "extra",
+            "columnName": "extra",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "extras",
+            "columnName": "extras",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "redacted",
+            "columnName": "redacted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "how",
+            "columnName": "how",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fingerprint",
+            "columnName": "fingerprint",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normTitle",
+            "columnName": "normTitle",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "normBody",
+            "columnName": "normBody",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attempts",
+            "columnName": "attempts",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "receivedAt",
+            "columnName": "receivedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "doneAt",
+            "columnName": "doneAt",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_notices_fingerprint",
+            "unique": true,
+            "columnNames": [
+              "fingerprint"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_notices_fingerprint` ON `${TABLE_NAME}` (`fingerprint`)"
+          },
+          {
+            "name": "index_notices_pkg_notifKey_postTime",
+            "unique": false,
+            "columnNames": [
+              "pkg",
+              "notifKey",
+              "postTime"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_notices_pkg_notifKey_postTime` ON `${TABLE_NAME}` (`pkg`, `notifKey`, `postTime`)"
+          },
+          {
+            "name": "index_notices_state_receivedAt",
+            "unique": false,
+            "columnNames": [
+              "state",
+              "receivedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_notices_state_receivedAt` ON `${TABLE_NAME}` (`state`, `receivedAt`)"
+          },
+          {
+            "name": "index_notices_state_doneAt",
+            "unique": false,
+            "columnNames": [
+              "state",
+              "doneAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_notices_state_doneAt` ON `${TABLE_NAME}` (`state`, `doneAt`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "notice_rules",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`noticeId` INTEGER NOT NULL, `ruleId` INTEGER NOT NULL, `outcome` TEXT, `targets` TEXT, `why` TEXT, `decidedAt` INTEGER, PRIMARY KEY(`noticeId`, `ruleId`))",
+        "fields": [
+          {
+            "fieldPath": "noticeId",
+            "columnName": "noticeId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ruleId",
+            "columnName": "ruleId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "outcome",
+            "columnName": "outcome",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "targets",
+            "columnName": "targets",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "why",
+            "columnName": "why",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "decidedAt",
+            "columnName": "decidedAt",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "noticeId",
+            "ruleId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_notice_rules_ruleId",
+            "unique": false,
+            "columnNames": [
+              "ruleId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_notice_rules_ruleId` ON `${TABLE_NAME}` (`ruleId`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "handoffs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `noticeId` INTEGER NOT NULL, `target` TEXT NOT NULL, `note` TEXT NOT NULL, `state` TEXT NOT NULL, `attempts` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `error` TEXT, `receipt` TEXT, `route` TEXT, `reportedAt` INTEGER)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "noticeId",
+            "columnName": "noticeId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "target",
+            "columnName": "target",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attempts",
+            "columnName": "attempts",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "error",
+            "columnName": "error",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "receipt",
+            "columnName": "receipt",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "route",
+            "columnName": "route",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "reportedAt",
+            "columnName": "reportedAt",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_handoffs_noticeId",
+            "unique": false,
+            "columnNames": [
+              "noticeId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_handoffs_noticeId` ON `${TABLE_NAME}` (`noticeId`)"
+          },
+          {
+            "name": "index_handoffs_state_createdAt",
+            "unique": false,
+            "columnNames": [
+              "state",
+              "createdAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_handoffs_state_createdAt` ON `${TABLE_NAME}` (`state`, `createdAt`)"
+          }
+        ],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ac9f1e89ac2c6827b2573e7eb6b8dce6')"
+    ]
+  }
+}

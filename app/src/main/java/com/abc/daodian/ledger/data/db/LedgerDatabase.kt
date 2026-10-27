@@ -1,6 +1,7 @@
 package com.abc.daodian.ledger.data.db
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -9,7 +10,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 /**
  * 记账单独一个库 `ledger.db`：不碰 `reminder.db`（提醒，不许出错的那部分）和 `chat.db`。
  *
- * 改表：version + 1，并在这里加 `autoMigrations = [AutoMigration(from = 1, to = 2)]` 之类 ——
+ * 改表：version + 1，在下面 `autoMigrations` 里加一条 `AutoMigration(from = N, to = N + 1)` ——
  * 库里是真实的账，不能 destructive。
  */
 @Database(
@@ -18,8 +19,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Category::class, Merchant::class, MerchantAlias::class, Account::class, Tag::class, TxnTag::class,
         ChangeLog::class, AgentRun::class
     ],
-    version = 1,
-    exportSchema = true
+    version = 2,
+    exportSchema = true,
+    // 1 → 2：raw_notification 加 noticeId（通知管家交来的那条在收件箱里的 id，DESIGN.md §12.5），旧行一律 NULL
+    autoMigrations = [AutoMigration(from = 1, to = 2)]
 )
 abstract class LedgerDatabase : RoomDatabase() {
     abstract fun dao(): LedgerDao

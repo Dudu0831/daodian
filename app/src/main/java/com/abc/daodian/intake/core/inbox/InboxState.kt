@@ -35,6 +35,12 @@ enum class InboxState {
     }
 }
 
+/**
+ * 交接（`handoffs`，Outbox）一行的状态：管家定了交给谁就是待交，`Dispatcher` 交出去了是交了，
+ * 交 3 次都抛错是交不出。库里存的是名字，不改名
+ */
+enum class HandoffState { DUE, DELIVERED, FAILED }
+
 /** 收件箱的几个数，用户定的和跟着定的都在这里 */
 object InboxPolicy {
 

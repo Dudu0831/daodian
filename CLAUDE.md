@@ -10,9 +10,10 @@
 - 真机是荣耀 LGE-AN10（Android 15），模型是火山方舟 `deepseek-v4.1-flash`。
 - 线上：**0.1.10 / versionCode 12**（10-24 用 `scripts/publish.sh` 发的：模型服务能选 Chat Completions 接口、「测一下」照聊天真发的请求测）。上一版 0.1.9（11）是 10-22 发的（拍一张、权限页随时能点、每晚对账修、诊断补到点那一刻）。
 - 用户手机：release 包 `com.abc.daodian` 是**本地打的 0.1.9（11）**，10-24 用 adb 覆盖装的，代码和线上 0.1.10 一样，只是版本号旧 —— 从设置 →「版本」能升到 0.1.10，正好验一次覆盖升级；debug 包 `com.abc.daodian.debug` 也在（10-22 装的，带「拍一张」）。两个包是两个 app（§11.1）。
-- 库：`reminder.db` v3、`chat.db` v3。库升上去之后旧版本打不开，只能往前走。
+- 库：`reminder.db` v3、`chat.db` v3、`ledger.db` v1（main 上已经是 v2，下一次发版带上去）。库升上去之后旧版本打不开，只能往前走。
 
 **main 上有、还没在真机上验过的**（细项见下表）
+- **10-26 `ledger.db` v1 → v2**（通知管家第 2 步，`raw_notification` 加可空列 `noticeId`，auto migration）：下一次发版就带上去，不管通知管家接没接线。要验：覆盖装 debug 包、打开一次记账页，拉库看 `PRAGMA user_version` 是 2、`noticeId` 这一列在、旧原文和流水都在。`intake.db` 还没有代码会去开它。
 - **10-24 0.1.10 两种协议 + 「测一下」照聊天发**（DESIGN §6.2；`runtime/model/ChatCompletionsClient`、`StreamingClient`、`AgentRuntime.test`；配置页「接口」两选一）：JVM 测试过了，用户手机上装了，**用户自己在测，结果还没回来；没打过真网关**。要验：配置页选 Chat Completions 测一下、聊几句带工具调用的（建提醒）、带图的一句；`LiveGatewayTest` 加 `DAODIAN_API=chat` 跑一遍；只认 chat 的那家网关上，选 Responses 时「测一下」要报错。
 - **10-21 权限页每一行随时能点**（`shell/PermissionsScreen.HealthRow`、`HealthCheck.manualIntent`）：好着的行也整行可点、右边淡箭头；「应用启动管理」跳荣耀系统管家那一页（manifest `<queries>` 里声明了 action，解析不到退应用详情页）；电池优化好着时跳系统列表。没核的：「精确闹钟」好着时点进去是不是一闪就退（只有 `USE_EXACT_ALARM`）。
 - **10-21 导出诊断的「全屏没弹」「只响不震」**（`reminder/ReminderDiagnostics`、`reminder/delivery/FireProbe`）：导出的声音、免打扰、渠道、振动、全屏许可几段在荣耀上读不读得出来（整表读设置那几行可能是空的）；到点后 `files/fire_probe.txt` 有没有那一刻的样子和「全屏页起来了 · 发出后 N ms」两行。
@@ -26,7 +27,7 @@
 - **10-21 长按桌面图标的「拍一张」**（§6.10，`shell/AppShortcuts`）：debug 包上 `dumpsys shortcut` 里有这一项，用户试过。从桌面进来拍的图不进输入框，原因是叠了第二个对话页，已修（`AppNavHost.toAssistant()`）：从外面进来后按返回一下就回桌面，app 关着、开着两种都验过。修完后拍照进输入框要用户再试一次。
 
 **还开着的事**
-- **通知管家**（DESIGN §12、§2.3，10-26 定的方案；**第 1 步纯 Kotlin 核心 `intake/core` 写完、单测过了，没接线、行为不变**）：规则 = 硬条件（代码，只管进不进管家）+ 软规则（管家读）；中了的进收件箱 `intake.db`（办完的留 30 天），**每一条都过通知管家**（3 秒防抖、界面上不露面），管家交给模块子代理（记账整理员、派活改成的提醒子代理）。规则只在对话里建、说清楚才建，设置页只看 / 停 / 删。**旧配置不搬、旧数据不删**（升上来在对话里重新说），只留 `reminder/relay` 路由的壳。工程文件是根目录 `NOTICE_PLAN.md`（九步，前五步不接线；第 6 步 debug 包开关真机验；界面先出设计稿）；它第 10 节和 §12.8 还有几条没定。
+- **通知管家**（DESIGN §12、§2.3，10-26 定的方案；**第 1 步纯 Kotlin 核心 `intake/core`、第 2 步 `intake.db` 和 `ledger.db` v2 写完了，没接线**）：规则 = 硬条件（代码，只管进不进管家）+ 软规则（管家读）；中了的进收件箱 `intake.db`（办完的留 30 天），**每一条都过通知管家**（3 秒防抖、界面上不露面），管家交给模块子代理（记账整理员、派活改成的提醒子代理）。规则只在对话里建、说清楚才建，设置页只看 / 停 / 删。**旧配置不搬、旧数据不删**（升上来在对话里重新说），只留 `reminder/relay` 路由的壳。工程文件是根目录 `NOTICE_PLAN.md`（九步，前五步不接线；第 6 步 debug 包开关真机验；界面先出设计稿）；它第 10 节和 §12.8 还有几条没定。
 - agent runtime 重构（根目录 `REFACTOR_PLAN.md`）：第 1–5 步和复查后补的那一轮都合进 `main` 了，剩第 6 步（可选）和第 9 节待定，方案先留着。debug 包上的「演一遍库迁移」、strict 故意改坏那条没做。
 - **48 小时放置测试**（DESIGN §9.3）：调度唯一还缺的硬证据。
 - 包重排（09-24）那份测试清单里「main 上就没验过、顺手可以验的」那一节，可选：`git show 8e5ee3c:TEST_PLAN.md`。

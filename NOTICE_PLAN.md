@@ -1,6 +1,6 @@
 # 改造方案：通知管家（规则、收件箱、子代理）
 
-2026-10-26 定的方向，**第 1 步做完了（10-26，没接线）**。为什么这样分、要守的规矩在 DESIGN §2.3、§12；这份只管怎么落：目录、接口、库、步骤、测试。做完一步在第 8 节打勾；全部做完后，要紧的决定并进 DESIGN，这份删掉（和 `REFACTOR_PLAN.md` 一样）。
+2026-10-26 定的方向，**第 1、2 步做完了（10-26，没接线）**。为什么这样分、要守的规矩在 DESIGN §2.3、§12；这份只管怎么落：目录、接口、库、步骤、测试。做完一步在第 8 节打勾；全部做完后，要紧的决定并进 DESIGN，这份删掉（和 `REFACTOR_PLAN.md` 一样）。
 
 ## 0 一句话
 
@@ -59,7 +59,7 @@ intake/
     inbox/     InboxState（状态机）、InboxPolicy（几个数）、InboxNotice、Stored、Landing（一条到门口怎么落）
     steward/   Decision（交给 / 不相关）、Settlement（一轮落库的全部）、DecisionBuffer（收、核、算覆盖）、StewardInput（拼输入）、Destination
     ports/     RuleRepository、InboxRepository（HandoffRepository 第 4 步跟 Dispatcher 一起写）
-  data/        IntakeDatabase（intake.db）、实体、Dao、RuleCodec、Room 仓库
+  data/        IntakeDatabase（intake.db）、IntakeEntities、IntakeDao、RuleCodec、RoomRuleRepository、RoomInboxRepository
   steward/     ★StewardAgent、StewardPrompt、Steward、StewardScheduler、Dispatcher、HandOffTool、IgnoreTool
   plugin/      给模块的插口：NoticeTarget、Handed、Receipt、NoticeReports
   assistant/   IntakePlugin + 六个工具 + 痕
@@ -260,11 +260,15 @@ data class Receipt(val handoffId: Long, val text: String, val route: String? = n
 | 表 | 列 | 说明 |
 |---|---|---|
 | `rules` | id、name、hard（JSON，`RuleCodec`）、soft、enabled、createdAt、stoppedAt | 停了不删，设置页能撤销 |
-| `notices` | id、pkg、notifKey、postTime、at、title、text、extra、extras、redacted、how、fingerprint（唯一）、normTitle、normBody、state、attempts、receivedAt、doneAt | 收件箱 |
-| `notice_rules` | noticeId、ruleId、decision（交给 / 不相关 / 空）、note、why | 一条中了哪几条规则，各自怎么定的 |
-| `handoffs` | id、noticeId、target、note、state（待交 / 交了 / 交不出）、attempts、receipt、route、reportedAt | 交接（outbox）+ 回执 |
+| `notices` | id、pkg、notifKey、postTime、at、title、text、extra、extras、redacted、how、fingerprint（唯一）、normTitle、normBody、state、attempts、receivedAt、doneAt | 收件箱。receivedAt 是第一次存下的时刻，遮蔽版换成真正文也不变 |
+| `notice_rules` | noticeId、ruleId（主键）、outcome（`HANDED` / `IGNORED` / null）、targets（「ledger,reminder」）、why、decidedAt | 一条中了哪几条规则，各自怎么定的。不和 `rules` 连外键：规则删了，记录还在 |
+| `handoffs` | id、noticeId、target、note、state（`DUE` / `DELIVERED` / `FAILED`）、attempts、createdAt、error、receipt、route、reportedAt | 交接（outbox）+ 回执。同一条后来又交给同一个去处是新的一行 |
 
-**`ledger.db`** v1 → v2：`raw_notification` 加可空列 `noticeId`（auto migration）。旧行是 NULL，不动。
+- 表、列、枚举的名字（`InboxState`、`HandoffState`、`RuleOutcome`、`RuleCodec` 的 `type`）都存在手机上，不改名。
+- 没用外键：清 30 天前的时三张表在一个事务里一起删（`purgeDone`）。
+- `RuleCodec` 读不懂的整条规则读成 null、不听（`RoomRuleRepository`），不跳过那一个条件 —— 少一个条件规则就变宽了。
+
+**`ledger.db`** v1 → v2：`raw_notification` 加可空列 `noticeId`（auto migration，生成的是 `ALTER TABLE raw_notification ADD COLUMN noticeId INTEGER DEFAULT NULL`）。旧行是 NULL，不动。**这一条一合进 main 就跟着下一次发版走**，不等第 6 步的开关 —— 见第 8 节第 2 步。
 
 `reminder.db`、`chat.db` 不动。
 
@@ -319,9 +323,12 @@ data class Receipt(val handoffId: Long, val text: String, val route: String? = n
 
 ### 第 2 步：库
 
-- [ ] `intake.db`：四张表、Dao、`RuleCodec`、三个 Room 仓库、`purgeDone`
-- [ ] `ledger.db` v2：`raw_notification.noticeId`
-- [ ] schemas 导出进库
+- [x] `intake.db`：四张表、Dao、`RuleCodec`、两个 Room 仓库（交接的那个第 4 步跟 `Dispatcher` 写）、`purgeDone`
+- [x] `ledger.db` v2：`raw_notification.noticeId`
+- [x] schemas 导出进库（`app/schemas/…IntakeDatabase/1.json`、`…LedgerDatabase/2.json`）
+- [x] `RuleCodecTest`：每种条件往返、存的样子不漂、读不懂的整条是 null
+- **没测到的**：两个 Room 仓库本身（JVM 起不了 Room，不为它加 Robolectric）。怎么落、怎么算在核心里测过，仓库只照着写库；测试里的 `FakeInbox` 和 `RoomInboxRepository` 是同一套写法，改一边要改另一边。真库第 6 步在 debug 包上拉 `intake.db` 看
+- **ledger.db v2 迁移没在真机上验过**：照 CLAUDE.md「演一遍库迁移」，或者下次覆盖装 debug 包时打开一次记账页再拉库，`PRAGMA user_version` 是 2、`raw_notification` 多了 `noticeId`、旧行都在
 
 ### 第 3 步：插口 + 两个子代理
 
