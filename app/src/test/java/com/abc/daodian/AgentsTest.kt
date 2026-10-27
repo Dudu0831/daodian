@@ -12,7 +12,6 @@ import com.abc.daodian.ledger.domain.LedgerBackend
 import com.abc.daodian.ledger.organize.OrganizerAgent
 import com.abc.daodian.ledger.tools.LedgerTools
 import com.abc.daodian.reminder.notice.ReminderNoticeAgent
-import com.abc.daodian.reminder.relay.RelayAgent
 import com.abc.daodian.reminder.tools.ReminderTools
 import com.abc.daodian.runtime.Agent
 import com.abc.daodian.runtime.AgentRuntime
@@ -70,7 +69,6 @@ class AgentsTest {
             OrganizerAgent.build(ledger, { "test" }, tagging = false),
             OrganizerAgent.build(ledger, { "test" }, tagging = true),
             StewardAgent.build(DecisionBuffer(emptyList(), listOf("ledger", "reminder")), listOf("ledger", "reminder")),
-            RelayAgent.build { _, _ -> 1L },
             ReminderNoticeAgent.build { _, _ -> 1L },
             TidyAgent.build(FakeMemoryBook(), compact = true, remember = true)
         ).forEach { agent ->
@@ -79,9 +77,9 @@ class AgentsTest {
         }
     }
 
-    /** 和真机上一样的一套：助手自己的两样 + 提醒、记账给的 */
+    /** 和真机上一样的一套：助手自己的两样 + 提醒、记账、通知监听层给的 */
     private fun assistantTools() =
-        AssistantAgent.tools(FakeMemoryBook(), ReminderTools.forAssistant { _, _ -> 1L } + LedgerTools.forAssistant(ledger))
+        AssistantAgent.tools(FakeMemoryBook(), ReminderTools.forAssistant { _, _ -> 1L } + LedgerTools.forAssistant(ledger) + IntakeTools.of(FakeDesk()))
 
     @Test
     fun `the assistant prompt is written for the tools the modules hand over`() {
@@ -94,23 +92,9 @@ class AgentsTest {
         assertTrue("助手没过检查：$result", result is RunResult.Done)
     }
 
-    /** debug 包上多了通知监听层给的六个建规则工具，换成带「听通知」那份提示词 */
-    private fun debugTools() =
-        AssistantAgent.tools(FakeMemoryBook(), ReminderTools.forAssistant { _, _ -> 1L } + LedgerTools.forAssistant(ledger) + IntakeTools.of(FakeDesk()))
-
-    @Test
-    fun `with the rule tools the assistant takes the prompt written for them`() {
-        val agent = AssistantAgent.build(debugTools())
-        assertEquals(AssistantPrompt.RULES_VERSION, agent.prompt.version)
-        assertEquals(AssistantPrompt.RULES_TOOLS, debugTools().map { it.name }.toSet())
-        val result = strictRun(agent)
-        assertTrue("带规则工具的助手没过检查：$result", result is RunResult.Done)
-        assertEquals(AssistantPrompt.VERSION, AssistantAgent.build(assistantTools()).prompt.version)
-    }
-
     @Test
     fun `the roster lists each agent once`() {
-        assertEquals(listOf("assistant", "organizer", "steward", "relay", "reminder-notice", "tidy"), AGENTS.map { it.id })
+        assertEquals(listOf("assistant", "organizer", "steward", "reminder-notice", "tidy"), AGENTS.map { it.id })
         assertTrue("只有助手能问人", AGENTS.filter { it.canAsk }.map { it.id } == listOf("assistant"))
     }
 }

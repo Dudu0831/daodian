@@ -26,8 +26,6 @@ import com.abc.daodian.reminder.domain.ReminderPlan
 import com.abc.daodian.reminder.notice.ReminderNoticeAgent
 import com.abc.daodian.reminder.notice.ReminderNoticePrompt
 import com.abc.daodian.reminder.notice.ReminderNoticeTarget
-import com.abc.daodian.reminder.relay.RelayAgent
-import com.abc.daodian.reminder.relay.RelayPrompt
 import com.abc.daodian.reminder.tools.CreateReminderTool
 import com.abc.daodian.reminder.tools.ReminderTools
 import com.abc.daodian.runtime.Agent
@@ -170,34 +168,7 @@ class LiveGatewayTest {
     }
 
     /**
-     * 派活（reminder/relay）：她发来的一句，只带 create_reminder，问不了人。照 `Relay` 的跑法：`RelayAgent` + 只垫记忆。
-     * 没说钟点的建成当天事项；她说「不用响铃」也照样响铃（gentle = false）；闲聊不建。
-     */
-    @Test
-    fun `relay turns a chore into a day task and leaves chit-chat alone`() = runBlocking {
-        install()
-        val plans = mutableListOf<ReminderPlan>()
-        val agent = RelayAgent.build { plan, _ -> plans += plan; 1001L }
-        val now = ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).withHour(15).withMinute(0)
-
-        val task = AgentRuntime.runOnce(agent, Input(RelayPrompt.input("小美", "明天帮我取个快递，不用响铃", coded = false), now), AgentRuntime.memory)
-        println("派活：$task\n建的：$plans")
-        assertTrue("派活没正常结束：$task", task is RunResult.Done)
-        assertEquals("工具交上来的就是建的那条", listOf(1001L), task.payloads<CreateReminderTool.Created>().map { it.reminderId })
-        val plan = plans.singleOrNull()
-        assertNotNull("应该恰好建一条：$plans", plan)
-        assertTrue("没说钟点，应该是当天事项：$plan", plan!!.allDay)
-        assertFalse("别人派来的事一律响铃：$plan", plan.gentle)
-
-        plans.clear()
-        val chitchat = AgentRuntime.runOnce(agent, Input(RelayPrompt.input("小美", "你在干嘛呀", coded = false), now), AgentRuntime.memory)
-        println("闲聊：${chitchat.reply}")
-        assertTrue("闲聊那句没正常结束：$chitchat", chitchat is RunResult.Done)
-        assertTrue("闲聊不该建：$plans", plans.isEmpty())
-    }
-
-    /**
-     * 助手在对话里建「听通知」规则（§12.2，debug 包那一套工具）：说清楚了就直接建 —— 先查包名、预演，
+     * 助手在对话里建「听通知」规则（§12.2）：说清楚了就直接建 —— 先查包名、预演，
      * 软规则里写钟点。问不了人（runOnce 没有问卡），所以这句话把要问的都说全了
      */
     @Test

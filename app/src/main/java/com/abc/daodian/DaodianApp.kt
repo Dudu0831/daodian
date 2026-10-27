@@ -8,7 +8,6 @@ import com.abc.daodian.assistant.memory.MemoryBook
 import com.abc.daodian.assistant.plugin.AssistantPlugins
 import com.abc.daodian.assistant.provider.ProviderStore
 import com.abc.daodian.assistant.quick.QuickAddActivity
-import com.abc.daodian.intake.Intake
 import com.abc.daodian.intake.NoticeHub
 import com.abc.daodian.runtime.AgentRuntime
 import com.abc.daodian.shared.navigation.Launch
@@ -17,7 +16,7 @@ import com.abc.daodian.shell.entry.ShellEntries
 import com.abc.daodian.update.DailyCheck
 
 /**
- * 只做装配：把订阅者、agent 花名册、模块清单装进各自的注册表，挨个做冷启动要做的事
+ * 只做装配：把通知管家的去处、agent 花名册、模块清单装进各自的注册表，挨个做冷启动要做的事
  * （重排闹钟、排巡检、排对账、催监听……）
  */
 class DaodianApp : Application() {
@@ -26,9 +25,7 @@ class DaodianApp : Application() {
         super.onCreate()
         // 最先装：后面哪一步崩了都要记下来（内测的人那边只能靠「导出诊断」带出来）
         CrashLog.install(this)
-        // 系统来绑监听之前订阅者就得在：监听一连上就开始分通知
-        Intake.install(SUBSCRIBERS)
-        // 新链路（debug 包的开关）的去处清单：各模块交出来的那一项，照模块顺序
+        // 系统来绑监听之前去处清单就得在：监听一连上就开始收通知。各模块交出来的那一项，照模块顺序
         NoticeHub.install(MODULES.mapNotNull { it.notice })
         // debug 包里花名册、工具、问人三样对不上就崩，当场发现。后台的几个 agent 都有兜底的 catch，
         // 光抛会被吃掉、只落成一条失败记录，所以扔到主线程上再抛一次 —— 前台、后台一样崩

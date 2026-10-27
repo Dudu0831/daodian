@@ -20,14 +20,13 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 全 app 唯一的通知监听。所有 app 的通知都会来这里，原样打包成 [Notice] 交给 [Intake.receive]：
- * 老链路是勾了这个 app 的订阅者才收得到，新链路过硬条件（[NoticeRouting]）；谁都不要的来了就扔。它自己一条都不存。见 DESIGN.md §2.3
+ * 全 app 唯一的通知监听。所有 app 的通知都会来这里，原样打包成 [Notice] 交给 [Intake.receive] 去对规则；
+ * 没有规则要的来了就扔。它自己一条都不存。见 DESIGN.md §2.3
  *
  * 两个坑，对策都在这里：
- *  - **正文有时被系统遮蔽**：遮蔽版照投，隔 5s / 30s / 2min 从通知栏再读，真正文到了再投一次。
- *    老链路重扫整个通知栏，订阅者自己定遮蔽版怎么算（记账：真正文到了把遮蔽版标「被替代」）；
- *    新链路只单读这一条（[reread]），2 分钟那次还是遮蔽版就照遮蔽版交给管家
- *  - **实时回调会丢**：连上时、解锁时都把通知栏扫一遍兜底，订阅者也能喊它扫（[Intake.sweep]）
+ *  - **正文有时被系统遮蔽**：遮蔽版照投，收件箱存下来等着；隔 5s / 30s / 2min 单读这一条（[reread]），
+ *    真正文到了再投一次，2 分钟那次还是遮蔽版就照遮蔽版交给管家
+ *  - **实时回调会丢**：连上时、解锁时都把通知栏扫一遍兜底，别处也能喊它扫（[Intake.sweep]）
  *
  * 连上 / 断开报给 [Intake]（页面看连没连着、扫一遍要找到这个实例）。
  * 「通知使用权」按组件名授：这个类改名、挪包，都得再去系统设置里开一次。
@@ -68,14 +67,7 @@ class NoticeListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        scope.launch {
-            val notice = noticeOf(sbn, "posted")
-            val taken = Intake.receive(this@NoticeListenerService, notice)
-            // 老链路：有人要、正文却被遮蔽了，过一会儿再扫，真正文多半就到了。新链路由流水线自己叫 reread
-            if (notice.redacted && taken.isNotEmpty() && NoticeHub.ID !in taken) {
-                for (s in RETRIES) handler.postDelayed({ sweep("retry+${s}s") }, s * 1000L)
-            }
-        }
+        scope.launch { Intake.receive(this@NoticeListenerService, noticeOf(sbn, "posted")) }
     }
 
     private fun sweep(how: String) {
@@ -89,15 +81,15 @@ class NoticeListenerService : NotificationListenerService() {
     internal suspend fun collect(how: String): Intake.Sweep? {
         if (!connected) return null
         val active = runCatching { activeNotifications }.getOrNull() ?: return null
-        val routed = HashMap<String, Int>()
+        var stored = 0
         active.forEach { sbn ->
-            Intake.receive(this, noticeOf(sbn, how)).forEach { routed.merge(it, 1, Int::plus) }
+            if (Intake.receive(this, noticeOf(sbn, how))) stored++
         }
-        return Intake.Sweep(active.size, routed)
+        return Intake.Sweep(active.size, stored)
     }
 
     /**
-     * 新链路存下一条遮蔽版后：隔 5s / 30s / 2min 单读这一条再过一遍流水线，最后那次带上 lastLook。
+     * 收件箱存下一条遮蔽版后：隔 5s / 30s / 2min 单读这一条再过一遍流水线，最后那次带上 lastLook。
      * 通知已经划掉了就读不到，收件箱里那条等满 10 分钟照遮蔽版交（`InboxPolicy.WAIT_MAX_MILLIS`）
      */
     internal fun reread(notice: Notice) {

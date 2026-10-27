@@ -2,6 +2,7 @@ package com.abc.daodian.reminder.presentation
 
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
@@ -13,7 +14,6 @@ import com.abc.daodian.reminder.delivery.HealthCheck
 import com.abc.daodian.reminder.presentation.edit.EditReminderScreen
 import com.abc.daodian.reminder.presentation.list.ReminderListScreen
 import com.abc.daodian.reminder.presentation.log.FireLogScreen
-import com.abc.daodian.reminder.presentation.relay.RelayPersonScreen
 import com.abc.daodian.shared.ui.activityViewModel
 import com.abc.daodian.shell.entry.AppNav
 import com.abc.daodian.shell.entry.HealthItem
@@ -22,7 +22,7 @@ import com.abc.daodian.shell.entry.ShellEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** 提醒给壳的：列表、编辑、投递日志、设置、派活那个人的页面，抽屉卡、设置行、体检项、诊断那一段 */
+/** 提醒给壳的：列表、编辑、投递日志、设置（派活两个旧路由留壳），抽屉卡、设置行、体检项、诊断那一段 */
 object ReminderShell : ShellEntry {
 
     override val id = ReminderModule.ID
@@ -51,22 +51,15 @@ object ReminderShell : ShellEntry {
         composable(ReminderRoutes.SETTINGS) {
             ReminderSettingsScreen(onBack = nav::back, open = nav::open)
         }
-        composable(
-            ReminderRoutes.RELAY,
-            arguments = listOf(navArgument("id") { type = NavType.LongType })
-        ) { entry ->
-            RelayPersonScreen(personId = entry.arguments?.getLong("id") ?: -1L, onBack = nav::back, onOpen = nav::open)
-        }
-        // 只听一个人那一版，「没接住」的通知拉起的是这个不带人的路由。升级前弹的还挂在通知栏里的话，点了落到提醒设置页，别崩
-        composable("reminder/relay") {
-            ReminderSettingsScreen(onBack = nav::back, open = nav::open)
-        }
+        // 派活的两个旧路由留壳：通知栏里旧通知点进来，跳规则页（路由字符串，提醒不 import 通知监听层）
+        composable(ReminderRoutes.RELAY, arguments = listOf(navArgument("id") { type = NavType.LongType })) { RelayShim(nav) }
+        composable(ReminderRoutes.RELAY_OLD) { RelayShim(nav) }
     }
 
     @Composable
     override fun DrawerCard(open: (String) -> Unit) = ReminderDrawerCard(onOpen = { open(ReminderRoutes.LIST) })
 
-    override val settingsEntries = listOf(SettingsEntry("提醒", ReminderRoutes.SETTINGS, "当天事项几点提醒、派活、投递日志"))
+    override val settingsEntries = listOf(SettingsEntry("提醒", ReminderRoutes.SETTINGS, "当天事项几点提醒、投递日志"))
 
     @Composable
     override fun HealthNote() = DeliveryNote()
@@ -78,3 +71,15 @@ object ReminderShell : ShellEntry {
     override suspend fun diagnostics(context: Context): String =
         withContext(Dispatchers.IO) { ReminderDiagnostics.build(context) }
 }
+
+/** 派活旧路由的壳：先退掉自己，再去规则页 */
+@Composable
+private fun RelayShim(nav: AppNav) {
+    LaunchedEffect(Unit) {
+        nav.back()
+        nav.open(RULES_ROUTE)
+    }
+}
+
+/** 通知监听层的规则页（`intake/IntakeRoutes.RULES`），提醒不 import 它 */
+private const val RULES_ROUTE = "intake/rules"

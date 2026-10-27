@@ -9,7 +9,7 @@ import com.abc.daodian.ledger.data.LedgerStore
 /**
  * 记账接通知管家交来的通知（DESIGN.md §12.5）：**原样**复制进 `raw_notification`，带上收件箱那一条的 id，
  * 整理员照旧每 3 小时一批整理（§10.1，不变），记好那一笔时回写（[LedgerStore.record]）。
- * 将来取代 [LedgerCapture]（第 8 步）。附言先不给整理员（NOTICE_PLAN 第 10 节第 4 条）
+ * 附言先不给整理员（NOTICE_PLAN 第 10 节第 4 条）
  *
  * 同一条交两次（重交）照指纹只存一次，天然不重复。
  */

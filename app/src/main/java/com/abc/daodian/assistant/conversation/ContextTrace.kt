@@ -24,7 +24,7 @@ import java.time.format.DateTimeFormatter
  *     adb shell run-as com.abc.daodian.debug cat files/context_trace.txt
  *
  * 超过 64KB 就从头写。对话页和桌面速记都记（速记没有摘要，只垫记忆和模块现状）。
- * 别的 agent（整理员、派活、记忆整理员）各记各的：`files/trace_<id>.txt`。每行带上提示词版本。
+ * 别的 agent（整理员、通知管家、提醒子代理、记忆整理员）各记各的：`files/trace_<id>.txt`。每行带上提示词版本。
  * 由 runtime 在每次请求前调（`DaodianApp` 装进去的 Tracer）。
  */
 object ContextTrace {

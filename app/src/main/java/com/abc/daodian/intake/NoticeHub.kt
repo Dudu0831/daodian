@@ -18,15 +18,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
- * 新链路接在一起的那一份（DESIGN.md §12，[NoticeRouting.HUB] 时才用）：流水线（硬条件 → 收件箱）、
+ * 收通知接在一起的那一份（DESIGN.md §12）：流水线（硬条件 → 收件箱）、
  * 管家的调度、交接。全 app 一份，头一次用时拿 Context 装好；去处清单由 `DaodianApp` 从 `Modules.kt` 交进来（intake 不 import 模块）。
  *
  * 管家一轮跑完接着交一轮：交接没交成的（模块抛错、没回执）留在库里，下次有人叫时再交
  */
 object NoticeHub {
-
-    /** 扫一遍时落进收件箱的那几条记在这个名下（`Intake.Sweep.routed`） */
-    const val ID = "inbox"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -78,13 +75,12 @@ object NoticeHub {
         wired(context).pipeline.run(notice, lastLook)?.stored != null
 
     /**
-     * 冷启动、切到新链路时：清掉办完 30 天的，叫一下管家 —— 上次进程被杀时没办完的待办、没交成的交接接着办，
+     * 冷启动时：清掉办完 30 天的，叫一下管家 —— 上次进程被杀时没办完的待办、没交成的交接接着办，
      * 等真正文等过了 10 分钟的遮蔽版也放出来
      */
     fun start(context: Context) {
         val app = context.applicationContext
         scope.launch {
-            if (!NoticeRouting.hub(app)) return@launch
             runCatching { IntakeRepos.inbox(app).purgeDone(System.currentTimeMillis() - InboxPolicy.KEEP_DAYS * DAY) }
             wired(app).scheduler.poke()
         }

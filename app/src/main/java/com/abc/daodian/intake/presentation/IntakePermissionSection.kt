@@ -16,14 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import com.abc.daodian.BuildConfig
-import com.abc.daodian.intake.Intake
 import com.abc.daodian.intake.IntakeRoutes
-import com.abc.daodian.intake.NoticeRouting
 import com.abc.daodian.intake.core.inbox.InboxState
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
@@ -33,15 +27,16 @@ import com.abc.daodian.shared.ui.GroupLabel
 import com.abc.daodian.shared.ui.GroupRule
 import com.abc.daodian.shared.ui.Marker
 import com.abc.daodian.shared.ui.PaperGroup
-import com.abc.daodian.shared.ui.PaperSwitch
 import com.abc.daodian.shared.ui.SettingRow
 import com.abc.daodian.shared.ui.activityViewModel
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 /**
- * 「权限与监听」页里通知监听层那几组：通知使用权、监听连没连着（重连）、扫一遍，
- * 谁在听（按模块，点进勾选页）、按 app 看。新链路开着时后两组换成规则、收到的通知两个入口（[HubGroup]）。
- * 全 app 只有这一个监听（DESIGN.md §2.3）。
- * 通知使用权**不算进体检结论**：它挂了记账、派活收不到，但不影响提醒响（DESIGN.md §9.1）。
+ * 「权限与监听」页里通知监听层那几组：通知使用权、监听连没连着（重连）、扫一遍，再是规则、收到的通知两个入口
+ * （设计稿方向 B：https://claude.ai/artifact/Qg7TytQpTJd5N4CtuacTB8）。全 app 只有这一个监听（DESIGN.md §2.3）。
+ * 通知使用权**不算进体检结论**：它挂了听不到通知，但不影响提醒响（DESIGN.md §9.1）。
  */
 @Composable
 fun IntakePermissionSection(open: (String) -> Unit) {
@@ -49,8 +44,6 @@ fun IntakePermissionSection(open: (String) -> Unit) {
     val colors = DaodianColors.current
     val context = LocalContext.current
     val listener by vm.listener.collectAsState()
-    val subscriptions by vm.subscriptions.collectAsState()
-    val routes by vm.routes.collectAsState()
     val action by vm.action.collectAsState()
     var granted by remember { mutableStateOf(vm.granted()) }
     // 从系统设置开完通知使用权回来，当场变
@@ -59,19 +52,12 @@ fun IntakePermissionSection(open: (String) -> Unit) {
         onPauseOrDispose { }
     }
     val busy = action == ListenerAction.Sweeping || action == ListenerAction.Reconnecting
-    val routing by vm.routing.collectAsState()
-    val hub = routing == NoticeRouting.HUB
-    val who = if (hub) "通知" else Intake.subscribers.joinToString("、") { it.label }
 
-    GroupLabel(if (hub) "听通知要的" else "${who}要的")
+    GroupLabel("听通知要的")
     PaperGroup {
         SettingRow(
             title = "通知使用权",
-            note = when {
-                hub -> if (granted) null else "没开，听不到通知 —— 点这里去系统设置里打开「到点」"
-                granted -> "挂了${who}收不到，不影响提醒响"
-                else -> "没开，${who}都收不到 —— 点这里去系统设置里打开「到点」"
-            },
+            note = if (granted) null else "没开，听不到通知 —— 点这里去系统设置里打开「到点」",
             noteColor = if (granted) colors.muted else colors.red,
             titleColor = if (granted) colors.ink2 else colors.ink,
             onClick = { runCatching { context.startActivity(vm.grantIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } },
@@ -92,7 +78,7 @@ fun IntakePermissionSection(open: (String) -> Unit) {
             GroupRule()
             SettingRow(
                 title = "扫一遍通知栏",
-                note = resultOf(action) ?: if (hub) null else "实时回调会漏。还挂在通知栏里的，再交给勾了它的模块一次；划掉了的，系统不留",
+                note = resultOf(action),
                 noteColor = if (action is ListenerAction.NotConnected) colors.red else colors.muted,
                 leading = { Marker(null) }
             ) {
@@ -101,52 +87,12 @@ fun IntakePermissionSection(open: (String) -> Unit) {
         }
     }
 
-    if (hub) {
-        HubGroup(open)
-        if (BuildConfig.DEBUG) RoutingGroup(vm)
-        return
-    }
-
-    GroupLabel("谁在听")
-    PaperGroup {
-        subscriptions.orEmpty().forEachIndexed { i, sub ->
-            if (i > 0) GroupRule()
-            SettingRow(
-                title = sub.subscriber.label,
-                note = if (sub.apps.isEmpty()) "一个 app 都没勾，什么都收不到" else sub.apps.joinToString("、"),
-                onClick = { open(IntakeRoutes.apps(sub.subscriber.id)) }
-            ) {
-                if (sub.apps.isNotEmpty()) {
-                    Text("${sub.apps.size} 个", style = DaodianType.settingValue, color = colors.ink)
-                    Spacer(Modifier.width(10.dp))
-                }
-                ChevronRightIcon(size = 13.dp, tint = colors.muted)
-            }
-        }
-    }
-
-    if (routes.isNotEmpty()) {
-        GroupLabel("按 app 看")
-        PaperGroup {
-            routes.forEachIndexed { i, r ->
-                if (i > 0) GroupRule()
-                SettingRow(title = r.app, note = "交给" + r.to.joinToString("、"))
-            }
-        }
-        Text(
-            "同一个 app 两个模块都勾了，一条通知两边各收一份、各存各的。",
-            style = DaodianType.settingNote,
-            color = colors.hint,
-            modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 10.dp)
-        )
-    }
-
-    if (BuildConfig.DEBUG) RoutingGroup(vm)
+    Entries(open)
 }
 
-/** 新链路的两个入口：规则、收到的通知（设计稿方向 B：https://claude.ai/artifact/Qg7TytQpTJd5N4CtuacTB8） */
+/** 两个入口：规则、收到的通知 */
 @Composable
-private fun HubGroup(open: (String) -> Unit) {
+private fun Entries(open: (String) -> Unit) {
     val inbox = activityViewModel<InboxViewModel>()
     val colors = DaodianColors.current
     val rules by inbox.ruleItems.collectAsState()
@@ -192,40 +138,20 @@ private fun HubGroup(open: (String) -> Unit) {
 }
 
 /**
- * debug 包才有的一组：收到的通知走新链路还是老的订阅者（[NoticeRouting]，NOTICE_PLAN 第 6 步真机验用）。
- * 切换那一版（第 8 步）连这一组一起删
- */
-@Composable
-private fun RoutingGroup(vm: IntakeViewModel) {
-    val routing by vm.routing.collectAsState()
-    val hub = routing == NoticeRouting.HUB
-    GroupLabel("走哪条路（debug）")
-    PaperGroup {
-        SettingRow(
-            title = "通知管家",
-            note = if (hub) "开着 · 按对话里建的规则收，交给管家；上面「谁在听」勾的一条都不收" else "关着 · 照上面「谁在听」勾的交给记账、派活",
-            onClick = { vm.setRouting(if (hub) NoticeRouting.LEGACY else NoticeRouting.HUB) }
-        ) {
-            PaperSwitch(checked = hub, onCheckedChange = { vm.setRouting(if (it) NoticeRouting.HUB else NoticeRouting.LEGACY) })
-        }
-    }
-}
-
-/**
  * 设置首页「权限与监听」那一行上，通知监听要说的一句：连着 / 断了 / 没开使用权。
- * 谁都没勾 app 时不说 —— 这时候监听断没断都没关系
+ * 一条规则都没在听时不说 —— 这时候监听断没断都没关系
  */
 @Composable
 fun intakePermissionStatus(): Pair<String, Boolean>? {
     val vm = activityViewModel<IntakeViewModel>()
     val listener by vm.listener.collectAsState()
-    val subscriptions by vm.subscriptions.collectAsState()
+    val rules by activityViewModel<InboxViewModel>().ruleItems.collectAsState()
     var granted by remember { mutableStateOf(vm.granted()) }
     LifecycleResumeEffect(Unit) {
         granted = vm.granted()
         onPauseOrDispose { }
     }
-    if (subscriptions?.all { it.apps.isEmpty() } != false) return null
+    if (rules?.any { it.rule.enabled } != true) return null
     return when {
         !granted -> "没开通知使用权" to false
         !listener.connected -> "监听断了" to false
@@ -237,9 +163,8 @@ fun intakePermissionStatus(): Pair<String, Boolean>? {
 private fun resultOf(action: ListenerAction): String? = when (action) {
     is ListenerAction.Swept -> {
         val s = action.sweep
-        val to = s.routed.values.sum()
         (if (action.reconnected) "断了，重连上了。" else "") + "${Format.clock(action.at)} 扫了一次：通知栏里挂着 ${s.active} 条，" +
-            (if (to == 0) "没有勾上的 app 的" else "交出去 $to 条（收过的各模块自己去重）")
+            (if (s.stored == 0) "没有新进来的" else "进来 ${s.stored} 条")
     }
     is ListenerAction.Reconnected -> "${Format.clock(action.at)} 重连上了"
     is ListenerAction.NotConnected -> "${Format.clock(action.at)} 没连上，系统不肯把它绑回来。去系统设置把「到点」的通知使用权关掉再打开"

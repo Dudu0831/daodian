@@ -6,7 +6,7 @@ import com.abc.daodian.runtime.engine.Item
 
 /**
  * 助手（对话页、桌面速记）的 system，全文都在这里：分流、问卡、工具结果、记忆、图片、画图，
- * 再加上它手上那几个模块工具的用法（提醒、记账）。见 DESIGN.md §6.3
+ * 再加上它手上那几个模块工具的用法（提醒、记账、听通知）。见 DESIGN.md §6.3
  *
  * **模块不往这里追加段落**：模块只给工具（工具自己的说明跟着工具走）和数据（类别表这类垫在历史前面，
  * [com.abc.daodian.assistant.plugin.AssistantPlugin.background]），怎么用这些工具的规矩由助手在这里写全。
@@ -19,7 +19,7 @@ import com.abc.daodian.runtime.engine.Item
 object AssistantPrompt {
 
     /** 改了措辞就加一。写进 context_trace.txt 和导出诊断 */
-    const val VERSION = "assistant-v1"
+    const val VERSION = "assistant-v2"
 
     /**
      * 这份提示词是照着哪几个工具写的。模块的工具名写的是字（这里不 import 模块），
@@ -28,7 +28,8 @@ object AssistantPrompt {
     val TOOLS = setOf(
         "ask_user", "edit_memory",
         "create_reminder",
-        "list_expenses", "add_expense", "update_expenses", "add_category"
+        "list_expenses", "add_expense", "update_expenses", "add_category",
+        "list_apps", "recent_senders", "preview_rule", "list_rules", "add_rule", "stop_rule"
     )
 
     val SYSTEM = """
@@ -133,19 +134,7 @@ app 会自动把支付通知整理成流水（后台整理员干的），你在�
   你知道的关于他的事对得上就补一个、调一下顺序。
   他答了就用 update_expenses 归类并确认；「先放着」的不动，也别追问。清单上还有没问到的，接着出下一张卡，
   全都问过了才收尾，没问完别说「都认完了」。
-""".trimIndent()
 
-    val PROMPT = Prompt(SYSTEM, VERSION, TOOLS)
-
-    // ---------------- 带「听通知」的那一份 ----------------
-    // 通知管家（DESIGN.md §12）的规则工具现在只进 debug 包（`intake/IntakeModule`），手上有它们就用这一份。
-    // 切换那一版（NOTICE_PLAN 第 8 步）只留这一份：并进上面的 SYSTEM、TOOLS，VERSION 改成它的
-
-    const val RULES_VERSION = "assistant-v2"
-
-    val RULES_TOOLS = TOOLS + setOf("list_apps", "recent_senders", "preview_rule", "list_rules", "add_rule", "stop_rule")
-
-    val RULES_SECTION = """
 ## 听通知
 他想让你替他盯着手机通知（「快递到了下班提醒我取」「招行的通知都记账」「老婆在微信里让我做的事帮我记着」），
 就是要建一条规则。规则分两半：
@@ -164,5 +153,5 @@ app 会自动把支付通知整理成流水（后台整理员干的），你在�
 - 改规则 = stop_rule 停掉旧的、add_rule 建新的。他问现在听着什么，用 list_rules。
 """.trimIndent()
 
-    val RULES_PROMPT = Prompt(SYSTEM + "\n\n" + RULES_SECTION, RULES_VERSION, RULES_TOOLS)
+    val PROMPT = Prompt(SYSTEM, VERSION, TOOLS)
 }

@@ -32,18 +32,14 @@ object AssistantAgent : AgentInfo {
     override val label = "助手"
     override val owner = "assistant"
     override val wakes = "你在对话页说一句；桌面速记；每晚对账由记账开场"
-    override val prompts = listOf(AssistantPrompt.PROMPT, AssistantPrompt.RULES_PROMPT)
+    override val prompts = listOf(AssistantPrompt.PROMPT)
     override val canAsk = true
 
     fun build(context: Context): Agent = build(tools(context))
 
     /** 拿一套现成的工具建（测试里没有 Context，工具用 [tools] 的另一个重载现拼） */
     fun build(tools: List<Tool>): Agent =
-        Agent(this, promptOf(tools), tools, policy(staleOf(tools), LastTurns(Compaction.HARD_CAP)))
-
-    /** 手上有建规则的工具（debug 包，通知管家没切换之前）就用带「听通知」那一份 */
-    private fun promptOf(tools: List<Tool>) =
-        if (tools.any { it.name == "add_rule" }) AssistantPrompt.RULES_PROMPT else AssistantPrompt.PROMPT
+        Agent(this, AssistantPrompt.PROMPT, tools, policy(staleOf(tools), LastTurns(Compaction.HARD_CAP)))
 
     fun tools(context: Context): List<Tool> = tools(MemoryBook.get(context), AssistantPlugins.tools(context))
 

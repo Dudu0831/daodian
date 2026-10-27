@@ -89,7 +89,7 @@
 
         <!--
             速记挪包（10-15）之前的全类名：升级前已经摆在桌面上的小组件，墨印的 PendingIntent 还指着这个名字，
-            小组件重画之前点它走这里。小组件都重画过之后可以删，和 agent/ 里 TidyWorker 的空壳一起（DESIGN.md §2.2「挪包 = 改全类名」）
+            小组件重画之前点它走这里。0.2.2 删，和 agent/ 里 TidyWorker 的空壳一起（docs/cleanup.md）
         -->
         <activity-alias
             android:name=".agent.entry.quick.QuickAddActivity"

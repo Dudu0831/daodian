@@ -20,7 +20,7 @@ data class CapturedRow(val raw: RawNotification, val txnId: Long?)
 
 /**
  * 抓取页（[CaptureScreen]）：看抓到了什么。
- * 抓通知的是通知监听层（`intake/Intake`），存进库的是 `capture/LedgerCapture`；这里只看。
+ * 抓通知的是通知监听层（`intake/Intake`），通知管家交给记账、存进库的是 `capture/LedgerNoticeTarget`；这里只看。
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class CaptureViewModel(app: Application) : AndroidViewModel(app) {

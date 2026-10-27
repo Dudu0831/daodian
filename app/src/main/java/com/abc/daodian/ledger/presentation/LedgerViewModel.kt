@@ -4,7 +4,6 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.abc.daodian.intake.Intake
-import com.abc.daodian.ledger.capture.LedgerCapture
 import com.abc.daodian.ledger.data.LedgerSettings
 import com.abc.daodian.ledger.data.LedgerStore
 import com.abc.daodian.ledger.data.db.Category
@@ -315,10 +314,6 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     /** 设置里「整理员自己打标签」，默认关 */
     val organizerTags = LedgerSettings.organizerTagsFlow(app)
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
-
-    /** 记账听哪些 app（包名，在通知监听层勾）。null = 还没读出来，别先画成「一个都没勾」 */
-    val listened: StateFlow<Set<String>?> = Intake.appsFlow(app, LedgerCapture.id)
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     fun setOrganizerTags(on: Boolean) = viewModelScope.launch { LedgerSettings.setOrganizerTags(getApplication(), on) }
 

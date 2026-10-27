@@ -15,19 +15,16 @@ import android.provider.Settings
 import com.abc.daodian.reminder.delivery.FireProbe
 import com.abc.daodian.reminder.delivery.Notifier
 import com.abc.daodian.reminder.data.ReminderDatabase
-import com.abc.daodian.reminder.relay.RelayDatabase
-import com.abc.daodian.reminder.relay.RelaySettings
 import com.abc.daodian.shared.data.rows
 import com.abc.daodian.shared.format.DiagnosticText.time
 
 /**
  * 「导出诊断」里提醒那一段：出不出得了声、震不震、弹不弹全屏，排了几条、下一次什么时候、最近响得准不准、
- * 到点那一刻手机什么样、派活收到的。不写标题、不写原话
+ * 到点那一刻手机什么样。不写标题、不写原话
  */
 internal object ReminderDiagnostics {
 
     suspend fun build(context: Context): String = buildString {
-        val people = RelaySettings.read(context)
         val db = ReminderDatabase.get(context).openHelper.readableDatabase
         val now = System.currentTimeMillis()
 
@@ -67,17 +64,6 @@ internal object ReminderDiagnostics {
         val probes = FireProbe.recent(context)
         appendLine("到点那一刻（${probes.size} 行，新的在前；没有「全屏页起来了」那一行就是全屏页没起来）：")
         probes.forEach { appendLine("  $it") }
-
-        // 只写人数，不写名字
-        appendLine("派活名单：${people.size} 个人，${people.count { it.code.isNotEmpty() }} 个设了暗号")
-        val relay = RelayDatabase.get(context).openHelper.readableDatabase
-        val got = relay.rows("SELECT pkg, at, receivedAt, how, status FROM relay_message ORDER BY id DESC LIMIT 20")
-        if (got.isNotEmpty()) {
-            appendLine("派活收到的（20 条，app · 发来 · 收到 · 怎么收的 · 结果）：")
-            got.forEach { (pkg, at, recv, how, status) ->
-                appendLine("  $pkg · ${time(at?.toLongOrNull())} · ${time(recv?.toLongOrNull())} · $how · $status")
-            }
-        }
     }
 
     /**

@@ -97,7 +97,7 @@ class ArchitectureTest {
         private val PLUGS = listOf("assistant.plugin", "shell.entry")
 
         /** 通知监听层的核心里，模块能碰的那几样（DESIGN.md §2.2 第 8 条） */
-        private val INTAKE_CORE = listOf("intake.Notice", "intake.NoticeSubscriber", "intake.Intake", "intake.IntakeRoutes", "intake.plugin")
+        private val INTAKE_CORE = listOf("intake.Notice", "intake.Intake", "intake.IntakeRoutes", "intake.plugin")
 
         /** 通知监听层碰模块接头和壳的那两处，核心不碰 */
         private val INTAKE_EDGE = listOf("intake.IntakeModule", "intake.presentation")

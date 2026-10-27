@@ -3,7 +3,6 @@ package com.abc.daodian.intake.assistant
 import android.content.Context
 import com.abc.daodian.intake.Intake
 import com.abc.daodian.intake.Notice
-import com.abc.daodian.intake.NoticeRouting
 import com.abc.daodian.intake.RecentTitles
 import com.abc.daodian.intake.core.format.Formats
 import com.abc.daodian.intake.core.ports.RuleRepository
@@ -61,9 +60,8 @@ class IntakeDesk(context: Context) : RuleDesk {
 
     override suspend fun counts(): Map<Long, Int> = IntakeDatabase.get(app).dao().ruleCounts().associate { it.ruleId to it.n }
 
-    /** 只在新链路开着时扫：老链路上扫一遍是交给老的订阅者，和规则无关 */
     override suspend fun sweep() {
-        if (NoticeRouting.hub(app)) Intake.sweep(HOW_RULE)
+        Intake.sweep(HOW_RULE)
     }
 
     private companion object {

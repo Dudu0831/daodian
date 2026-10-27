@@ -8,9 +8,7 @@ import android.content.res.Resources
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import com.abc.daodian.intake.core.format.Formats
-import com.abc.daodian.intake.data.IntakeSettings
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,71 +17,27 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * 通知监听层的门面：谁在订阅、每个订阅者听哪些 app、收到一条交给谁，以及跟「通知使用权」、
- * 监听连没连着打交道的几件事。见 DESIGN.md §2.3
+ * 通知监听层的门面：收到一条交给谁，以及跟「通知使用权」、监听连没连着打交道的几件事。见 DESIGN.md §2.3
  *
- * 老链路只抓、只分，**一条都不存、不读懂**：存原文、去重、叫模型都是订阅者的事。
- * 新链路（debug 包的开关，[NoticeRouting]）收到的交给 [NoticeHub]：硬条件 → 收件箱 → 通知管家（§12）。
+ * 收到的都交给 [NoticeHub]：硬条件 → 收件箱 → 通知管家（§12）。这一层只抓、只交，不读懂。
  * 系统服务本身是 [NoticeListenerService]，全 app 只有这一个 —— 通知使用权按组件授，多一个就得再去开一次。
  */
 object Intake {
 
-    // ---------------- 订阅者 ----------------
-
-    @Volatile
-    var subscribers: List<NoticeSubscriber> = emptyList()
-        private set
-
-    @Volatile
-    private var router = Router(emptyList())
-
-    /** `DaodianApp.onCreate` 把根目录 `Modules.kt` 的 `SUBSCRIBERS` 装进来。系统拉起监听之前一定已经装好 */
-    fun install(list: List<NoticeSubscriber>) {
-        router = Router(list)
-        subscribers = list
-    }
-
-    fun subscriber(id: String): NoticeSubscriber? = subscribers.firstOrNull { it.id == id }
-
-    // ---------------- 路由表：每个订阅者听哪些 app ----------------
-
-    fun routesFlow(context: Context): Flow<Map<String, Set<String>>> = IntakeSettings.routesFlow(context)
-
-    fun appsFlow(context: Context, id: String): Flow<Set<String>> = IntakeSettings.appsFlow(context, id)
-
-    /** 勾上的那一刻，通知栏里已经挂着的也交一份（和监听刚连上时一样） */
-    suspend fun setApp(context: Context, id: String, pkg: String, on: Boolean) {
-        IntakeSettings.setApp(context, id, pkg, on)
-        if (on) sweep(HOW_PICKED)
-    }
-
     /**
-     * 收到一条（实时的、扫到的、重读的），都办完才返回。走哪条路看 [NoticeRouting]：
-     * 新链路过流水线（[NoticeHub]），老链路交给勾了这个 app 的订阅者。返回交给了谁的 id（新链路落进收件箱是 [NoticeHub.ID]）。
-     * 标题两条路都记一笔（[RecentTitles]，建规则时挑人用）
+     * 收到一条（实时的、扫到的、重读的），过一遍流水线，都过完才返回。返回落没落进收件箱。
+     * 标题都记一笔（[RecentTitles]，建规则时挑人用）
      *
-     * @param lastLook 遮蔽版的最后一次重读，还是遮蔽版就不等了（只有新链路用）
+     * @param lastLook 遮蔽版的最后一次重读，还是遮蔽版就不等了
      */
-    internal suspend fun receive(context: Context, notice: Notice, lastLook: Boolean = false): List<String> {
+    internal suspend fun receive(context: Context, notice: Notice, lastLook: Boolean = false): Boolean {
         RecentTitles.note(notice.pkg, Formats.of(notice.pkg).normalize(notice).title)
-        if (NoticeRouting.hub(context)) {
-            return if (NoticeHub.receive(context, notice, lastLook)) listOf(NoticeHub.ID) else emptyList()
-        }
-        return dispatch(context, notice).map { it.id }
+        return NoticeHub.receive(context, notice, lastLook)
     }
 
-    /** 新链路刚存下一条遮蔽版：叫监听层过一会儿单读这一条（流水线的 `Wake` 叫的） */
+    /** 刚存下一条遮蔽版：叫监听层过一会儿单读这一条（流水线的 `Wake` 叫的） */
     internal fun reread(notice: Notice) {
         live?.reread(notice)
-    }
-
-    /** 收到一条：查路由表，交给勾了这个 app 的订阅者，都交完才返回。返回交给了谁（没人勾就是空的，这条扔掉） */
-    private suspend fun dispatch(context: Context, notice: Notice): List<NoticeSubscriber> {
-        val r = router
-        val targets = r.targets(notice.pkg, IntakeSettings.routes(context))
-        if (targets.isEmpty()) return emptyList()
-        val app = context.applicationContext
-        return r.deliver(targets) { it.accept(app, notice) }
     }
 
     // ---------------- 通知使用权 ----------------
@@ -143,11 +97,8 @@ object Intake {
         _listener.value = Listener(connected = false, since = System.currentTimeMillis())
     }
 
-    /**
-     * 扫一遍的结果：通知栏里一共挂着 [active] 条，交给各订阅者的各几条（[routed]，没勾的 app 不算）。
-     * 交出去的不一定是新的 —— 订阅者早就收过的，它自己去重
-     */
-    data class Sweep(val active: Int, val routed: Map<String, Int>)
+    /** 扫一遍的结果：通知栏里一共挂着 [active] 条，落进收件箱的 [stored] 条（新存的、补了规则的；早就收过的不算） */
+    data class Sweep(val active: Int, val stored: Int)
 
     /**
      * 现在把通知栏扫一遍，都交完才返回。监听没连着返回 null。只扫得到还挂在通知栏里的 —— 划掉了的，系统也不留。
@@ -180,7 +131,4 @@ object Intake {
         runCatching { NotificationListenerService.requestRebind(component(context)) }
         return withTimeoutOrNull(timeoutMillis) { listener.first { it.connected } } != null
     }
-
-    /** 勾上 app 那一刻扫到的，写进 [Notice.how] */
-    const val HOW_PICKED = "picked"
 }

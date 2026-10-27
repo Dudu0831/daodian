@@ -2,7 +2,7 @@ package com.abc.daodian.intake
 
 /**
  * 监听收到的一条通知，原样的，不解析。同一条可能投不止一次（实时收一次，解锁、手动扫又扫到），
- * 订阅者按指纹去重。见 DESIGN.md §2.3
+ * 收件箱按指纹去重。见 DESIGN.md §2.3
  */
 data class Notice(
     val pkg: String,
@@ -16,7 +16,7 @@ data class Notice(
     val text: String?,
     /** bigText、subText、消息样式里和正文不重复的部分 —— 有的银行把明细写在展开后的大字里 */
     val extra: String?,
-    /** extras 里能变成文字的全收，JSON。要存原文的订阅者（记账）存它 */
+    /** extras 里能变成文字的全收，JSON。要存原文的去处（记账）存它 */
     val extras: String,
     /** 正文被系统遮蔽成了「敏感数据已隐藏」。监听层过一会儿会重读、真正文到了再投一次 */
     val redacted: Boolean,

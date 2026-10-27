@@ -48,7 +48,7 @@ import com.abc.daodian.shell.entry.ShellEntry
 
 /**
  * 权限与监听：顶上一句体检结论，底下各模块要的系统权限（「提醒要的」），再往下是各模块自己那一组
- * （[ShellEntry.PermissionSection]，通知监听层的使用权、监听、谁在听）。见 DESIGN.md §9.1
+ * （[ShellEntry.PermissionSection]，通知监听层的使用权、监听、规则和收到的通知）。见 DESIGN.md §9.1
  *
  * 权限以前分在设置页两处（系统权限在上、通知使用权在最底下），现在都在这一页。
  * 体检每次回到这页都重跑：从系统设置开完权限退回来，红字要当场变成对勾，不然会以为没开成功又去开一遍。

@@ -9,14 +9,17 @@ object ReminderRoutes {
     const val EDIT = "reminder/edit?id={id}"
     const val LOG = "reminder/log"
 
-    /** 提醒的设置页：当天事项收尾、派活、投递日志。设置首页「提醒」那一行进 */
+    /** 提醒的设置页：当天事项收尾、投递日志。设置首页「提醒」那一行进 */
     const val SETTINGS = "reminder/settings"
 
-    /** 派活名单上某个人的那一页：怎么接（名字、暗号）、发来的每一句办成了什么。提醒设置页「派活」那一组进，没接住的通知也拉起这里 */
+    /**
+     * 以前派活那一页（某个人发来的每一句）。派活删了，**路由留壳**：通知栏里还挂着的旧「派的事没接住」通知存着这个路由，
+     * 点了跳规则页。0.2.2 删，连不带人的 [RELAY_OLD] 一起（`docs/cleanup.md`）
+     */
     const val RELAY = "reminder/relay/{id}"
 
-    /** [personId] 是 RelaySettings.Person.id */
-    fun relay(personId: Long) = "reminder/relay/$personId"
+    /** 只听一个人那一版「没接住」的通知拉起的，不带人。同上，留壳 */
+    const val RELAY_OLD = "reminder/relay"
 
     /** 编辑某一条；null = 新建一条（手动填，不经过模型） */
     fun edit(id: Long?) = "reminder/edit?id=${id ?: -1L}"

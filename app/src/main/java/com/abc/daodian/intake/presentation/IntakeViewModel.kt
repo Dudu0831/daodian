@@ -4,21 +4,14 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.abc.daodian.intake.Intake
-import com.abc.daodian.intake.NoticeHub
-import com.abc.daodian.intake.NoticeRouting
-import com.abc.daodian.intake.NoticeSubscriber
-import com.abc.daodian.shared.apps.AppCatalog
 import com.abc.daodian.shared.format.Format
-import java.text.Collator
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -33,48 +26,10 @@ sealed interface ListenerAction {
     data class NotConnected(val at: Long) : ListenerAction
 }
 
-/** 一个订阅者听着哪些 app（名字按拼音排） */
-data class Subscription(val subscriber: NoticeSubscriber, val apps: List<String>)
-
-/** 按 app 看：这个 app 的通知交给谁 */
-data class Route(val app: String, val to: List<String>)
-
 /** 「权限与监听」页里通知监听那几组和设置首页那一句（[IntakePermissionSection]）。按 Activity 取，两处同一份 */
 class IntakeViewModel(app: Application) : AndroidViewModel(app) {
 
     val listener: StateFlow<Intake.Listener> = Intake.listener
-
-    private val collator = Collator.getInstance(Locale.CHINA)
-
-    /** 每个订阅者听着哪些 app，按注册顺序。null = 还没读出来 */
-    val subscriptions: StateFlow<List<Subscription>?> = Intake.routesFlow(app)
-        .map { routes ->
-            Intake.subscribers.map { s ->
-                Subscription(s, routes[s.id].orEmpty().map { AppCatalog.label(app, it) }.sortedWith(collator))
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-
-    /** 按 app 看：只列有人听的，按名字排 */
-    val routes: StateFlow<List<Route>> = Intake.routesFlow(app)
-        .map { routes ->
-            val byPkg = LinkedHashMap<String, MutableList<String>>()
-            Intake.subscribers.forEach { s -> routes[s.id].orEmpty().forEach { byPkg.getOrPut(it) { mutableListOf() } += s.label } }
-            byPkg.map { (pkg, to) -> Route(AppCatalog.label(app, pkg), to) }.sortedWith(compareBy(collator) { it.app })
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    /** 新链路开没开（只有 debug 包能开，NOTICE_PLAN 第 6 步） */
-    val routing: StateFlow<NoticeRouting> = NoticeRouting.flow(app)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), NoticeRouting.LEGACY)
-
-    /** 切到新链路时叫一下管家：开之前就在收件箱里的待办接着办 */
-    fun setRouting(routing: NoticeRouting) {
-        viewModelScope.launch {
-            NoticeRouting.set(getApplication(), routing)
-            NoticeHub.start(getApplication())
-        }
-    }
 
     private val _action = MutableStateFlow<ListenerAction>(ListenerAction.Idle)
     val action: StateFlow<ListenerAction> = _action.asStateFlow()

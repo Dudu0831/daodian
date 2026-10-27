@@ -27,8 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.abc.daodian.reminder.ReminderRoutes
-import com.abc.daodian.reminder.presentation.relay.RelayAddSheet
-import com.abc.daodian.reminder.presentation.relay.RelayViewModel
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
@@ -45,30 +43,22 @@ import java.time.LocalTime
 import kotlin.math.abs
 
 /*
- * 提醒在设置里的两样：自己的设置页（当天事项、派活、准不准），「权限与监听」页体检结论底下那一行（最近投递准不准）。
+ * 提醒在设置里的两样：自己的设置页（当天事项、准不准），「权限与监听」页体检结论底下那一行（最近投递准不准）。
  */
 
 /**
- * 提醒的设置页：当天事项（收尾时刻）、派活（名单，一人一行）、准不准（投递日志）。
+ * 提醒的设置页：当天事项（收尾时刻）、准不准（投递日志）。
  * 和记账的设置页一个样子：几组、每行右边是值，点了弹框改或者往下走一页。
- * 派活是设计稿方向 C「一人一页」（https://claude.ai/artifact/AbLfPQLYAAGQGY3LNUF37D）：点一个人进这个人那一页，
- * 「加一个人」从底下弹纸；在那一页上点了「不听了」退回来，撤销条画在这一页。
- * 派活要的通知使用权、听哪些 app 不在这里，在「权限与监听」页（DESIGN.md §2.3）—— 这一页不放通知的行、不往那边跳。
+ * 以前的派活（别人在微信里说一句建成提醒）换成了「听通知」的规则，在「权限与监听」页（DESIGN.md §12）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReminderSettingsScreen(onBack: () -> Unit, open: (String) -> Unit) {
     val vm = activityViewModel<ReminderViewModel>()
-    val relayVm = activityViewModel<RelayViewModel>()
     val colors = DaodianColors.current
     val logs by vm.logs.collectAsState()
     val checkTime by vm.dayCheckTime.collectAsState()
-    val people by relayVm.people.collectAsState()
-    val counts by relayVm.counts.collectAsState()
-    val seen by relayVm.seen.collectAsState()
-    val forgotten by relayVm.forgotten.collectAsState()
     var pickingCheckTime by remember { mutableStateOf(false) }
-    var adding by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize().background(colors.paper)) {
         Column(Modifier.fillMaxSize()) {
@@ -92,30 +82,6 @@ fun ReminderSettingsScreen(onBack: () -> Unit, open: (String) -> Unit) {
                     }
                 }
 
-                // 派活：名单上的人在微信里说一句，这里接住交给模型建成提醒。一人一行，点进去是这个人那一页
-                GroupLabel("派活")
-                PaperGroup {
-                    people?.forEach { p ->
-                        SettingRow(
-                            title = p.name,
-                            note = if (p.code.isEmpty()) "句句都交给模型" else "只接「${p.code}」开头的",
-                            onClick = { open(ReminderRoutes.relay(p.id)) }
-                        ) {
-                            counts[p.name]?.takeIf { it > 0 }?.let {
-                                Text("$it 句", style = DaodianType.settingValue, color = colors.ink)
-                                Spacer(Modifier.width(10.dp))
-                            }
-                            ChevronRightIcon(size = 13.dp, tint = colors.muted)
-                        }
-                        GroupRule()
-                    }
-                    SettingRow(
-                        title = "加一个人",
-                        note = "他们在微信里说一句，这里接住，建成提醒。",
-                        onClick = { adding = true }
-                    ) { PlusIcon(tint = colors.ink2) }
-                }
-
                 GroupLabel("准不准")
                 PaperGroup {
                     SettingRow(
@@ -125,16 +91,9 @@ fun ReminderSettingsScreen(onBack: () -> Unit, open: (String) -> Unit) {
                         onClick = { open(ReminderRoutes.LOG) }
                     ) { ChevronRightIcon(size = 13.dp, tint = colors.muted) }
                 }
-                // 给撤销条留出地方，最后一组不被它盖住
-                Spacer(Modifier.height(96.dp))
+                Spacer(Modifier.height(32.dp))
             }
         }
-
-        UndoBar(
-            label = forgotten?.let { "不听${it.person.name}了" },
-            onUndo = relayVm::undoForget,
-            modifier = Modifier.align(Alignment.BottomCenter)
-        )
     }
 
     if (pickingCheckTime) {
@@ -149,15 +108,6 @@ fun ReminderSettingsScreen(onBack: () -> Unit, open: (String) -> Unit) {
             },
             dismissButton = { TextButton(onClick = { pickingCheckTime = false }) { Text("取消") } },
             text = { TimePicker(state = state) }
-        )
-    }
-
-    if (adding) {
-        RelayAddSheet(
-            // 已经在名单上的不用再挑
-            seen = seen.filter { s -> people.orEmpty().none { it.name == s } },
-            onAdd = relayVm::add,
-            onDismiss = { adding = false }
         )
     }
 }

@@ -28,12 +28,12 @@ interface ShellEntry {
     fun DrawerCard(open: (String) -> Unit) {}
 
     /**
-     * 设置首页「模块」那一组里的行，每行点进模块自己的设置页。一个模块一行，模块里的小功能（提醒里的派活）
+     * 设置首页「模块」那一组里的行，每行点进模块自己的设置页。一个模块一行，模块里的小功能（提醒里的投递日志）
      * 在它自己的设置页里。行上写里面有什么，不写会变的现状 —— 读库的现状打开时会闪、行高会跳（DESIGN.md §08）
      */
     val settingsEntries: List<SettingsEntry> get() = emptyList()
 
-    /** 「权限与监听」页里自己的一组或几组，排在各模块的体检项后面（通知监听层：使用权、监听、谁在听） */
+    /** 「权限与监听」页里自己的一组或几组，排在各模块的体检项后面（通知监听层：使用权、监听、规则和收到的通知） */
     @Composable
     fun PermissionSection(open: (String) -> Unit) {}
 

@@ -398,19 +398,23 @@ data class Receipt(val handoffId: Long, val text: String, val route: String? = n
 - [x] 设计稿（<https://claude.ai/artifact/Qg7TytQpTJd5N4CtuacTB8>，10-27 用户选了方向 B，**固定的说明字少写**）：「权限与监听」→「规则」/「收到的通知」两个入口；规则页分在听 / 停了；一条规则 = 在听开关、听什么、进来之后、最近进来的、删掉（退回规则页给 5 秒撤销）；收到的通知按天分组，底下写变成了什么，没办成的带「再试」；一条通知 = 全文、中了的规则、办成了什么（点进那条提醒）
 - [x] 代码：`intake/presentation/InboxScreens.kt`、`InboxViewModel.kt`（四页共用，读 `intake.db` 的 Flow）；路由 `intake/rules`、`intake/rule/{id}`、`intake/notices`、`intake/notice/{id}`；`RuleRepository.restore`（撤销删除，编号不变）；Dao 加了记录页的三个 Flow 和两个「再试」
 - [x] 「权限与监听」页：**新链路开着时**「谁在听」「按 app 看」换成两个入口、组名改「听通知要的」、去掉使用权和扫一遍的说明；老链路原样（release 第 8 步才切）
-- **挪到第 8 步的**：提醒设置里派活那一组 —— 提醒模块看不到开关（模块不 import intake 的开关），老链路还在用它，切换那一版连 `Relay` 一起删
+- 提醒设置里派活那一组：挪到第 8 步删了
 - **10-27 用户在真机（debug 包）上逐页看过，说都对**：入口两行、规则页停 / 开 / 删 + 撤销、一条规则、收到的通知、一条通知、开关关掉变回老样子
 
 ### 第 8 步：切换发版
 
-- [ ] release 走 `Hub`；删 `Legacy` 和第 6 节列的老代码；留路由壳
-- [ ] 导出诊断：规则几条、各用哪些包名、近 7 天进来 / 交给谁 / 不相关 / 没办成各几条（不写软规则、标题、正文）
+- [x] 只剩新链路（10-27，没发版）：删了 `NoticeRouting` 开关、`Relay*`（含 `reminder/presentation/relay`、`relay` agent、`RelayDatabase` 的 schema）、`NoticeSubscriber`、`Router`、`IntakeSettings`、`AppPicker*`、`LedgerCapture`；「权限与监听」只剩新的几组，提醒设置里派活那一组去掉；助手的提示词并成一份 `assistant-v2`，建规则的工具 release 也有；记账页「一个 app 都没勾」那句去掉
+- [x] 留路由壳：`reminder/relay/{id}`、`reminder/relay` 进来先退掉自己、再开 `intake/rules`（`ReminderShell.RelayShim`）
+- [x] 导出诊断：规则几条、各听哪些包名；近 7 天进来各状态几条、不相关几条、交给谁各几次（`IntakeShell.diagnostics`）；提醒那一段的派活名单、派活收到的删了
+- **一直留着、不是壳的**：渠道 id `relay_v1`（系统按 id 记你对它的设置，显示名改成「通知建的提醒」）；监听组件 `intake.NoticeListenerService` 的全类名（通知使用权按它授）
+- **手机上留着没删的文件**（照第 6 节「旧数据不删」）：`relay.db`、DataStore `intake`、`relay`，debug 包还有 `notice_routing`、`files/trace_relay.txt`。代码不再碰；要清就在 0.2.2 那一版里一起删，待定（`docs/cleanup.md`）
+- **升上来记账先一条都收不到**：以前给记账勾的 app 不搬，要在对话里说一次「招行、支付宝的通知记账」。第 10 节第 1 条（第一次打开垫一句）发版前要定
 - [ ] DESIGN：§2.3 删「现状」那段，§2.2、§6.1 花名册、§08 设置页、§10.2、§12 跟着改；CLAUDE.md
 - [ ] 发版说明写「升级后在对话里重新说一次要听什么」
 
 ### 第 9 步：删壳（切换那一版之后第二个版本）
 
-- [ ] 删 `reminder/relay` 路由的壳
+- [ ] 删 `reminder/relay` 路由的壳：定在 0.2.2（0.2.0 是切换那一版），清单在 `docs/cleanup.md`，和 `TidyWorker`、速记的 alias 一起
 
 ---
 

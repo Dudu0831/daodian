@@ -9,7 +9,7 @@ import com.abc.daodian.runtime.tool.ToolContext
 /**
  * 提醒子代理：通知管家交来的一条通知 + 附言 → 后台一轮模型 → 建成提醒（DESIGN.md §12.5）。
  * 只带 `create_reminder` 一个工具，问不了你。交来、结果怎么记归 [ReminderNoticeTarget]；它说什么归 [ReminderNoticePrompt]。
- * 将来取代派活（`relay/RelayAgent`，第 8 步）
+ * 取代了以前的派活 agent（`relay`）
  */
 object ReminderNoticeAgent : AgentInfo {
 

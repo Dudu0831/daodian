@@ -10,7 +10,7 @@ import com.abc.daodian.runtime.memory.MemoryPreamble
  * 每一步请求前垫在历史前面的那段：记下的事 + 各模块的现状（记账的类别表）+ 更早对话的摘要。见 DESIGN.md §6.9
  *
  * 这几样一般只在后台整理完、新建了类别之后才变，两次变动之间这段一个字不变，前缀缓存吃得上。
- * 怎么拼成一段话在 runtime 的 [MemoryPreamble]（派活只垫记忆，也用它）；这里只管对话页、速记各垫哪几样。
+ * 怎么拼成一段话在 runtime 的 [MemoryPreamble]（后台的几个 agent 只垫记忆，也用它）；这里只管对话页、速记各垫哪几样。
  */
 object Recall {
 

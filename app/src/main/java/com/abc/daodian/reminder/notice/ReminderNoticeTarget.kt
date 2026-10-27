@@ -34,7 +34,7 @@ import kotlinx.coroutines.sync.withLock
 
 /**
  * 提醒接通知管家交来的活（DESIGN.md §12.5）：一条一条交给提醒子代理（[ReminderNoticeAgent]），建成了弹一条通知告诉你，
- * 点开是那条提醒。将来取代派活（`relay/Relay`，第 8 步）。
+ * 点开是那条提醒。取代了以前的派活（别人在微信里派事）。
  *
  * 重交防重复：办之前先问收件箱这次交接有没有回执，有就不再办；建成了马上写回执，不等交接那边。
  * 进程恰好死在「建好」和「写回执」之间会多建一条 —— 接受（NOTICE_PLAN 第 10 节第 5 条）。
@@ -126,10 +126,10 @@ object ReminderNoticeTarget : NoticeTarget {
     private fun notify(context: Context, h: Handed, title: String, text: String, open: Intent) {
         val nm = NotificationManagerCompat.from(context)
         if (!nm.areNotificationsEnabled()) return
-        // 渠道还是派活那个：系统按 id 记你对它的设置。名字第 8 步删派活时再改
+        // 渠道还是派活那个 id：系统按 id 记你对它的设置（关没关、响不响），**id 不改**；名字跟着改
         context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "别人派的事", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "名单上的人在微信里派了事、建成了提醒时告诉你"
+            NotificationChannel(CHANNEL_ID, "通知建的提醒", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "听到的通知建成了提醒时告诉你"
             }
         )
         val id = (NOTIFY_BASE + h.handoffId % NOTIFY_SPAN).toInt()
@@ -148,7 +148,7 @@ object ReminderNoticeTarget : NoticeTarget {
 
     private const val CHANNEL_ID = "relay_v1"
 
-    /** 和派活的 700_000 起错开 */
+    /** 和以前派活的 700_000 起错开：通知栏里可能还挂着它的 */
     private const val NOTIFY_BASE = 800_000L
     private const val NOTIFY_SPAN = 100_000L
 }
