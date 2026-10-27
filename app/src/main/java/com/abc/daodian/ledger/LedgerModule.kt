@@ -2,6 +2,7 @@ package com.abc.daodian.ledger
 
 import android.content.Context
 import com.abc.daodian.ledger.assistant.LedgerPlugin
+import com.abc.daodian.ledger.capture.LedgerNoticeTarget
 import com.abc.daodian.ledger.organize.OrganizeWorker
 import com.abc.daodian.ledger.presentation.LedgerShell
 import com.abc.daodian.ledger.reconciliation.LedgerCheck
@@ -24,6 +25,7 @@ object LedgerModule : Module {
     override val label = LABEL
     override val assistant get() = LedgerPlugin
     override val shell get() = LedgerShell
+    override val notice get() = LedgerNoticeTarget
 
     override fun onAppStart(context: Context) {
         val app = context.applicationContext

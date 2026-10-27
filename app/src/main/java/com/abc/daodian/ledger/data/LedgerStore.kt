@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
 import com.abc.daodian.intake.Notice
+import com.abc.daodian.intake.plugin.NoticeReports
+import com.abc.daodian.ledger.capture.LedgerNoticeTarget
 import com.abc.daodian.shared.apps.AppCatalog
 import com.abc.daodian.ledger.data.db.Account
 import com.abc.daodian.ledger.data.db.Allocation
@@ -68,8 +70,11 @@ class LedgerStore private constructor(
      *
      * 遮蔽版和真正文的关系在这里就理清，不劳模型：真正文到了，之前的遮蔽版标 SUPERSEDED；
      * 真正文已经在库里了才来的遮蔽版，直接存成 SUPERSEDED。
+     *
+     * @param noticeId 通知管家交来的，是收件箱那一条的 id（DESIGN.md §12.5），整理完照它回写。早就收过的也记上
+     * @return 这次新存了一条
      */
-    suspend fun ingest(n: Notice, capturedAt: Long = System.currentTimeMillis()): Boolean = db.withTransaction {
+    suspend fun ingest(n: Notice, capturedAt: Long = System.currentTimeMillis(), noticeId: Long? = null): Boolean = db.withTransaction {
         val key = n.key
         val postTime = n.postTime
         val redacted = n.redacted
@@ -85,10 +90,12 @@ class LedgerStore private constructor(
                 fingerprint = "$key|$postTime|${n.text.orEmpty()}",
                 redacted = redacted, state = state,
                 stateNote = if (state == RawState.IGNORED) "空通知（分组汇总）" else null,
-                processedAt = if (state == RawState.PENDING) null else capturedAt
+                processedAt = if (state == RawState.PENDING) null else capturedAt,
+                noticeId = noticeId
             )
         )
         if (id > 0 && !redacted) dao.supersedeRedacted(key, postTime, capturedAt)
+        if (id <= 0 && noticeId != null) dao.attachNotice("$key|$postTime|${n.text.orEmpty()}", noticeId)
         id > 0
     }
 
@@ -195,9 +202,36 @@ class LedgerStore private constructor(
         unreadable: List<RawVerdict>,
         actor: Actor,
         parsedBy: String
+    ): List<Long> {
+        val reports = mutableListOf<Pair<Long, String>>()
+        val ids = write(drafts, ignored, unreadable, actor, parsedBy, reports)
+        report(reports)
+        return ids
+    }
+
+    /**
+     * 管家交来的那几条记好了，回写到收件箱（DESIGN.md §12.5）：「午饭 -58.00」「不是账：广告」。
+     * 账已经落库了，回执写不进去不影响账
+     */
+    private suspend fun report(reports: List<Pair<Long, String>>) {
+        for ((noticeId, text) in reports) {
+            runCatching { NoticeReports.reportNotice(app, noticeId, LedgerNoticeTarget.ID, text) }
+        }
+    }
+
+    private suspend fun write(
+        drafts: List<ExpenseDraft>,
+        ignored: List<RawVerdict>,
+        unreadable: List<RawVerdict>,
+        actor: Actor,
+        parsedBy: String,
+        reports: MutableList<Pair<Long, String>>
     ): List<Long> = db.withTransaction {
         val now = System.currentTimeMillis()
         val createdSubs = HashMap<NewSubcategory, Long>()
+        val verdicts = (ignored.map { it.rawId } + unreadable.map { it.rawId }).toSet()
+        val noticeOf = dao.raws(drafts.flatMap { it.rawIds } + verdicts)
+            .mapNotNull { r -> r.noticeId?.let { r.id to it } }.toMap()
         val ids = drafts.map { d ->
             val categoryId = d.categoryId ?: d.newSubcategory?.let { s -> createdSubs.getOrPut(s) { ensureSub(s, actor) } }
             val state = when {
@@ -240,6 +274,7 @@ class LedgerStore private constructor(
             if (d.rawIds.isNotEmpty()) {
                 dao.insertTxnRaws(d.rawIds.map { TxnRaw(it, id) })
                 dao.setRawState(d.rawIds, RawState.DONE, null, now)
+                d.rawIds.forEach { raw -> noticeOf[raw]?.let { reports += it to "${d.summary} ${Money.signed(d.direction, d.amount)}" } }
             }
             d.refundOf?.let { dao.insertLink(TxnLink(id, it, REFUND)) }
             addTags(id, d.tags, now)
@@ -247,6 +282,8 @@ class LedgerStore private constructor(
         }
         ignored.forEach { dao.setRawState(listOf(it.rawId), RawState.IGNORED, it.reason, now) }
         unreadable.forEach { dao.setRawState(listOf(it.rawId), RawState.UNREADABLE, it.reason, now) }
+        ignored.forEach { v -> noticeOf[v.rawId]?.let { reports += it to "不是账：${v.reason}" } }
+        unreadable.forEach { v -> noticeOf[v.rawId]?.let { reports += it to "看不清：${v.reason}" } }
         ids
     }
 

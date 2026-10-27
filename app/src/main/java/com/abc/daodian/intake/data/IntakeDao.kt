@@ -96,6 +96,20 @@ interface IntakeDao {
     @Insert
     suspend fun insertHandoff(h: HandoffRow): Long
 
+    // ---------------- 回执 ----------------
+
+    @Query("UPDATE handoffs SET receipt = :text, route = :route, reportedAt = :at WHERE id = :id")
+    suspend fun report(id: Long, text: String, route: String?, at: Long)
+
+    @Query("SELECT receipt FROM handoffs WHERE id = :id")
+    suspend fun receiptOf(id: Long): String?
+
+    @Query(
+        "UPDATE handoffs SET receipt = :text, route = :route, reportedAt = :at " +
+            "WHERE id = (SELECT id FROM handoffs WHERE noticeId = :noticeId AND target = :target ORDER BY id DESC LIMIT 1)"
+    )
+    suspend fun reportLatest(noticeId: Long, target: String, text: String, route: String?, at: Long)
+
     // ---------------- 清 ----------------
 
     @Query("DELETE FROM notice_rules WHERE noticeId IN (SELECT id FROM notices WHERE state = 'DONE' AND doneAt < :before)")

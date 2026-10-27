@@ -2,6 +2,7 @@ package com.abc.daodian.module
 
 import android.content.Context
 import com.abc.daodian.assistant.plugin.AssistantPlugin
+import com.abc.daodian.intake.plugin.NoticeTarget
 import com.abc.daodian.shell.entry.ShellEntry
 
 /**
@@ -9,7 +10,7 @@ import com.abc.daodian.shell.entry.ShellEntry
  * 见 DESIGN.md §2.2「接头」
  *
  * 模块自己能独立运转（提醒断网也要响、记账在后台采集整理），接头只管「交出去什么」。
- * 两份插口各自也带着 id，要和这里的一样（根目录装的时候查）。听通知的订阅者另外在 `Modules.kt` 的 `SUBSCRIBERS` 里列。
+ * 几份插口各自也带着 id，要和这里的一样（根目录装的时候查）。听通知的订阅者另外在 `Modules.kt` 的 `SUBSCRIBERS` 里列。
  *
  * 这个包只放这一个接口：只有根目录和各模块的接头文件 import 它。
  */
@@ -26,6 +27,9 @@ interface Module {
 
     /** 给壳的：页面、抽屉卡、设置行、权限页的组、体检、诊断 */
     val shell: ShellEntry? get() = null
+
+    /** 接通知管家交来的活（DESIGN.md §12.5）：管家去处清单上的一项。不接的是 null */
+    val notice: NoticeTarget? get() = null
 
     /** 冷启动（包括被闹钟、广播拉起的进程）要做的事。在主线程上调，耗时的自己开协程 */
     fun onAppStart(context: Context) {}

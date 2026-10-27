@@ -12,9 +12,9 @@ import org.junit.Test
  * |---|---|
  * | `assistant` | 自己、`runtime`、`shared` |
  * | `shell` | 自己、`assistant`、`runtime`、`shared`、`update` |
- * | `module` | 两个插口包 `assistant/plugin`、`shell/entry` |
- * | 模块的核心层（提醒的 domain/data/application/scheduling/delivery，记账的 domain/data/capture） | 自己、`shared`、通知监听层的核心 |
- * | 模块的其余部分 | 再加上 `runtime`、两个插口包、`module`。别的模块不碰 |
+ * | `module` | 三个插口包 `assistant/plugin`、`shell/entry`、`intake/plugin` |
+ * | 模块的核心层（提醒的 domain/data/application/scheduling/delivery，记账的 domain/data/capture） | 自己、`shared`、通知监听层的核心、`intake/plugin` |
+ * | 模块的其余部分 | 再加上 `runtime`、三个插口包、`module`。别的模块不碰 |
  * | 通知监听层的核心 | 自己、`shared` |
  * | 通知监听层的 `core/`（规则、收件箱、管家的纯逻辑） | 自己、`intake.Notice`；也不碰 Android、Room（JVM 单测） |
  * | 通知监听层的接头和 `presentation/` | 再加上 `shell/entry`、`module` |
@@ -38,7 +38,7 @@ class ArchitectureTest {
             !p.contains('/') -> null // 根目录：装配
             p.startsWith("assistant/") -> Rule(listOf("assistant", "runtime", "shared") + ALWAYS)
             p.startsWith("shell/") -> Rule(listOf("shell", "assistant", "runtime", "shared", "update") + ALWAYS)
-            p.startsWith("module/") -> Rule(listOf("module") + PLUGS + ALWAYS)
+            p.startsWith("module/") -> Rule(listOf("module", "intake.plugin") + PLUGS + ALWAYS)
             p.startsWith("agent/") -> Rule(listOf("assistant") + ALWAYS)
             p.startsWith("update/") -> Rule(listOf("update", "shared") + ALWAYS)
             p.startsWith("shared/") -> Rule(listOf("shared") + ALWAYS)
@@ -97,7 +97,7 @@ class ArchitectureTest {
         private val PLUGS = listOf("assistant.plugin", "shell.entry")
 
         /** 通知监听层的核心里，模块能碰的那几样（DESIGN.md §2.2 第 8 条） */
-        private val INTAKE_CORE = listOf("intake.Notice", "intake.NoticeSubscriber", "intake.Intake", "intake.IntakeRoutes")
+        private val INTAKE_CORE = listOf("intake.Notice", "intake.NoticeSubscriber", "intake.Intake", "intake.IntakeRoutes", "intake.plugin")
 
         /** 通知监听层碰模块接头和壳的那两处，核心不碰 */
         private val INTAKE_EDGE = listOf("intake.IntakeModule", "intake.presentation")

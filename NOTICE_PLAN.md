@@ -1,6 +1,6 @@
 # 改造方案：通知管家（规则、收件箱、子代理）
 
-2026-10-26 定的方向，**第 1、2 步做完了（10-26，没接线）**。为什么这样分、要守的规矩在 DESIGN §2.3、§12；这份只管怎么落：目录、接口、库、步骤、测试。做完一步在第 8 节打勾；全部做完后，要紧的决定并进 DESIGN，这份删掉（和 `REFACTOR_PLAN.md` 一样）。
+2026-10-26 定的方向，**第 1–3 步做完了（10-26，没接线）**。为什么这样分、要守的规矩在 DESIGN §2.3、§12；这份只管怎么落：目录、接口、库、步骤、测试。做完一步在第 8 节打勾；全部做完后，要紧的决定并进 DESIGN，这份删掉（和 `REFACTOR_PLAN.md` 一样）。
 
 ## 0 一句话
 
@@ -75,7 +75,7 @@ reminder/notice/                           取代 reminder/relay/
 | 哪里 | 现在 | 改完 |
 |---|---|---|
 | `module` | 两个插口包 | 三个：加 `intake/plugin`（`Module.notice: NoticeTarget?`，和 `assistant`、`shell` 并排） |
-| 模块的核心层 | 自己、`shared`、`intake` 核心（`Notice`、`NoticeSubscriber`、`Intake`、`IntakeRoutes`） | 自己、`shared`、`intake/plugin`、`IntakeRoutes` |
+| 模块的核心层 | 自己、`shared`、`intake` 核心（`Notice`、`NoticeSubscriber`、`Intake`、`IntakeRoutes`） | 自己、`shared`、`intake/plugin`、`Notice`（`Handed` 带着原样的那条）、`IntakeRoutes`。第 3 步先加上 `intake/plugin`，`NoticeSubscriber`、`Intake` 第 8 步再去掉 |
 | `intake` 的核心（`core/`） | — | 只有自己和 `intake.Notice`：不碰 `shared`、Android、Room、`runtime`（`ArchitectureTest` 第 1 步起就查） |
 | `intake` 的其余部分 | 自己、`shared`；接头和界面再加 `shell/entry`、`module` | 再加 `runtime`（管家要跑 agent）、`assistant/plugin`（`IntakePlugin`） |
 
@@ -88,7 +88,7 @@ reminder/notice/                           取代 reminder/relay/
 | 助手 | 助手 | 不变 | 原来的 + `list_apps`、`recent_senders`、`preview_rule`、`list_rules`、`add_rule`、`stop_rule` |
 | 记账整理员 | 记账 | 不变 | 不变 |
 | ★通知管家 `intake/steward/StewardAgent` | 通知监听 | 后台：收件箱有待办，防抖 3 秒 | `hand_off`、`ignore` |
-| ★提醒子代理 `reminder/notice/ReminderNoticeAgent`（取代派活） | 提醒 | 后台：管家交来一条 | `create_reminder` |
+| ★提醒子代理 `reminder/notice/ReminderNoticeAgent`（id `reminder-notice`，取代派活） | 提醒 | 后台：管家交来一条 | `create_reminder` |
 | 记忆整理员 | 助手 | 不变 | 不变 |
 
 ---
@@ -240,6 +240,15 @@ data class Receipt(val handoffId: Long, val text: String, val route: String? = n
 - **记账**：`accept` 把原文写进 `raw_notification`（新列 `noticeId`，指纹照旧去重 —— 重试天然幂等），回执「待整理」；整理员写完那一笔时按 `noticeId` 回写「午饭 58.00」/「不是账」。
 - **提醒**：`accept` 一条一条跑提醒子代理（锁住，同现在 `Relay` 的 `Mutex`），建成后回执带编辑页路由，照旧发「建了一条提醒」的通知（渠道 id 还是 `relay_v1`）。重试防重复：先查收件箱里这个 `handoffId` 有没有回执，有就跳过。进程在「建好提醒」和「写回执」之间被杀，会多建一条 —— 接受，记在第 10 节。
 
+**写出来和上面草图不一样的**（第 3 步）：
+- `accept(context, handed)` 带 `Context`（同 `NoticeSubscriber.accept`）。
+- `Handed` 直接带原样的 `Notice`（记账要存原文、算指纹要 key 和 postTime），另带 app 的人话名字、整理过的标题正文、附言。
+- **没回执 = 这次没交成**：模型没配、跑失败的不回执，`Dispatcher`（第 4 步）过一会儿再交、记次数。第 3 次还交不出时要不要通知你（以前派活带暗号的没接住会弹一条），第 4 步定。
+- `NoticeReports` 三样：`report(handoffId)`、`receiptOf(handoffId)`、`reportNotice(noticeId, target)`（记账整理完时只知道原文上的 noticeId，补在交给记账的最近一次交接上）。提醒建成了马上 `report`，不等 `Dispatcher`。
+- 记账的回写：`LedgerStore.record` 落完账、事务提交后回写「午饭 58.00」「收入 · …」（金额照 `Money.signed`）、「不是账：…」「看不清：…」；回写失败不影响账。早就收过的那条（以前 `LedgerCapture` 收的）又被交来：照指纹找到，补上 `noticeId`，回执「已经收过」。
+- 提醒子代理落库时 note 后面加「来自老婆（微信）」，同派活的「老婆派的」；`gentle` 照附言（软规则里明说了轻提醒，管家才会写进附言），不再一律压成 false。
+- 通知渠道还用派活那个的名字「别人派的事」：两边现在都在建这个渠道，名字不一样会来回改。第 8 步删派活时再改名。
+
 ### 4.6 管家
 
 - `StewardScheduler`：`install` 时订阅 `pendingCount()`，`filter { it > 0 }.debounce(3_000)` → `Steward.runOnce()`；`IntakeModule.onAppStart`、`Dispatcher` 重试后也踢一下。`Mutex` 保证一次一个。
@@ -332,10 +341,11 @@ data class Receipt(val handoffId: Long, val text: String, val route: String? = n
 
 ### 第 3 步：插口 + 两个子代理
 
-- [ ] `intake/plugin`：`NoticeTarget`、`Handed`、`Receipt`、`NoticeReports`；`Module.notice`
-- [ ] `LedgerNoticeTarget` + `LedgerStore.ingest(Handed)` + 整理员写完回写
-- [ ] `ReminderNoticeTarget` + `ReminderNoticeAgent` + `ReminderNoticePrompt`（从 `RelayPrompt` 改写：输入是「通知 + 附言」，「我 / 你」那几条写成「通知是某个人发来的话时」；版本 `reminder-notice-v1`）
-- [ ] 花名册、`AgentsTest`
+- [x] `intake/plugin`：`NoticeTarget`、`Handed`、`Receipt`、`NoticeReports`；`Module.notice`（提醒、记账都交了）
+- [x] `LedgerNoticeTarget` + `LedgerStore.ingest(notice, noticeId)` + 整理员写完回写
+- [x] `ReminderNoticeTarget` + `ReminderNoticeAgent` + `ReminderNoticePrompt`（从 `RelayPrompt` 改写：输入是「通知 + 附言」，「我 / 你」那几条写成「通知是某个人发来的话时」；版本 `reminder-notice-v1`）
+- [x] 花名册（现在六个里的五个：派活第 8 步才删，管家第 4 步加）、`AgentsTest`、`ArchitectureTest`（`module` 和模块能碰 `intake/plugin`）
+- **没测到的**：两个 `accept` 和记账回写都要碰库、跑模型，JVM 测不了，第 6 步真机验；提示词只测了输入怎么拼，模型照不照附言建，第 4 步 `LiveGatewayTest` 那组一起打真网关
 
 ### 第 4 步：管家
 

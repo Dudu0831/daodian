@@ -27,6 +27,10 @@ interface LedgerDao {
     @Query("SELECT * FROM raw_notification WHERE id IN (:ids)")
     suspend fun raws(ids: Collection<Long>): List<RawNotification>
 
+    /** 早就收过的那条（以前直接从监听层收的）后来又由通知管家交来：记上收件箱的 id，整理完好回写 */
+    @Query("UPDATE raw_notification SET noticeId = :noticeId WHERE fingerprint = :fingerprint AND noticeId IS NULL")
+    suspend fun attachNotice(fingerprint: String, noticeId: Long)
+
     /** 待整理的，冷却期（[before]）之后到的先不给 */
     @Query("SELECT * FROM raw_notification WHERE state = 'PENDING' AND postTime <= :before ORDER BY postTime LIMIT :limit")
     suspend fun pendingRaws(before: Long, limit: Int): List<RawNotification>

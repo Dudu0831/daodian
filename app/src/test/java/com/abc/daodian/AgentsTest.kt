@@ -7,6 +7,7 @@ import com.abc.daodian.assistant.memory.tidy.TidyAgent
 import com.abc.daodian.ledger.domain.LedgerBackend
 import com.abc.daodian.ledger.organize.OrganizerAgent
 import com.abc.daodian.ledger.tools.LedgerTools
+import com.abc.daodian.reminder.notice.ReminderNoticeAgent
 import com.abc.daodian.reminder.relay.RelayAgent
 import com.abc.daodian.reminder.tools.ReminderTools
 import com.abc.daodian.runtime.Agent
@@ -65,6 +66,7 @@ class AgentsTest {
             OrganizerAgent.build(ledger, { "test" }, tagging = false),
             OrganizerAgent.build(ledger, { "test" }, tagging = true),
             RelayAgent.build { _, _ -> 1L },
+            ReminderNoticeAgent.build { _, _ -> 1L },
             TidyAgent.build(FakeMemoryBook(), compact = true, remember = true)
         ).forEach { agent ->
             val result = strictRun(agent)
@@ -88,8 +90,8 @@ class AgentsTest {
     }
 
     @Test
-    fun `the roster lists the four agents once each`() {
-        assertEquals(listOf("assistant", "organizer", "relay", "tidy"), AGENTS.map { it.id })
+    fun `the roster lists each agent once`() {
+        assertEquals(listOf("assistant", "organizer", "relay", "reminder-notice", "tidy"), AGENTS.map { it.id })
         assertTrue("只有助手能问人", AGENTS.filter { it.canAsk }.map { it.id } == listOf("assistant"))
     }
 }
