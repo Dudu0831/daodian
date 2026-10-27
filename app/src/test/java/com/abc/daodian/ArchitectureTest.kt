@@ -15,7 +15,7 @@ import org.junit.Test
  * | `module` | 三个插口包 `assistant/plugin`、`shell/entry`、`intake/plugin` |
  * | 模块的核心层（提醒的 domain/data/application/scheduling/delivery，记账的 domain/data/capture） | 自己、`shared`、通知监听层的核心、`intake/plugin` |
  * | 模块的其余部分 | 再加上 `runtime`、三个插口包、`module`。别的模块不碰 |
- * | 通知监听层的其余部分（监听、库、管家、插口） | 自己、`shared`、`runtime`（管家要跑 agent） |
+ * | 通知监听层的其余部分（监听、库、管家、插口、给助手的） | 自己、`shared`、`runtime`（管家要跑 agent）、`assistant/plugin`（`IntakePlugin`） |
  * | 通知监听层的 `core/`（规则、收件箱、管家的纯逻辑） | 自己、`intake.Notice`；也不碰 Android、Room（JVM 单测） |
  * | 通知监听层的接头和 `presentation/` | 再加上 `shell/entry`、`module` |
  * | `update`、`shared` | 自己、`shared` |
@@ -46,7 +46,7 @@ class ArchitectureTest {
             p.startsWith("intake/") -> {
                 val edge = p == "intake/IntakeModule.kt" || p.startsWith("intake/presentation/")
                 if (edge) Rule(listOf("intake", "shared", "module", "shell.entry") + ALWAYS)
-                else Rule(listOf("intake", "shared", "runtime") + ALWAYS, INTAKE_EDGE)
+                else Rule(listOf("intake", "shared", "runtime", "assistant.plugin") + ALWAYS, INTAKE_EDGE)
             }
             p.startsWith("reminder/") || p.startsWith("ledger/") -> {
                 val module = p.substringBefore('/')

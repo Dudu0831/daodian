@@ -105,3 +105,6 @@ data class HandoffRow(
     val route: String? = null,
     val reportedAt: Long? = null
 )
+
+/** 一条规则进来过几条 */
+data class RuleCount(val ruleId: Long, val n: Int)

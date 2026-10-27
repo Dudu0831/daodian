@@ -1,6 +1,6 @@
 # 改造方案：通知管家（规则、收件箱、子代理）
 
-2026-10-26 定的方向，**第 1–4 步做完了（10-26，没接线）**。为什么这样分、要守的规矩在 DESIGN §2.3、§12；这份只管怎么落：目录、接口、库、步骤、测试。做完一步在第 8 节打勾；全部做完后，要紧的决定并进 DESIGN，这份删掉（和 `REFACTOR_PLAN.md` 一样）。
+2026-10-26 定的方向，**第 1–5 步做完了（10-27，没接线；建规则的工具只进 debug 包）**。为什么这样分、要守的规矩在 DESIGN §2.3、§12；这份只管怎么落：目录、接口、库、步骤、测试。做完一步在第 8 节打勾；全部做完后，要紧的决定并进 DESIGN，这份删掉（和 `REFACTOR_PLAN.md` 一样）。
 
 ## 0 一句话
 
@@ -360,8 +360,18 @@ data class Receipt(val handoffId: Long, val text: String, val route: String? = n
 
 ### 第 5 步：助手建规则
 
-- [ ] `IntakePlugin` + 六个工具 + 痕；`IntakeModule.assistant`
-- [ ] `AssistantPrompt`：什么时候建规则、拿不准就问（时间说法、哪几个 app、哪类算、交给谁、短信要不要加「不含 验证码」）
+- [x] `IntakePlugin` + 六个工具（`intake/assistant/IntakeTools`）+ 痕（`IntakeTrace`）；`IntakeModule.assistant`
+- [x] `AssistantPrompt`：什么时候建规则、拿不准就问（时间说法、哪几个 app、哪类算、交给谁、短信要不要加「不含 验证码」）
+- [x] 单测 `IntakeToolsTest`（假的 `RuleDesk`）、`AgentsTest` 多一条（带规则工具时用 `assistant-v2`，strict 过）
+- [x] `LiveGatewayTest` 多一条（`the assistant builds a rule from a clear request`）：**10-27 在火山方舟上过了** —— 话说全了它直接 `list_apps` → `preview_rule` → `add_rule`，软规则写了 18:00、响铃、标题带取件码
+
+**写出来和计划不一样的**（第 5 步）：
+- **建规则的工具现在只进 debug 包**（`IntakeModule.assistant` 看 `BuildConfig.DEBUG`）：新链路第 6 步才接线、第 8 步才进 release，release 包上的助手先不认得规则，免得建了不响。所以 `AssistantPrompt` 暂时有两份：`assistant-v1`（release，原样）和 `assistant-v2`（v1 + 「听通知」一段 + 六个工具），`AssistantAgent` 看手上有没有 `add_rule` 挑。第 8 步只留 v2。
+- 工具要的东西走一个接口 `RuleDesk`（真机上是 `IntakeDesk`：`AppCatalog`、通知栏、`intake.db`），测试换成假的。
+- 规则仓库全 app 一份（`intake/data/IntakeRepos`）：它缓存启用着的规则，流水线和工具得用同一份，不然这边建了那边还拿旧缓存。第 6 步接线也从这里拿。
+- `recent_senders` = 内存里记的（`intake/RecentTitles`，第 6 步接线后流水线每条记一笔）+ 通知栏里现在挂着的（`Intake.active()`，只读不交）。`preview_rule` 对的是通知栏里现在的 + 收件箱里 7 天内的。
+- 建好规则后**还不会当场扫一遍通知栏**（以前勾上 app 当场扫）：流水线第 6 步才接，到时候 `add_rule` 之后补一下 `Intake.sweep`。
+- 痕点不进去：规则页第 7 步才有，到时候加路由。
 
 ### 第 6 步：接线 + 开关（debug 包真机验）
 

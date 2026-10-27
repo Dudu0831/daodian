@@ -4,6 +4,8 @@ import com.abc.daodian.assistant.AssistantAgent
 import com.abc.daodian.assistant.AssistantPrompt
 import com.abc.daodian.assistant.memory.FakeMemoryBook
 import com.abc.daodian.assistant.memory.tidy.TidyAgent
+import com.abc.daodian.intake.assistant.IntakeTools
+import com.abc.daodian.intake.assistant.FakeDesk
 import com.abc.daodian.intake.core.steward.DecisionBuffer
 import com.abc.daodian.intake.steward.StewardAgent
 import com.abc.daodian.ledger.domain.LedgerBackend
@@ -90,6 +92,20 @@ class AgentsTest {
     fun `the assistant passes the strict checks`() {
         val result = strictRun(AssistantAgent.build(assistantTools()))
         assertTrue("助手没过检查：$result", result is RunResult.Done)
+    }
+
+    /** debug 包上多了通知监听层给的六个建规则工具，换成带「听通知」那份提示词 */
+    private fun debugTools() =
+        AssistantAgent.tools(FakeMemoryBook(), ReminderTools.forAssistant { _, _ -> 1L } + LedgerTools.forAssistant(ledger) + IntakeTools.of(FakeDesk()))
+
+    @Test
+    fun `with the rule tools the assistant takes the prompt written for them`() {
+        val agent = AssistantAgent.build(debugTools())
+        assertEquals(AssistantPrompt.RULES_VERSION, agent.prompt.version)
+        assertEquals(AssistantPrompt.RULES_TOOLS, debugTools().map { it.name }.toSet())
+        val result = strictRun(agent)
+        assertTrue("带规则工具的助手没过检查：$result", result is RunResult.Done)
+        assertEquals(AssistantPrompt.VERSION, AssistantAgent.build(assistantTools()).prompt.version)
     }
 
     @Test

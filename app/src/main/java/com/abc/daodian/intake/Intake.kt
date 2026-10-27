@@ -133,6 +133,9 @@ object Intake {
      */
     suspend fun sweep(how: String): Sweep? = withContext(Dispatchers.IO) { live?.collect(how) }
 
+    /** 通知栏里现在挂着的，只读不交（建规则时预演、挑发件人用）。监听没连着返回 null */
+    suspend fun active(): List<Notice>? = withContext(Dispatchers.IO) { live?.snapshot("preview") }
+
     /** 荣耀杀掉监听后系统不一定自己绑回来；每次冷启动催一下 */
     fun rebind(context: Context) {
         if (granted(context)) runCatching { NotificationListenerService.requestRebind(component(context)) }

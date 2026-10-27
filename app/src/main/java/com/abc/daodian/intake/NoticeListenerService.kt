@@ -95,6 +95,13 @@ class NoticeListenerService : NotificationListenerService() {
         return Intake.Sweep(active.size, routed)
     }
 
+    /** 通知栏里现在挂着的，原样读出来，不交给谁（建规则时预演用）。没连着返回 null，同 [collect] */
+    internal fun snapshot(how: String): List<Notice>? {
+        if (!connected) return null
+        val active = runCatching { activeNotifications }.getOrNull() ?: return null
+        return active.map { noticeOf(it, how) }
+    }
+
     private fun noticeOf(sbn: StatusBarNotification, how: String): Notice {
         val extras = sbn.notification.extras
         val dump = dump(extras)

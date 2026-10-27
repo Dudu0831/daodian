@@ -33,6 +33,10 @@ interface IntakeDao {
     @Query("DELETE FROM rules WHERE id = :id")
     suspend fun deleteRule(id: Long)
 
+    /** 每条规则进来过几条（收件箱里还留着的） */
+    @Query("SELECT ruleId, COUNT(*) AS n FROM notice_rules GROUP BY ruleId")
+    suspend fun ruleCounts(): List<RuleCount>
+
     // ---------------- 收件箱：收 ----------------
 
     @Query("SELECT * FROM notices WHERE fingerprint = :fingerprint")
@@ -107,6 +111,9 @@ interface IntakeDao {
 
     @Query("SELECT * FROM notices WHERE id IN (:ids)")
     suspend fun notices(ids: List<Long>): List<NoticeRow>
+
+    @Query("SELECT * FROM notices WHERE receivedAt >= :since ORDER BY receivedAt DESC LIMIT :limit")
+    suspend fun recentNotices(since: Long, limit: Int): List<NoticeRow>
 
     @Query("UPDATE handoffs SET state = 'DELIVERED', error = NULL, receipt = :receipt, route = :route, reportedAt = :at WHERE id = :id")
     suspend fun delivered(id: Long, receipt: String, route: String?, at: Long)
