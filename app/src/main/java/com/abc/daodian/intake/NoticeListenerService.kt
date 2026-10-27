@@ -20,12 +20,13 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 全 app 唯一的通知监听。所有 app 的通知都会来这里，原样打包成 [Notice] 交给 [Intake.dispatch]：
- * 勾了这个 app 的订阅者才收得到，没人勾的来了就扔。它自己一条都不存。见 DESIGN.md §2.3
+ * 全 app 唯一的通知监听。所有 app 的通知都会来这里，原样打包成 [Notice] 交给 [Intake.receive]：
+ * 老链路是勾了这个 app 的订阅者才收得到，新链路过硬条件（[NoticeRouting]）；谁都不要的来了就扔。它自己一条都不存。见 DESIGN.md §2.3
  *
  * 两个坑，对策都在这里：
- *  - **正文有时被系统遮蔽**：遮蔽版照投，隔 5s / 30s / 2min 从通知栏再读同一条，真正文到了再投一次。
- *    订阅者自己定遮蔽版怎么算（记账：真正文到了把遮蔽版标「被替代」）
+ *  - **正文有时被系统遮蔽**：遮蔽版照投，隔 5s / 30s / 2min 从通知栏再读，真正文到了再投一次。
+ *    老链路重扫整个通知栏，订阅者自己定遮蔽版怎么算（记账：真正文到了把遮蔽版标「被替代」）；
+ *    新链路只单读这一条（[reread]），2 分钟那次还是遮蔽版就照遮蔽版交给管家
  *  - **实时回调会丢**：连上时、解锁时都把通知栏扫一遍兜底，订阅者也能喊它扫（[Intake.sweep]）
  *
  * 连上 / 断开报给 [Intake]（页面看连没连着、扫一遍要找到这个实例）。
@@ -69,9 +70,9 @@ class NoticeListenerService : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         scope.launch {
             val notice = noticeOf(sbn, "posted")
-            val taken = Intake.dispatch(this@NoticeListenerService, notice)
-            // 有人要、正文却被遮蔽了：过一会儿再读，真正文多半就到了
-            if (notice.redacted && taken.isNotEmpty()) {
+            val taken = Intake.receive(this@NoticeListenerService, notice)
+            // 老链路：有人要、正文却被遮蔽了，过一会儿再扫，真正文多半就到了。新链路由流水线自己叫 reread
+            if (notice.redacted && taken.isNotEmpty() && NoticeHub.ID !in taken) {
                 for (s in RETRIES) handler.postDelayed({ sweep("retry+${s}s") }, s * 1000L)
             }
         }
@@ -82,7 +83,7 @@ class NoticeListenerService : NotificationListenerService() {
     }
 
     /**
-     * 把通知栏扫一遍，每条都交给 [Intake.dispatch]，都交完才返回。没连着返回 null ——
+     * 把通知栏扫一遍，每条都交给 [Intake.receive]，都交完才返回。没连着返回 null ——
      * 没绑上时 getActiveNotifications() 不报错，给的是空数组，分不出「没连着」和「通知栏里没有」，所以先看连没连着。
      */
     internal suspend fun collect(how: String): Intake.Sweep? {
@@ -90,9 +91,23 @@ class NoticeListenerService : NotificationListenerService() {
         val active = runCatching { activeNotifications }.getOrNull() ?: return null
         val routed = HashMap<String, Int>()
         active.forEach { sbn ->
-            Intake.dispatch(this, noticeOf(sbn, how)).forEach { routed.merge(it.id, 1, Int::plus) }
+            Intake.receive(this, noticeOf(sbn, how)).forEach { routed.merge(it, 1, Int::plus) }
         }
         return Intake.Sweep(active.size, routed)
+    }
+
+    /**
+     * 新链路存下一条遮蔽版后：隔 5s / 30s / 2min 单读这一条再过一遍流水线，最后那次带上 lastLook。
+     * 通知已经划掉了就读不到，收件箱里那条等满 10 分钟照遮蔽版交（`InboxPolicy.WAIT_MAX_MILLIS`）
+     */
+    internal fun reread(notice: Notice) {
+        for (s in RETRIES) handler.postDelayed({
+            scope.launch {
+                if (!connected) return@launch
+                val sbn = runCatching { getActiveNotifications(arrayOf(notice.key)) }.getOrNull()?.firstOrNull() ?: return@launch
+                Intake.receive(this@NoticeListenerService, noticeOf(sbn, "reread+${s}s"), lastLook = s == RETRIES.last())
+            }
+        }, s * 1000L)
     }
 
     /** 通知栏里现在挂着的，原样读出来，不交给谁（建规则时预演用）。没连着返回 null，同 [collect] */

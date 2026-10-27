@@ -9,6 +9,7 @@ import com.abc.daodian.assistant.plugin.AssistantPlugins
 import com.abc.daodian.assistant.provider.ProviderStore
 import com.abc.daodian.assistant.quick.QuickAddActivity
 import com.abc.daodian.intake.Intake
+import com.abc.daodian.intake.NoticeHub
 import com.abc.daodian.runtime.AgentRuntime
 import com.abc.daodian.shared.navigation.Launch
 import com.abc.daodian.shell.diagnostics.CrashLog
@@ -27,6 +28,8 @@ class DaodianApp : Application() {
         CrashLog.install(this)
         // 系统来绑监听之前订阅者就得在：监听一连上就开始分通知
         Intake.install(SUBSCRIBERS)
+        // 新链路（debug 包的开关）的去处清单：各模块交出来的那一项，照模块顺序
+        NoticeHub.install(MODULES.mapNotNull { it.notice })
         // debug 包里花名册、工具、问人三样对不上就崩，当场发现。后台的几个 agent 都有兜底的 catch，
         // 光抛会被吃掉、只落成一条失败记录，所以扔到主线程上再抛一次 —— 前台、后台一样崩
         AgentRuntime.install(

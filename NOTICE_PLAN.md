@@ -375,9 +375,23 @@ data class Receipt(val handoffId: Long, val text: String, val route: String? = n
 
 ### 第 6 步：接线 + 开关（debug 包真机验）
 
-- [ ] `NoticeRouting`：`Legacy` / `Hub`；`NoticeListenerService` 改调 `Intake.receive`
-- [ ] debug 设置里一个开关（默认 `Legacy`），切到 `Hub` 时老的订阅者不收（不会两边各建一条提醒）
+- [x] `NoticeRouting`：`LEGACY` / `HUB`；`NoticeListenerService` 改调 `Intake.receive`
+- [x] debug 设置里一个开关（默认 `LEGACY`），切到 `HUB` 时老的订阅者不收（不会两边各建一条提醒）
 - [ ] 真机验：对话里建三条（招行 → 记账、快递 → 提醒、老婆 + 暗号 → 提醒）；拉 `intake.db` 看 `rules`、`notices`、`handoffs`；`trace_steward.txt`；记账「抓到的通知」里有交过去的那条、整理完回写；快递短信建出提醒；没带暗号的不进库；取件码短信被遮蔽时等到真正文（DESIGN §12.8 第 1 条）；杀进程后待办接着办
+
+**写出来的样子**（第 6 步）：
+- 开关在「权限与监听」页最底下一组「走哪条路（debug）」，存在 DataStore `notice_routing`（不碰旧的 `intake`）；release 包读都不读，永远老链路。
+- `Intake.receive` 是唯一的入口（实时、扫一遍、重读都走它）：两条路都给 `RecentTitles` 记标题；新链路过 `NoticeHub` 的流水线，老链路照旧 `dispatch`。
+- `NoticeHub`（`intake/`）：全 app 一份流水线 + `StewardScheduler`，管家跑完一轮接着 `Dispatcher` 交一轮；去处清单由 `DaodianApp` 从 `MODULES.mapNotNull { it.notice }` 交进来。冷启动和切到新链路时 `purgeDone` + 叫一下管家（杀进程后的待办、没交成的交接、等过 10 分钟的遮蔽版）。
+- 遮蔽版重读：老链路照旧隔 5s / 30s / 2min 重扫整个通知栏；新链路只在流水线新存下 `WAITING` 时单读这一条（`getActiveNotifications(keys)`），2 分钟那次带 `lastLook`。通知划掉了读不到，等 `claim` 那 10 分钟。
+- `add_rule` 建好后 `RuleDesk.sweep()`：新链路开着时扫一遍通知栏（`how = rule`）。
+- **10-27 真机（debug 包，火山方舟）验过的**：对话里建「短信取件」规则（`com.hihonor.mms`、含 取件码 / 驿站、不含 验证码，软规则写了 18:00）。通知用 `adb shell cmd notification post` 从 `com.android.shell` 发，对应的三条测试规则直接写进库：快递 → 提醒子代理建了 18:00「取快递（幸福里驿站 3-2-1088）」、闹钟排上、不是轻提醒；老婆 + 「到点」→ 20:00「买酱油」；老婆不带暗号 → 不进库；招商银行 → 记账「待整理」，`raw_notification.noticeId` 对得上；进程在 3 秒防抖里被杀，重开后接着办完。`ledger.db` 是 v2、有 `noticeId`（debug 包里本来就没有旧原文，「旧行都在」没得验）。
+- **真机上发现、已修的**：冷启动叫管家那一下丢了（`StewardScheduler` 用的 SharedFlow，收的那头还没起来就叫，没人收就扔），杀进程后的待办要等下一条通知才办。改成 `Channel.CONFLATED`，加了单测。
+- **真机上发现、没修的**：
+  - **同一条通知重发一遍，会再建一条提醒**：指纹带 `postTime`，app 把同样的字重发（同一个 key、新的 postTime）就算新的一条。`cmd notification post` 同一个 tag 再发一次就是这样，真 app 会不会这么干没核过。第 10 节第 2 条（同一件事连发几条）是一回事，一起定。
+  - **验证码短信被系统遮蔽**（Android 15 认出验证码就遮，标题也成了「Shell」）：等了 2 分钟真正文都没来，照遮蔽版交，管家标「看不清」不相关。这条本来就该不进，结果对；但说明**遮蔽的不一定等得到真正文**，取件码短信要是也被认成验证码，就只能「看不清」。真短信上再看。
+  - 记账整理完回写回执、真短信、锁屏下遮蔽的取件码短信没验。
+- **没做的**：交接没交成的（模块抛错、子代理没跑成）不会自己再叫，要等下一条通知进来、或下次冷启动；等 10 分钟的遮蔽版也一样。真机上看是不是要加个定时。
 
 ### 第 7 步：界面（先出设计稿）
 

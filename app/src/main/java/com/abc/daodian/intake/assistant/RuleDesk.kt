@@ -3,6 +3,7 @@ package com.abc.daodian.intake.assistant
 import android.content.Context
 import com.abc.daodian.intake.Intake
 import com.abc.daodian.intake.Notice
+import com.abc.daodian.intake.NoticeRouting
 import com.abc.daodian.intake.RecentTitles
 import com.abc.daodian.intake.core.format.Formats
 import com.abc.daodian.intake.core.ports.RuleRepository
@@ -29,6 +30,9 @@ interface RuleDesk {
 
     /** 每条规则进来过几条 */
     suspend fun counts(): Map<Long, Int>
+
+    /** 建好规则后把通知栏扫一遍：已经挂在那里的、对得上的当场进收件箱（以前勾上 app 当场扫，同一个意思） */
+    suspend fun sweep()
 }
 
 /** 真机上的那份 */
@@ -57,9 +61,17 @@ class IntakeDesk(context: Context) : RuleDesk {
 
     override suspend fun counts(): Map<Long, Int> = IntakeDatabase.get(app).dao().ruleCounts().associate { it.ruleId to it.n }
 
+    /** 只在新链路开着时扫：老链路上扫一遍是交给老的订阅者，和规则无关 */
+    override suspend fun sweep() {
+        if (NoticeRouting.hub(app)) Intake.sweep(HOW_RULE)
+    }
+
     private companion object {
         const val TITLES = 12
         const val SAMPLE_DAYS = 7L
         const val SAMPLE_LIMIT = 300
+
+        /** 建好规则那一刻扫到的，写进 Notice.how */
+        const val HOW_RULE = "rule"
     }
 }

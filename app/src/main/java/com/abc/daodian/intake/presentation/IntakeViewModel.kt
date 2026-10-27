@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.abc.daodian.intake.Intake
+import com.abc.daodian.intake.NoticeHub
+import com.abc.daodian.intake.NoticeRouting
 import com.abc.daodian.intake.NoticeSubscriber
 import com.abc.daodian.shared.apps.AppCatalog
 import com.abc.daodian.shared.format.Format
@@ -61,6 +63,18 @@ class IntakeViewModel(app: Application) : AndroidViewModel(app) {
             byPkg.map { (pkg, to) -> Route(AppCatalog.label(app, pkg), to) }.sortedWith(compareBy(collator) { it.app })
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** 新链路开没开（只有 debug 包能开，NOTICE_PLAN 第 6 步） */
+    val routing: StateFlow<NoticeRouting> = NoticeRouting.flow(app)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), NoticeRouting.LEGACY)
+
+    /** 切到新链路时叫一下管家：开之前就在收件箱里的待办接着办 */
+    fun setRouting(routing: NoticeRouting) {
+        viewModelScope.launch {
+            NoticeRouting.set(getApplication(), routing)
+            NoticeHub.start(getApplication())
+        }
+    }
 
     private val _action = MutableStateFlow<ListenerAction>(ListenerAction.Idle)
     val action: StateFlow<ListenerAction> = _action.asStateFlow()

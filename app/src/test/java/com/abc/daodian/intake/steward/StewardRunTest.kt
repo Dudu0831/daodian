@@ -209,4 +209,15 @@ class StewardRunTest {
         scope.cancel()
         assertEquals("五下合成一轮，它说还有就再跑一轮", 2, runs.get())
     }
+
+    @Test
+    fun `a poke right after it is built is not lost`() = runBlocking {
+        val runs = AtomicInteger()
+        val scope = CoroutineScope(Dispatchers.Default)
+        // 冷启动就是这样：刚建好就叫，收的那头还没起来
+        StewardScheduler(scope, { runs.incrementAndGet(); false }, debounceMillis = 100).poke()
+        delay(500)
+        scope.cancel()
+        assertEquals(1, runs.get())
+    }
 }

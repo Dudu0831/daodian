@@ -131,6 +131,8 @@ internal class AddRuleTool(private val desk: RuleDesk) : Tool {
         val hard = draft.hard()
         val rule = desk.rules.add(draft.name.trim(), hard, draft.soft.trim(), context.now.toInstant().toEpochMilli())
         val preview = RuleJson.preview(hard, desk.samples(), desk.names)
+        // 已经挂在通知栏里、对得上的，当场进收件箱
+        desk.sweep()
         return ToolOutcome(
             "建好了：r${rule.id}「${rule.name}」。\n${hard.describe(desk.names)} → ${rule.soft}\n$preview",
             ok = true,

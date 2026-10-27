@@ -34,6 +34,8 @@ class FakeDesk(
     override suspend fun recentTitles(pkg: String) = titles[pkg].orEmpty()
     override suspend fun samples() = active
     override suspend fun counts() = mapOf(1L to 3)
+    var swept = 0
+    override suspend fun sweep() { swept++ }
 }
 
 class IntakeToolsTest {
@@ -92,6 +94,7 @@ class IntakeToolsTest {
             out.output
         )
         assertEquals("快递到了提醒取", desk.rules.all().first().single().name)
+        assertEquals("建好了扫一遍通知栏", 1, desk.swept)
 
         val trace = IntakeTrace.of(ToolTrace("add_rule", parcel, TraceState.OK, out.output, out.ref))!!
         assertEquals("监听", trace.settled)
@@ -105,6 +108,7 @@ class IntakeToolsTest {
         assertFalse(out.ok)
         assertTrue(out.output, out.output.startsWith("没建：") && out.output.contains("com.taobao") && out.output.contains("「码」"))
         assertTrue(desk.rules.all().first().isEmpty())
+        assertEquals(0, desk.swept)
         assertEquals("没建成", IntakeTrace.of(ToolTrace("add_rule", bad, TraceState.FAILED, out.output, null))!!.settled)
 
         repeat(RuleCheck.MAX_RULES) { run("add_rule", parcel) }

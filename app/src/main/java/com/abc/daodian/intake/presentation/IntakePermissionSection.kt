@@ -16,8 +16,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.abc.daodian.BuildConfig
 import com.abc.daodian.intake.Intake
 import com.abc.daodian.intake.IntakeRoutes
+import com.abc.daodian.intake.NoticeRouting
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
@@ -27,6 +29,7 @@ import com.abc.daodian.shared.ui.GroupLabel
 import com.abc.daodian.shared.ui.GroupRule
 import com.abc.daodian.shared.ui.Marker
 import com.abc.daodian.shared.ui.PaperGroup
+import com.abc.daodian.shared.ui.PaperSwitch
 import com.abc.daodian.shared.ui.SettingRow
 import com.abc.daodian.shared.ui.activityViewModel
 
@@ -119,6 +122,28 @@ fun IntakePermissionSection(open: (String) -> Unit) {
             color = colors.hint,
             modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 10.dp)
         )
+    }
+
+    if (BuildConfig.DEBUG) RoutingGroup(vm)
+}
+
+/**
+ * debug 包才有的一组：收到的通知走新链路还是老的订阅者（[NoticeRouting]，NOTICE_PLAN 第 6 步真机验用）。
+ * 切换那一版（第 8 步）连这一组一起删
+ */
+@Composable
+private fun RoutingGroup(vm: IntakeViewModel) {
+    val routing by vm.routing.collectAsState()
+    val hub = routing == NoticeRouting.HUB
+    GroupLabel("走哪条路（debug）")
+    PaperGroup {
+        SettingRow(
+            title = "通知管家",
+            note = if (hub) "开着 · 按对话里建的规则收，交给管家；上面「谁在听」勾的一条都不收" else "关着 · 照上面「谁在听」勾的交给记账、派活",
+            onClick = { vm.setRouting(if (hub) NoticeRouting.LEGACY else NoticeRouting.HUB) }
+        ) {
+            PaperSwitch(checked = hub, onCheckedChange = { vm.setRouting(if (it) NoticeRouting.HUB else NoticeRouting.LEGACY) })
+        }
     }
 }
 

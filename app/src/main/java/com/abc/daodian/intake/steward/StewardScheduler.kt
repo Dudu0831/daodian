@@ -3,9 +3,9 @@ package com.abc.daodian.intake.steward
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -22,11 +22,15 @@ class StewardScheduler(
     debounceMillis: Long = DEBOUNCE_MILLIS
 ) {
 
-    private val pokes = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    /**
+     * 叫的那一下先存着，等收的那头起来再取：收的那头是 init 里另起的协程，刚建好就叫（冷启动）时它多半还没起来。
+     * 以前用 SharedFlow，没人收时叫的那一下直接丢了，冷启动接不着上次的待办
+     */
+    private val pokes = Channel<Unit>(Channel.CONFLATED)
 
     init {
         scope.launch {
-            pokes.debounce(debounceMillis).collect {
+            pokes.receiveAsFlow().debounce(debounceMillis).collect {
                 val more = try {
                     work()
                 } catch (e: CancellationException) {
@@ -40,7 +44,7 @@ class StewardScheduler(
     }
 
     fun poke() {
-        pokes.tryEmit(Unit)
+        pokes.trySend(Unit)
     }
 
     companion object {

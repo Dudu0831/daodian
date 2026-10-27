@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.res.Resources
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
+import com.abc.daodian.intake.core.format.Formats
 import com.abc.daodian.intake.data.IntakeSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -21,7 +22,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * 通知监听层的门面：谁在订阅、每个订阅者听哪些 app、收到一条交给谁，以及跟「通知使用权」、
  * 监听连没连着打交道的几件事。见 DESIGN.md §2.3
  *
- * 只抓、只分，**一条都不存、不读懂**：存原文、去重、叫模型都是订阅者的事。
+ * 老链路只抓、只分，**一条都不存、不读懂**：存原文、去重、叫模型都是订阅者的事。
+ * 新链路（debug 包的开关，[NoticeRouting]）收到的交给 [NoticeHub]：硬条件 → 收件箱 → 通知管家（§12）。
  * 系统服务本身是 [NoticeListenerService]，全 app 只有这一个 —— 通知使用权按组件授，多一个就得再去开一次。
  */
 object Intake {
@@ -55,8 +57,28 @@ object Intake {
         if (on) sweep(HOW_PICKED)
     }
 
+    /**
+     * 收到一条（实时的、扫到的、重读的），都办完才返回。走哪条路看 [NoticeRouting]：
+     * 新链路过流水线（[NoticeHub]），老链路交给勾了这个 app 的订阅者。返回交给了谁的 id（新链路落进收件箱是 [NoticeHub.ID]）。
+     * 标题两条路都记一笔（[RecentTitles]，建规则时挑人用）
+     *
+     * @param lastLook 遮蔽版的最后一次重读，还是遮蔽版就不等了（只有新链路用）
+     */
+    internal suspend fun receive(context: Context, notice: Notice, lastLook: Boolean = false): List<String> {
+        RecentTitles.note(notice.pkg, Formats.of(notice.pkg).normalize(notice).title)
+        if (NoticeRouting.hub(context)) {
+            return if (NoticeHub.receive(context, notice, lastLook)) listOf(NoticeHub.ID) else emptyList()
+        }
+        return dispatch(context, notice).map { it.id }
+    }
+
+    /** 新链路刚存下一条遮蔽版：叫监听层过一会儿单读这一条（流水线的 `Wake` 叫的） */
+    internal fun reread(notice: Notice) {
+        live?.reread(notice)
+    }
+
     /** 收到一条：查路由表，交给勾了这个 app 的订阅者，都交完才返回。返回交给了谁（没人勾就是空的，这条扔掉） */
-    internal suspend fun dispatch(context: Context, notice: Notice): List<NoticeSubscriber> {
+    private suspend fun dispatch(context: Context, notice: Notice): List<NoticeSubscriber> {
         val r = router
         val targets = r.targets(notice.pkg, IntakeSettings.routes(context))
         if (targets.isEmpty()) return emptyList()
