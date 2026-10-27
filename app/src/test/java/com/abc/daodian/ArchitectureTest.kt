@@ -16,6 +16,7 @@ import org.junit.Test
  * | 模块的核心层（提醒的 domain/data/application/scheduling/delivery，记账的 domain/data/capture） | 自己、`shared`、通知监听层的核心 |
  * | 模块的其余部分 | 再加上 `runtime`、两个插口包、`module`。别的模块不碰 |
  * | 通知监听层的核心 | 自己、`shared` |
+ * | 通知监听层的 `core/`（规则、收件箱、管家的纯逻辑） | 自己、`intake.Notice`；也不碰 Android、Room（JVM 单测） |
  * | 通知监听层的接头和 `presentation/` | 再加上 `shell/entry`、`module` |
  * | `update`、`shared` | 自己、`shared` |
  * | `agent`（只剩旧全类名的空壳） | `assistant` |
@@ -41,6 +42,7 @@ class ArchitectureTest {
             p.startsWith("agent/") -> Rule(listOf("assistant") + ALWAYS)
             p.startsWith("update/") -> Rule(listOf("update", "shared") + ALWAYS)
             p.startsWith("shared/") -> Rule(listOf("shared") + ALWAYS)
+            p.startsWith("intake/core/") -> Rule(listOf("intake.core", "intake.Notice") + ALWAYS)
             p.startsWith("intake/") -> {
                 val edge = p == "intake/IntakeModule.kt" || p.startsWith("intake/presentation/")
                 if (edge) Rule(listOf("intake", "shared", "module", "shell.entry") + ALWAYS)
@@ -70,8 +72,23 @@ class ArchitectureTest {
         assertTrue("越界的 import：\n" + bad.joinToString("\n"), bad.isEmpty())
     }
 
+    @Test
+    fun `intake core is plain Kotlin`() {
+        val core = File(src, "intake/core")
+        assertTrue("找不到 ${core.absolutePath}", core.isDirectory)
+        val bad = core.walk().filter { it.extension == "kt" }.flatMap { file ->
+            file.readLines().asSequence().withIndex()
+                .filter { (_, line) -> PLATFORM.containsMatchIn(line) }
+                .map { (i, line) -> "${file.relativeTo(src).path}:${i + 1}  ${line.trim()}" }
+        }.toList()
+        assertTrue("intake/core 碰了 Android：\n" + bad.joinToString("\n"), bad.isEmpty())
+    }
+
     companion object {
         private val IMPORT = Regex("""^import com\.abc\.daodian\.(\S+)""")
+
+        /** `intake/core` 不碰的：Android、androidx（Room 在里面） */
+        private val PLATFORM = Regex("""^import (android|androidx)\.""")
 
         /** 谁都能用的 */
         private val ALWAYS = listOf("BuildConfig", "R")
