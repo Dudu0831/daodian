@@ -8,6 +8,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -52,6 +53,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -151,6 +153,8 @@ interface TurnActions {
  * 块按到货顺序摞：正文、痕、问卡，每一块都是展开着进场。还在跑、眼下又没东西在出的时候，
  * 末尾画两根墨条（刚发出去、工具跑完等它接着说、问卡答完等它接着办）。
  * 问卡等着时你直接说了一句：那句话画成你的气泡，后面的回应另起一个「· 到点」。
+ *
+ * 正文分层（§6.7）：回合的第一段照原样，后面的退一档。
  */
 @Composable
 fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) {
@@ -165,6 +169,7 @@ fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) 
     }
     // 重启读回来的回合不再一块块长出来
     val animate = msg.startedAt != 0L
+    val leadKey = remember(msg.blocks) { msg.visibleBlocks.firstOrNull { it is TurnBlock.Prose }?.key }
 
     Column {
         segments.forEachIndexed { si, (said, blocks) ->
@@ -195,13 +200,16 @@ fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) 
                     }
                 }
 
-                blocks.forEach { b ->
+                blocks.forEachIndexed { i, b ->
                     key(b.key) {
-                        Appear(animate, enter = if (b is TurnBlock.Ask) CardEnter else RevealEnter) {
+                        Appear(animate, enter = if (b is TurnBlock.Ask) CardEnter else RevealEnter, gap = gapBefore(blocks.getOrNull(i - 1), b)) {
                             when (b) {
                                 is TurnBlock.Prose -> {
                                     val streaming = msg.streaming && b.key == msg.blocks.lastOrNull()?.key
-                                    MarkdownText(b.text, streaming = streaming, style = DaodianType.prose, color = colors.ink, caret = streaming)
+                                    MarkdownText(
+                                        b.text, streaming = streaming, style = DaodianType.prose, color = colors.ink, caret = streaming,
+                                        tone = if (b.key == leadKey) ProseTone.Lead else ProseTone.Rest
+                                    )
                                 }
                                 is TurnBlock.Trace -> TraceLine(
                                     b,
@@ -248,14 +256,36 @@ fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) 
     }
 }
 
-/** 一块内容第一次出现时长出来；[animate] 为 false（重启读回的）就直接在那儿 */
+/**
+ * 一块内容第一次出现时长出来；[animate] 为 false（重启读回的）就直接在那儿。
+ * [gap] 是它离上一块多远（[gapBefore]），问卡答完收成行时跟着收
+ */
 @Composable
-private fun ColumnScope.Appear(animate: Boolean, enter: EnterTransition, content: @Composable () -> Unit) {
+private fun ColumnScope.Appear(animate: Boolean, enter: EnterTransition, gap: Dp, content: @Composable () -> Unit) {
     val state = remember { MutableTransitionState(!animate).apply { targetState = true } }
+    val top by animateDpAsState(gap, Motion.flow(), label = "blockGap")
     AnimatedVisibility(visibleState = state, enter = enter, exit = RevealExit) {
-        Box(Modifier.padding(top = 12.dp)) { content() }
+        Box(Modifier.padding(top = top)) { content() }
     }
 }
+
+/**
+ * 回合里块与块之间（DESIGN.md §6.5「间距」）：痕和答完的问卡是「行」，挨着排、不留空；
+ * 行和正文之间 8，整张的问卡前后 12，两块正文之间 14（和段距一样）。第一块离「· 到点」10
+ */
+private fun gapBefore(prev: TurnBlock?, b: TurnBlock): Dp = when {
+    prev == null -> 10.dp
+    prev.isLine && b.isLine -> 0.dp
+    prev.isCard || b.isCard -> 12.dp
+    prev is TurnBlock.Prose && b is TurnBlock.Prose -> 14.dp
+    else -> 8.dp
+}
+
+private val TurnBlock.isLine: Boolean
+    get() = this is TurnBlock.Trace || this is TurnBlock.Ask && state.sealed
+
+private val TurnBlock.isCard: Boolean
+    get() = this is TurnBlock.Ask && !state.sealed
 
 private val RevealEnter: EnterTransition =
     expandVertically(Motion.settle(), expandFrom = Alignment.Top) + fadeIn(Motion.flow())
@@ -275,7 +305,7 @@ private fun ColumnScope.Reveal(
     content: @Composable () -> Unit
 ) {
     AnimatedVisibility(visible, enter = enter, exit = exit) {
-        Box(Modifier.padding(top = 12.dp)) { content() }
+        Box(Modifier.padding(top = 10.dp)) { content() }
     }
 }
 

@@ -98,6 +98,12 @@ object DaodianType {
         fontSize = 15.sp,
         lineHeight = 28.sp
     )
+    /** 一个回合里第一段之后的正文，退一档（DESIGN.md §6.7「分层」） */
+    val proseRest = TextStyle(
+        fontFamily = DaodianFonts.body,
+        fontSize = 14.5.sp,
+        lineHeight = 26.sp
+    )
 
     val bodySmall = TextStyle(
         fontFamily = DaodianFonts.body,

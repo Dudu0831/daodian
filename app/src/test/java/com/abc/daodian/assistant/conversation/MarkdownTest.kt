@@ -35,6 +35,32 @@ class MarkdownTest {
         walk(Markdown.parse(md, open))
     }
 
+    // ---------------- 正文里的数（宋体、墨色画的那些）----------------
+
+    private fun picked(s: String) = Markdown.dataRanges(s).map { s.substring(it) }
+
+    @Test
+    fun `amounts dates clock times and percents are picked out of prose`() {
+        assertEquals(listOf("8:00", "11月4日"), picked("明天早上 8:00 提醒你，下周三（11月4日）交房租"))
+        assertEquals(listOf("¥36.50", "32 元", "12%"), picked("¥36.50 午饭，打车 32 元，比上月多 12%"))
+        assertEquals(listOf("2026年10月27日", "¥1,280.00"), picked("2026年10月27日 一共 ¥1,280.00"))
+    }
+
+    @Test
+    fun `the lead runs through the first paragraph and takes a heading before it`() {
+        assertEquals(2, leadCountOf(Markdown.parse("## 本月\n这个月花了不少。\n\n第二段")))
+        assertEquals(1, leadCountOf(Markdown.parse("两条都记下了。\n\n- 带伞\n- 交房租")))
+        // 一个段落都没有：整块都是第一段，不分层
+        assertEquals(2, leadCountOf(Markdown.parse("- 一\n- 二")))
+    }
+
+    @Test
+    fun `words for days and bare numbers are not picked`() {
+        // 认不准的不认：认错了满屏宋体
+        assertEquals(emptyList<String>(), picked("明天周三，每月 4 号，第 9 笔，#12"))
+        assertEquals(emptyList<String>(), picked("编号 123:45"))
+    }
+
     // ---------------- 行内 ----------------
 
     @Test

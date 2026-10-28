@@ -71,6 +71,13 @@ fun traceViewOf(block: TurnBlock.Trace): TraceView =
 /** 对勾只在刚办成时描一次；列表滚回来、重启读回来的都直接画好 */
 private fun isFresh(at: Long) = System.currentTimeMillis() - at < 1_500
 
+/** 痕、答完的问卡这一类「行」最左边那一栏多宽：记号、「答」印都放在里面，几行的字才对得齐 */
+internal val MarkColumn = 16.dp
+
+/**
+ * 一道痕一行，32dp 高。连着的几道挨着排、中间不留空（间距在 AssistantTurnRow 里），
+ * 读起来是一张清单，不是几段话（DESIGN.md §6.5「间距」）
+ */
 @Composable
 fun TraceLine(block: TurnBlock.Trace, onOpen: (String) -> Unit, onToggle: () -> Unit) {
     val colors = DaodianColors.current
@@ -84,7 +91,7 @@ fun TraceLine(block: TurnBlock.Trace, onOpen: (String) -> Unit, onToggle: () -> 
     Column {
         Row(
             Modifier
-                .heightIn(min = 36.dp)
+                .heightIn(min = 32.dp)
                 .clickable(enabled = tappable) { if (expandable) onToggle() else view.route?.let(onOpen) },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -116,7 +123,7 @@ fun TraceLine(block: TurnBlock.Trace, onOpen: (String) -> Unit, onToggle: () -> 
             enter = expandVertically(Motion.settle()) + fadeIn(Motion.flow()),
             exit = shrinkVertically(Motion.flow()) + fadeOut(Motion.exit())
         ) {
-            Column(Modifier.padding(start = 22.dp, bottom = 4.dp)) {
+            Column(Modifier.padding(start = MarkColumn + 8.dp, bottom = 4.dp)) {
                 view.lines.forEach { Text(it, style = DaodianType.bodySmall.copy(lineHeight = 22.sp), color = colors.ink2) }
             }
         }
@@ -130,7 +137,7 @@ fun TraceLine(block: TurnBlock.Trace, onOpen: (String) -> Unit, onToggle: () -> 
 @Composable
 private fun TraceMark(state: TraceState, fresh: Boolean) {
     val colors = DaodianColors.current
-    Box(Modifier.size(14.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(MarkColumn), contentAlignment = Alignment.Center) {
         AnimatedVisibility(
             visible = state == TraceState.RUNNING,
             enter = fadeIn(Motion.flow()),

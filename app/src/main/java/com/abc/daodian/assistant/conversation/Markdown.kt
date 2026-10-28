@@ -66,6 +66,23 @@ object Markdown {
     fun parse(source: String, open: Boolean = false): List<MdBlock> =
         BlockParser(if (open) source.length else -1).parse(linesOf(source))
 
+    /**
+     * 一段字里的金额、日期、钟点、百分比，[start, end)。界面拿宋体、墨色画它们，一眼扫得到（DESIGN.md §6.7「分层」）。
+     * 只认长得确定的几样：「¥36.50」「32 元」「11月4日」「2026年10月27日」「8:00」「12%」。
+     * 「明天」「周三」「4 号」这类不认 —— 认错了满屏宋体，比不认更难看。
+     */
+    fun dataRanges(text: String): List<IntRange> = DATA.findAll(text).map { it.range }.toList()
+
+    private val DATA = Regex(
+        "(?<![\\d.,])(?:" +
+            "[¥￥]\\s?\\d[\\d,]*(?:\\.\\d+)?" +
+            "|\\d[\\d,]*(?:\\.\\d+)?\\s?(?:元|块钱|块)" +
+            "|(?:\\d{4}\\s?年\\s?)?\\d{1,2}\\s?月\\s?\\d{1,2}\\s?[日号]" +
+            "|\\d{1,2}[:：]\\d{2}" +
+            "|\\d+(?:\\.\\d+)?\\s?[%％]" +
+            ")(?!\\d)"
+    )
+
     private fun linesOf(s: String): List<MdLine> {
         val out = ArrayList<MdLine>()
         var start = 0
