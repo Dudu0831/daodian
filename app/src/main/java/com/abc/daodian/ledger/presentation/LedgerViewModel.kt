@@ -291,10 +291,6 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
 
     val pendingRaws = dao.observePendingRaws().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    /** 一共抓到几条原始通知，记账设置页「抓到的通知」右边写它。null = 还没读出来 */
-    val rawCount = dao.observeRawCount().map<Int, Int?> { it }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-
     /** 后台正在跑的 agent（顶栏印章、设置页都看它） */
     val running = AgentRuntime.running
 

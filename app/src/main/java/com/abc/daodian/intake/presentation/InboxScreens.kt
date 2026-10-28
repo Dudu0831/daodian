@@ -344,14 +344,14 @@ private fun Hint(text: String, modifier: Modifier = Modifier) {
     Text(text, style = DaodianType.settingNote, color = DaodianColors.current.hint, modifier = modifier)
 }
 
-/** 硬条件一样一行：「app：短信、菜鸟」「正文含：取件码 / 驿站」 */
+/** 硬条件一样一行：「app：短信、菜鸟」「标题：比尔」「暗号：到点」，值不加引号、不加解释 */
 private fun conditionsOf(rule: Rule, names: AppNames): List<Pair<String, String>> = rule.hard.parts.mapNotNull { c ->
     when (c) {
         is AppIn -> "app" to c.pkgs.joinToString("、") { names.of(it) }
-        is TitleIs -> "标题" to if (c.exact) "是「${c.text}」" else "含「${c.text}」"
+        is TitleIs -> (if (c.exact) "标题" else "标题含") to c.text
         is BodyHasAny -> "正文含" to c.words.joinToString(" / ")
         is BodyHasNone -> "不含" to c.words.joinToString(" / ")
-        is BodyStartsWith -> "暗号" to "「${c.code}」开头"
+        is BodyStartsWith -> "暗号" to c.code
         is AllOf -> null
     }
 }

@@ -31,10 +31,6 @@ class ReminderViewModel(app: Application) : AndroidViewModel(app) {
     val logs = db.fireLogDao().observeRecent()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** 非 ALARM 来源的条数。大于 0 就说明主闹钟路径在被掐，见设计文档 §9.3 */
-    val nonAlarmCount = db.fireLogDao().observeNonAlarmCount()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
     /** 当天事项晚上几点提醒。设置页改它 */
     val dayCheckTime = DayTasks.checkTimeFlow(app)
         .stateIn(viewModelScope, SharingStarted.Eagerly, DayTasks.DEFAULT_CHECK)
@@ -61,8 +57,6 @@ class ReminderViewModel(app: Application) : AndroidViewModel(app) {
     fun restore(r: Reminder) = viewModelScope.launch { Reminders.restore(getApplication(), r) }
 
     fun rescheduleAll() = viewModelScope.launch { Reminders.rescheduleAll(getApplication()) }
-
-    fun clearLogs() = viewModelScope.launch { Reminders.clearLogs(getApplication()) }
 
     /** 某条提醒当前是否真的有闹钟排着 —— 直接问 AlarmManager，不看数据库 */
     fun isArmed(id: Long): Boolean = rescheduler.isScheduled(id)

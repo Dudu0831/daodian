@@ -27,7 +27,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.abc.daodian.reminder.ReminderRoutes
-import com.abc.daodian.shared.format.Format
+import com.abc.daodian.reminder.presentation.log.Accuracy
+import com.abc.daodian.reminder.presentation.log.drift
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.ui.ChevronRightIcon
@@ -40,16 +41,12 @@ import com.abc.daodian.shared.ui.SettingRow
 import com.abc.daodian.shared.ui.UndoBar
 import com.abc.daodian.shared.ui.activityViewModel
 import java.time.LocalTime
-import kotlin.math.abs
 
-/*
- * 提醒在设置里的两样：自己的设置页（当天事项、准不准），「权限与监听」页体检结论底下那一行（最近投递准不准）。
- */
 
 /**
- * 提醒的设置页：当天事项（收尾时刻）、准不准（投递日志）。
+ * 提醒的设置页：当天事项（收尾时刻）、准不准（响得准不准 ›，统计页）。
  * 和记账的设置页一个样子：几组、每行右边是值，点了弹框改或者往下走一页。
- * 以前的派活（别人在微信里说一句建成提醒）换成了「听通知」的规则，在「权限与监听」页（DESIGN.md §12）。
+ * 以前的派活（别人在微信里说一句建成提醒）换成了通知管家的规则（DESIGN.md §12）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,21 +70,22 @@ fun ReminderSettingsScreen(onBack: () -> Unit, open: (String) -> Unit) {
                 // 当天事项（只说了哪天、没说几点的）统一在这个钟点提醒一次。见 DESIGN.md §4.3
                 GroupLabel("当天事项", top = 12.dp)
                 PaperGroup {
-                    SettingRow(
-                        title = "收尾时刻",
-                        note = "只说了哪天、没说几点的事，在这个钟点提醒一次；没做完顺延到第二天。",
-                        onClick = { pickingCheckTime = true }
-                    ) {
+                    SettingRow(title = "没说几点的，几点提醒", onClick = { pickingCheckTime = true }) {
                         Text(checkTime.toString().take(5), style = DaodianType.settingValue, color = colors.ink)
                     }
                 }
 
                 GroupLabel("准不准")
                 PaperGroup {
+                    val a = Accuracy.of(logs)
                     SettingRow(
-                        title = "投递日志",
-                        note = if (logs.isEmpty()) "还没有投递记录"
-                        else "${logs.size} 条 · 最大漂移 ${drift(logs.maxOf { it.driftMillis })}",
+                        title = "响得准不准",
+                        note = when (a.verdict) {
+                            Accuracy.Verdict.NONE -> null
+                            Accuracy.Verdict.SQUEEZED -> "最近 ${a.count} 次里 ${a.fallbacks} 次走了兜底补发"
+                            else -> "最近 ${a.count} 次 · 中位 ${drift(a.medianMillis)}"
+                        },
+                        noteColor = if (a.verdict.ok) colors.muted else colors.red,
                         onClick = { open(ReminderRoutes.LOG) }
                     ) { ChevronRightIcon(size = 13.dp, tint = colors.muted) }
                 }
@@ -109,35 +107,5 @@ fun ReminderSettingsScreen(onBack: () -> Unit, open: (String) -> Unit) {
             dismissButton = { TextButton(onClick = { pickingCheckTime = false }) { Text("取消") } },
             text = { TimePicker(state = state) }
         )
-    }
-}
-
-/** 「权限与监听」页体检结论底下那一行：最近投递准不准。走了兜底补发就是主闹钟在被掐，写红字 */
-@Composable
-fun DeliveryNote() {
-    val vm = activityViewModel<ReminderViewModel>()
-    val colors = DaodianColors.current
-    val logs by vm.logs.collectAsState()
-    val nonAlarm by vm.nonAlarmCount.collectAsState()
-    val drifts = logs.map { it.driftMillis }.sorted()
-    Text(
-        when {
-            drifts.isEmpty() -> "还没有投递记录"
-            nonAlarm > 0 -> "最近 ${drifts.size} 次投递里 $nonAlarm 次走了兜底补发 —— 主闹钟在被掐"
-            else -> "最近 ${drifts.size} 次投递 · 中位漂移 ${drift(drifts[drifts.size / 2])} · 全走主闹钟"
-        },
-        style = DaodianType.caption,
-        color = if (nonAlarm > 0) colors.red else colors.muted
-    )
-}
-
-/** 漂移：十秒以内留一位小数（看得出是 0.2s 还是 0.9s），一分钟以内取整秒，再大就写人话时长 */
-private fun drift(ms: Long): String {
-    val sign = if (ms >= 0) "+" else "−"
-    val a = abs(ms)
-    return when {
-        a < 10_000 -> "$sign${"%.1f".format(a / 1000.0)}s"
-        a < 60_000 -> "$sign${a / 1000}s"
-        else -> sign + Format.span(a)
     }
 }

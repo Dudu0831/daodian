@@ -13,7 +13,7 @@ import com.abc.daodian.reminder.ReminderRoutes
 import com.abc.daodian.reminder.delivery.HealthCheck
 import com.abc.daodian.reminder.presentation.edit.EditReminderScreen
 import com.abc.daodian.reminder.presentation.list.ReminderListScreen
-import com.abc.daodian.reminder.presentation.log.FireLogScreen
+import com.abc.daodian.reminder.presentation.log.AccuracyScreen
 import com.abc.daodian.shared.ui.activityViewModel
 import com.abc.daodian.shell.entry.AppNav
 import com.abc.daodian.shell.entry.HealthItem
@@ -22,7 +22,7 @@ import com.abc.daodian.shell.entry.ShellEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** 提醒给壳的：列表、编辑、投递日志、设置（派活两个旧路由留壳），抽屉卡、设置行、体检项、诊断那一段 */
+/** 提醒给壳的：列表、编辑、响得准不准、设置（派活两个旧路由留壳），抽屉卡、设置行、体检项、诊断那一段 */
 object ReminderShell : ShellEntry {
 
     override val id = ReminderModule.ID
@@ -46,7 +46,7 @@ object ReminderShell : ShellEntry {
             EditReminderScreen(vm = activityViewModel<ReminderViewModel>(), reminderId = id, onBack = nav::back)
         }
         composable(ReminderRoutes.LOG) {
-            FireLogScreen(vm = activityViewModel<ReminderViewModel>(), onBack = nav::back)
+            AccuracyScreen(vm = activityViewModel<ReminderViewModel>(), onBack = nav::back)
         }
         composable(ReminderRoutes.SETTINGS) {
             ReminderSettingsScreen(onBack = nav::back, open = nav::open)
@@ -59,10 +59,7 @@ object ReminderShell : ShellEntry {
     @Composable
     override fun DrawerCard(open: (String) -> Unit) = ReminderDrawerCard(onOpen = { open(ReminderRoutes.LIST) })
 
-    override val settingsEntries = listOf(SettingsEntry("提醒", ReminderRoutes.SETTINGS, "当天事项几点提醒、投递日志"))
-
-    @Composable
-    override fun HealthNote() = DeliveryNote()
+    override val settingsEntries = listOf(SettingsEntry("提醒", ReminderRoutes.SETTINGS))
 
     override fun health(context: Context): List<HealthItem> =
         HealthCheck.run(context).map { HealthItem(it.label, it.ok, it.detail, it.fixIntent) } +

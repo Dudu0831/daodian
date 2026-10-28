@@ -47,14 +47,14 @@ import com.abc.daodian.shell.entry.ShellEntries
 import com.abc.daodian.shell.entry.ShellEntry
 
 /**
- * 权限与监听：顶上一句体检结论，底下各模块要的系统权限（「提醒要的」），再往下是各模块自己那一组
- * （[ShellEntry.PermissionSection]，通知监听层的使用权、监听、规则和收到的通知）。见 DESIGN.md §9.1
+ * 权限：顶上一句体检结论，底下各模块要的系统权限（「提醒要的」），再往下是各模块自己那一组
+ * （[ShellEntry.PermissionSection]，通知管家的通知使用权）。见 DESIGN.md §9.1
  *
- * 权限以前分在设置页两处（系统权限在上、通知使用权在最底下），现在都在这一页。
+ * 只放权限。监听连没连着、规则、收到的通知在通知管家自己的页里；响得准不准在提醒的设置页里。
  * 体检每次回到这页都重跑：从系统设置开完权限退回来，红字要当场变成对勾，不然会以为没开成功又去开一遍。
  */
 @Composable
-fun PermissionsScreen(uis: List<ShellEntry>, onBack: () -> Unit, open: (String) -> Unit) {
+fun PermissionsScreen(uis: List<ShellEntry>, onBack: () -> Unit) {
     val colors = DaodianColors.current
     val context = LocalContext.current
 
@@ -78,7 +78,7 @@ fun PermissionsScreen(uis: List<ShellEntry>, onBack: () -> Unit, open: (String) 
     }
 
     Column(Modifier.fillMaxSize().background(colors.paper)) {
-        ScreenTopBar(title = "权限与监听", onBack = onBack)
+        ScreenTopBar(title = "权限", onBack = onBack)
 
         Column(
             Modifier
@@ -87,7 +87,7 @@ fun PermissionsScreen(uis: List<ShellEntry>, onBack: () -> Unit, open: (String) 
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
         ) {
-            Verdict(items = groups.flatMap { it.second }, uis = uis)
+            Verdict(items = groups.flatMap { it.second })
 
             groups.forEach { (feature, items) ->
                 GroupLabel("${feature.label}要的")
@@ -99,7 +99,7 @@ fun PermissionsScreen(uis: List<ShellEntry>, onBack: () -> Unit, open: (String) 
                 }
             }
 
-            uis.forEach { it.PermissionSection(open) }
+            uis.forEach { it.PermissionSection() }
 
             Spacer(Modifier.height(40.dp))
         }
@@ -111,18 +111,14 @@ private fun healthGroups(context: android.content.Context): List<Pair<ShellEntry
     ShellEntries.entries.map { it to it.health(context) }.filter { it.second.isNotEmpty() }
 
 /**
- * 页头的一句结论：权限齐不齐。全好是墨字 + 朱砂小对勾；有缺口才用红字，写清楚缺几项、缺的是哪几项。
- * 查不到的（只能手动设的）不算。底下各模块可以补一行（[ShellEntry.HealthNote]）
+ * 页头的一句结论：权限齐不齐。全好是墨字 + 朱砂小对勾；有缺口才用红字，底下写清楚缺的是哪几项。
+ * 查不到的（只能手动设的）不算
  */
 @Composable
-private fun Verdict(items: List<HealthItem>, uis: List<ShellEntry>) {
+private fun Verdict(items: List<HealthItem>) {
     val colors = DaodianColors.current
-    val checked = items.filter { it.ok != null }
-    val missing = checked.filter { it.ok == false }
-
-    Column(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 6.dp, bottom = 6.dp)) {
-        Text("保活体检", style = DaodianType.sectionLabel, color = colors.muted)
-        Spacer(Modifier.height(10.dp))
+    val missing = items.filter { it.ok == false }
+    Column(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 10.dp, bottom = 2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 if (missing.isEmpty()) "都就绪了" else "还差 ${missing.size} 项",
@@ -137,14 +133,13 @@ private fun Verdict(items: List<HealthItem>, uis: List<ShellEntry>) {
                 ) { CheckIcon(size = 12.dp, tint = colors.accent) }
             }
         }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            if (missing.isEmpty()) "${checked.size} 项系统权限都开着，到点就会响"
-            else missing.joinToString("、") { it.label } + " 没开，到点可能不响",
-            style = DaodianType.bodySmall, color = colors.ink2
-        )
-        Spacer(Modifier.height(2.dp))
-        uis.forEach { it.HealthNote() }
+        if (missing.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                missing.joinToString("、") { it.label } + " 没开，到点可能不响",
+                style = DaodianType.bodySmall, color = colors.ink2
+            )
+        }
     }
 }
 

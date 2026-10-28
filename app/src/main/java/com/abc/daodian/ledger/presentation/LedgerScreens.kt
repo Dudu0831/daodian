@@ -226,7 +226,7 @@ fun LedgerOverviewScreen(
     onBack: () -> Unit,
     onOpenCategory: (topId: Long, income: Boolean, period: Period) -> Unit,
     onCheckNow: () -> Unit,
-    onOpenCapture: () -> Unit
+    onOpenNotices: () -> Unit
 ) {
     val colors = DaodianColors.current
     val context = LocalContext.current
@@ -313,13 +313,13 @@ fun LedgerOverviewScreen(
                 style = DaodianType.caption, color = colors.hint, textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = Gutter).padding(top = 28.dp)
             )
-            // 实时回调会漏（DESIGN.md §2.3）：账上少了一笔，去抓取页看抓到没有、手动抓一下
+            // 实时回调会漏（DESIGN.md §2.3）：账上少了一笔，去收到的通知里看进来没有、扫一遍
             Text(
-                "少了一笔？看看抓到的通知 ›",
+                "少了一笔？看看收到的通知 ›",
                 style = DaodianType.caption, color = colors.muted, textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(onClick = onOpenCapture)
+                    .clickable(onClick = onOpenNotices)
                     .padding(horizontal = Gutter, vertical = 10.dp)
                     .padding(bottom = 18.dp)
             )

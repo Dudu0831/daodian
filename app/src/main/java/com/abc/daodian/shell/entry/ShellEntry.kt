@@ -7,7 +7,7 @@ import androidx.navigation.NavGraphBuilder
 
 /**
  * 一个模块给界面壳的那一份（模块接头 `module/Module` 的 `shell`）。壳只有框，内容由模块塞：
- * 自己的页面、抽屉里的一张纸、设置首页的一行、「权限与监听」页里的一组、体检项、导出诊断里的一段。
+ * 自己的页面、抽屉里的一张纸、设置首页的一行、「权限」页里的一组、体检项、导出诊断里的一段。
  * 见 DESIGN.md §2.2「界面归属」
  *
  * 模块之间、模块和壳之间跳转只用路由字符串（[open] / [AppNav.open]），不互相 import 页面。
@@ -17,7 +17,7 @@ interface ShellEntry {
     /** 和模块的 id 一样（「reminder」），路由以它开头。装的时候根目录查一遍 */
     val id: String
 
-    /** 给人看的名字：「提醒」「记账」「通知监听」。「权限与监听」页上写「提醒要的」，导出诊断里是这一段的标题 */
+    /** 给人看的名字：「提醒」「记账」「通知管家」。「权限」页上写「提醒要的」，导出诊断里是这一段的标题 */
     val label: String
 
     /** 自己的页面。路由以模块 id 开头：`reminder/list`、`ledger/txn/{id}` */
@@ -28,22 +28,18 @@ interface ShellEntry {
     fun DrawerCard(open: (String) -> Unit) {}
 
     /**
-     * 设置首页「模块」那一组里的行，每行点进模块自己的设置页。一个模块一行，模块里的小功能（提醒里的投递日志）
-     * 在它自己的设置页里。行上写里面有什么，不写会变的现状 —— 读库的现状打开时会闪、行高会跳（DESIGN.md §08）
+     * 设置首页「功能」那一组里的行，每行点进模块自己的设置页。一个模块一行，模块里的小功能（提醒里的准不准）
+     * 在它自己的设置页里。行上默认只有名字；要写现状的用 [settingsStatus]（DESIGN.md §08）
      */
     val settingsEntries: List<SettingsEntry> get() = emptyList()
 
-    /** 「权限与监听」页里自己的一组或几组，排在各模块的体检项后面（通知监听层：使用权、监听、规则和收到的通知） */
+    /** 设置首页自己那一行上的现状（通知管家：连着 · 今天 6 条，右边规则条数）。没什么要说的是 null */
     @Composable
-    fun PermissionSection(open: (String) -> Unit) {}
+    fun settingsStatus(): SettingsStatus? = null
 
-    /** 设置首页「权限与监听」那一行上，自己要说的一句（通知监听层：连着 / 断了）。没什么要说的是 null */
+    /** 「权限」页里体检项后面自己的一组（通知管家：通知使用权）。不算进体检结论 */
     @Composable
-    fun permissionStatus(): PermissionStatus? = null
-
-    /** 「权限与监听」页顶上体检结论底下补一行（提醒：最近投递准不准） */
-    @Composable
-    fun HealthNote() {}
+    fun PermissionSection() {}
 
     /** 体检项：挂了会让这个模块的核心功能失效的系统权限 */
     fun health(context: Context): List<HealthItem> = emptyList()
@@ -55,11 +51,11 @@ interface ShellEntry {
     suspend fun diagnostics(context: Context): String? = null
 }
 
-/** 设置首页的一行：[title]、底下一句 [note] 说里面有什么，点了去 [route] */
-class SettingsEntry(val title: String, val route: String, val note: String)
+/** 设置首页的一行：[title]，点了去 [route] */
+class SettingsEntry(val title: String, val route: String)
 
-/** 「权限与监听」那一行上的一句：[ok] 为 false 时写红字 */
-data class PermissionStatus(val text: String, val ok: Boolean)
+/** 设置首页那一行上的现状：底下一句 [note]（[ok] 为 false 时写红字），右边一个数 [value] */
+data class SettingsStatus(val note: String, val ok: Boolean, val value: String? = null)
 
 /**
  * 体检的一项。[ok] = null 是查不到、只能手动设的（MagicOS 的「应用启动管理」）。

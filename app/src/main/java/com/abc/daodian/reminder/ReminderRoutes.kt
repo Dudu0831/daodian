@@ -7,9 +7,10 @@ package com.abc.daodian.reminder
 object ReminderRoutes {
     const val LIST = "reminder/list"
     const val EDIT = "reminder/edit?id={id}"
+    /** 响得准不准：最近几次投递的统计。路由名照旧 */
     const val LOG = "reminder/log"
 
-    /** 提醒的设置页：当天事项收尾、投递日志。设置首页「提醒」那一行进 */
+    /** 提醒的设置页：当天事项收尾、响得准不准。设置首页「提醒」那一行进 */
     const val SETTINGS = "reminder/settings"
 
     /**

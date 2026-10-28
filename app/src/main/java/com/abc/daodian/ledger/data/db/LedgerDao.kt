@@ -61,14 +61,6 @@ interface LedgerDao {
     @Query("UPDATE raw_notification SET state = :state, stateNote = :note, processedAt = :at WHERE id IN (:ids)")
     suspend fun setRawState(ids: Collection<Long>, state: RawState, note: String?, at: Long)
 
-    // 抓取页（ledger/presentation/CaptureScreen）看的
-
-    @Query("SELECT COUNT(*) FROM raw_notification")
-    fun observeRawCount(): Flow<Int>
-
-    @Query("SELECT * FROM raw_notification ORDER BY postTime DESC LIMIT :limit")
-    fun observeRecentRaws(limit: Int): Flow<List<RawNotification>>
-
     // ---------------- 流水 ----------------
 
     @Insert

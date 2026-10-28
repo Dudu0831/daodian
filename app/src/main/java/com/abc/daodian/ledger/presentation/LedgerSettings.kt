@@ -41,20 +41,18 @@ import com.abc.daodian.shared.ui.activityViewModel
 import java.time.LocalTime
 
 /**
- * 记账的设置页：整理（抓到的通知、现在整理一次、整理间隔、整理员自己打标签）、对账（每晚对账）。流程见 DESIGN.md §10。
- * 和提醒的设置页一个样子：几组、每行右边是值；「抓到的通知」往下走一页看记录，同提醒页的「她发来的」。
- * 通知的事（使用权、听哪些 app）不在这里，在「权限与监听」页（DESIGN.md §2.3）—— 这一页不放通知的行、不往那边跳
+ * 记账的设置页：整理（现在整理一次、多久整理一次、整理员自己打标签）、对账（每晚对账）。流程见 DESIGN.md §10。
+ * 和提醒的设置页一个样子：几组、每行右边是值。收到的付钱通知原文在通知管家的「收到的通知」里，这一页不放通知的行
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LedgerSettingsScreen(onBack: () -> Unit, onOpenCapture: () -> Unit) {
+fun LedgerSettingsScreen(onBack: () -> Unit) {
     val vm = activityViewModel<LedgerViewModel>()
     val colors = DaodianColors.current
     val organizeHours by vm.organizeHours.collectAsState()
     val checkTime by vm.checkTime.collectAsState()
     val lastRun by vm.lastRun.collectAsState()
     val pendingRaws by vm.pendingRaws.collectAsState()
-    val rawCount by vm.rawCount.collectAsState()
     val organizing by vm.organizing.collectAsState()
     val organizerTags by vm.organizerTags.collectAsState()
     var pickingCheckTime by remember { mutableStateOf(false) }
@@ -71,19 +69,6 @@ fun LedgerSettingsScreen(onBack: () -> Unit, onOpenCapture: () -> Unit) {
         ) {
             GroupLabel("整理", top = 12.dp)
             PaperGroup {
-                // 记录：说明写死，只有右边的条数会变 —— 打开时行高不跳
-                SettingRow(
-                    title = "抓到的通知",
-                    note = "付钱的通知原文，后来进了哪一笔。",
-                    onClick = onOpenCapture
-                ) {
-                    rawCount?.takeIf { it > 0 }?.let {
-                        Text("$it 条", style = DaodianType.settingValue, color = colors.ink)
-                        Spacer(Modifier.width(10.dp))
-                    }
-                    ChevronRightIcon(size = 13.dp, tint = colors.muted)
-                }
-                GroupRule()
                 SettingRow(
                     title = if (organizing) "正在整理……" else "现在整理一次",
                     note = runNote(lastRun, pendingRaws, organizing),
@@ -93,31 +78,18 @@ fun LedgerSettingsScreen(onBack: () -> Unit, onOpenCapture: () -> Unit) {
                     if (!organizing) ChevronRightIcon(size = 13.dp, tint = colors.muted)
                 }
                 GroupRule()
-                SettingRow(
-                    title = "整理间隔",
-                    note = "有新通知才叫模型；最近 10 分钟到的等下一轮。荣耀可能会拖后。",
-                    onClick = { pickingHours = true }
-                ) {
+                SettingRow(title = "多久整理一次", onClick = { pickingHours = true }) {
                     Text("$organizeHours 小时", style = DaodianType.settingValue, color = colors.ink)
                 }
                 GroupRule()
-                SettingRow(
-                    title = "整理员自己打标签",
-                    note = if (organizerTags) "照你打过的学：只用你打过的标签，有把握才打，不新建"
-                    else "关着 · 标签只由你打：对账时点、账单页上点、对话里说",
-                    onClick = { vm.setOrganizerTags(!organizerTags) }
-                ) {
+                SettingRow(title = "整理员自己打标签", onClick = { vm.setOrganizerTags(!organizerTags) }) {
                     PaperSwitch(checked = organizerTags, onCheckedChange = { vm.setOrganizerTags(it) })
                 }
             }
 
             GroupLabel("对账")
             PaperGroup {
-                SettingRow(
-                    title = "每晚对账",
-                    note = "先整理一遍，还有没认出来的才弹通知问你；一笔都没有就不打扰。",
-                    onClick = { pickingCheckTime = true }
-                ) {
+                SettingRow(title = "每晚对账", onClick = { pickingCheckTime = true }) {
                     Text(checkTime.toString().take(5), style = DaodianType.settingValue, color = colors.ink)
                 }
             }

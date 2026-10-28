@@ -5,6 +5,9 @@ package com.abc.daodian.intake
  * （[com.abc.daodian.intake.presentation.IntakeShell.PermissionSection]）—— 模块页不往这边跳。
  */
 object IntakeRoutes {
+    /** 通知管家的页：监听、规则和收到的通知两个入口。设置首页「通知管家」那一行进 */
+    const val HOME = "intake"
+
     /** 听通知的规则（DESIGN.md §12.2） */
     const val RULES = "intake/rules"
 

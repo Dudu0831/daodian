@@ -20,14 +20,14 @@ import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** 记账给壳的：总览 → 类别 → 一笔三层页面、抓取页、设置页，抽屉卡、设置行、诊断那一段 */
+/** 记账给壳的：总览 → 类别 → 一笔三层页面、设置页，抽屉卡、设置行、诊断那一段 */
 object LedgerShell : ShellEntry {
 
     override val id = LedgerModule.ID
 
     override val label = LedgerModule.LABEL
 
-    // ---------------- 界面：总览 → 类别 → 一笔，只看不改，改账回对话；外加抓取页 ----------------
+    // ---------------- 界面：总览 → 类别 → 一笔，只看不改，改账回对话 ----------------
 
     override fun NavGraphBuilder.routes(nav: AppNav) {
         composable(LedgerRoutes.HOME) {
@@ -42,7 +42,7 @@ object LedgerShell : ShellEntry {
                     nav.open(LedgerRoutes.category(top, income, p.mode.name, LedgerDays.dayInt(p.anchor)))
                 },
                 onCheckNow = { nav.trigger(LedgerRoutes.CHECK) },
-                onOpenCapture = { nav.open(LedgerRoutes.CAPTURE) }
+                onOpenNotices = { nav.open(NOTICES_ROUTE) }
             )
         }
 
@@ -83,24 +83,19 @@ object LedgerShell : ShellEntry {
             )
         }
 
-        composable(LedgerRoutes.CAPTURE) {
-            CaptureScreen(
-                vm = activityViewModel<CaptureViewModel>(),
-                onBack = nav::back,
-                onOpenTxn = { nav.open(LedgerRoutes.txn(it)) }
-            )
-        }
-
         composable(LedgerRoutes.SETTINGS) {
-            LedgerSettingsScreen(onBack = nav::back, onOpenCapture = { nav.open(LedgerRoutes.CAPTURE) })
+            LedgerSettingsScreen(onBack = nav::back)
         }
     }
 
     @Composable
     override fun DrawerCard(open: (String) -> Unit) = LedgerDrawerCard(onOpen = { open(LedgerRoutes.HOME) })
 
-    override val settingsEntries = listOf(SettingsEntry("记账", LedgerRoutes.SETTINGS, "抓到的通知、多久整理一次、每晚几点对账"))
+    override val settingsEntries = listOf(SettingsEntry("记账", LedgerRoutes.SETTINGS))
 
     override suspend fun diagnostics(context: Context): String =
         withContext(Dispatchers.IO) { LedgerDiagnostics.build(context) }
 }
+
+/** 通知管家的「收到的通知」（`intake/IntakeRoutes.NOTICES`），记账不 import 它 */
+private const val NOTICES_ROUTE = "intake/notices"

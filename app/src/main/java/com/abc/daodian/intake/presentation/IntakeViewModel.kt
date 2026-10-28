@@ -26,7 +26,7 @@ sealed interface ListenerAction {
     data class NotConnected(val at: Long) : ListenerAction
 }
 
-/** 「权限与监听」页里通知监听那几组和设置首页那一句（[IntakePermissionSection]）。按 Activity 取，两处同一份 */
+/** 通知管家的页、「权限」页里通知使用权那一组、设置首页那一行（[StewardScreen]）。按 Activity 取，几处同一份 */
 class IntakeViewModel(app: Application) : AndroidViewModel(app) {
 
     val listener: StateFlow<Intake.Listener> = Intake.listener

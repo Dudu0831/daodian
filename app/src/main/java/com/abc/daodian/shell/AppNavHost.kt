@@ -41,7 +41,7 @@ import kotlinx.coroutines.launch
 object ShellRoutes {
     const val SETTINGS = "settings"
     const val PROVIDER = "provider"
-    /** 权限与监听：体检结论、各模块要的系统权限、通知监听。只从设置首页「权限与监听」那一行进，模块页不往这里跳 */
+    /** 权限：体检结论、各模块要的系统权限。只从设置首页「权限」那一行进，模块页不往这里跳（路由名照旧，深链在用） */
     const val PERMISSIONS = "permissions"
 }
 
@@ -180,7 +180,7 @@ fun AppNavHost(
             }
 
             composable(ShellRoutes.PERMISSIONS) {
-                PermissionsScreen(uis = uis, onBack = { navController.popBackStack() }, open = { navController.navigate(it) })
+                PermissionsScreen(uis = uis, onBack = { navController.popBackStack() })
             }
 
             uis.forEach { ui -> with(ui) { routes(nav) } }

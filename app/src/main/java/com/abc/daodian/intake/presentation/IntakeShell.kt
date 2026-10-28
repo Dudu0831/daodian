@@ -14,13 +14,14 @@ import com.abc.daodian.intake.data.IntakeRepos
 import com.abc.daodian.shared.data.rows
 import com.abc.daodian.shared.format.DiagnosticText.time
 import com.abc.daodian.shell.entry.AppNav
-import com.abc.daodian.shell.entry.PermissionStatus
+import com.abc.daodian.shell.entry.SettingsEntry
+import com.abc.daodian.shell.entry.SettingsStatus
 import com.abc.daodian.shell.entry.ShellEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
-/** 通知监听层给壳的：规则页和收到的通知、「权限与监听」页里的几组、设置首页那一行上的一句、诊断那一段 */
+/** 通知监听层给壳的：通知管家的页、规则页和收到的通知、设置首页那一行、「权限」页里那一组、诊断那一段 */
 object IntakeShell : ShellEntry {
 
     override val id = IntakeModule.ID
@@ -52,6 +53,7 @@ object IntakeShell : ShellEntry {
     }
 
     override fun NavGraphBuilder.routes(nav: AppNav) {
+        composable(IntakeRoutes.HOME) { StewardScreen(onBack = nav::back, open = nav::open) }
         composable(IntakeRoutes.RULES) { RulesScreen(onBack = nav::back, open = nav::open) }
         composable(IntakeRoutes.RULE, arguments = listOf(navArgument("id") { type = NavType.LongType })) {
             RuleScreen(id = it.arguments?.getLong("id") ?: 0L, onBack = nav::back, open = nav::open)
@@ -62,9 +64,11 @@ object IntakeShell : ShellEntry {
         }
     }
 
-    @Composable
-    override fun PermissionSection(open: (String) -> Unit) = IntakePermissionSection(open)
+    override val settingsEntries = listOf(SettingsEntry(IntakeModule.LABEL, IntakeRoutes.HOME))
 
     @Composable
-    override fun permissionStatus(): PermissionStatus? = intakePermissionStatus()?.let { (text, ok) -> PermissionStatus(text, ok) }
+    override fun settingsStatus(): SettingsStatus = stewardSettingsStatus()
+
+    @Composable
+    override fun PermissionSection() = StewardPermissionSection()
 }
