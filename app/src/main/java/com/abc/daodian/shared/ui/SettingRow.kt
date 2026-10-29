@@ -38,6 +38,8 @@ fun SettingRow(
     note: String? = null,
     titleColor: Color = DaodianColors.current.ink,
     noteColor: Color = DaodianColors.current.muted,
+    /** 小字最多几行，超了截断；默认不限 */
+    noteMaxLines: Int = Int.MAX_VALUE,
     onClick: (() -> Unit)? = null,
     leading: (@Composable () -> Unit)? = null,
     trailing: @Composable RowScope.() -> Unit = {}
@@ -57,7 +59,7 @@ fun SettingRow(
             Text(title, style = DaodianType.rowTitle, color = titleColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!note.isNullOrBlank()) {
                 Spacer(Modifier.height(4.dp))
-                Text(note, style = DaodianType.settingNote, color = noteColor)
+                Text(note, style = DaodianType.settingNote, color = noteColor, maxLines = noteMaxLines, overflow = TextOverflow.Ellipsis)
             }
         }
         Spacer(Modifier.width(14.dp))

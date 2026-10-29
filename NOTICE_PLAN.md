@@ -112,7 +112,7 @@ reminder/notice/                           取代 reminder/relay/
 | **Facade** | `Intake` 这个 object（现在就是） | 监听服务、页面、模块只认一个门面 |
 | **Strategy（切换开关）** | `NoticeRouting`：`Legacy`（现在的按包名分）/ `Hub`（新链路），只在 debug 包能切 | 新链路能在 debug 包上真机跑、随时切回去对比；切换那一版删掉 `Legacy` 一个类就干净 |
 
-**不用的**（照 `REFACTOR_PLAN.md` §7 的路数）：不引入 Hilt / Koin，沿用 `install()` + 单例；不上事件总线库，Flow 够了；不做通用规则引擎、不做规则 DSL —— 硬条件就那几种，写成类比写成语言清楚；不做反射加载插件。
+**不用的**（和 agent runtime 重构时一个路数）：不引入 Hilt / Koin，沿用 `install()` + 单例；不上事件总线库，Flow 够了；不做通用规则引擎、不做规则 DSL —— 硬条件就那几种，写成类比写成语言清楚；不做反射加载插件。
 
 ---
 

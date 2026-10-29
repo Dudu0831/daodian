@@ -95,7 +95,9 @@ private fun RuleGroup(label: String, items: List<RuleItem>, top: Dp, open: (Stri
             val on = item.rule.enabled
             SettingRow(
                 title = item.rule.name,
-                note = "${item.describe} → ${item.rule.soft}",
+                // 只写听什么、一行；软规则可能一大段，进详情页看
+                note = item.describe,
+                noteMaxLines = 1,
                 titleColor = if (on) colors.ink else colors.hint,
                 onClick = { open(IntakeRoutes.rule(item.rule.id)) }
             ) {

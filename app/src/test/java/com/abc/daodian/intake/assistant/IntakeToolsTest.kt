@@ -98,7 +98,8 @@ class IntakeToolsTest {
 
         val trace = IntakeTrace.of(ToolTrace("add_rule", parcel, TraceState.OK, out.output, out.ref))!!
         assertEquals("监听", trace.settled)
-        assertEquals("短信、菜鸟（含 取件码 / 驿站，不含 验证码） → 快递到了当天 18:00 提醒我取 · 现在通知栏和收件箱里对得上 1 条", trace.text)
+        assertEquals("快递到了提醒取 · 对得上 1 条", trace.text)
+        assertEquals("intake/rule/${out.ref}", trace.route)
     }
 
     @Test
