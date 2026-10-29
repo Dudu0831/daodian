@@ -88,3 +88,4 @@ CLAUDE.md「现状」一节以前按日期记的流水，和功能表里「真�
 - **10-28** 设置页重排（设计稿 <https://claude.ai/artifact/VhupokZXiZjFpi4iijS72w> 方向 A）：首页三组、权限和通知管家分开、「响得准不准」统计页、删抓取页。
 - **48 小时放置测试**（DESIGN §9.3）用户 10-29 说测过了。agent runtime 重构做完，`REFACTOR_PLAN.md` 10-29 删了（要看用 git 历史），可选的第 6 步（工具 schema 的小 DSL）没做、不做了。
 - **10-29** 对话页「抬头伴随印」：痕和答完的问卡收进「· 到点」右边的胶囊，正文不再分层（DESIGN §6.5–6.7）。
+- **10-29** 问卡「其他…」原地写（设计稿 <https://claude.ai/artifact/FwUtCGC5J7cXgZ7U4GPo2B> 方向甲，DESIGN §6.6）：打成 release 包（0.2.0 / 13）覆盖装到用户手机上，用户看过说没问题。

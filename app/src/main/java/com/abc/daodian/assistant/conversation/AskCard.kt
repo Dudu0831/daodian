@@ -15,6 +15,10 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -23,6 +27,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,6 +41,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,10 +51,17 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -61,6 +76,7 @@ import com.abc.daodian.runtime.ask.Pick
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.theme.Motion
+import com.abc.daodian.shared.ui.CheckIcon
 import com.abc.daodian.shared.ui.InkChip
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -68,6 +84,8 @@ import kotlinx.coroutines.launch
 /*
  * 问卡：对话里唯一的卡片。模型拿不准时先猜好几个答案，你点一下；都不对就点「其他…」自己写，
  * 或者什么都不点、直接在输入框里说一句。见 DESIGN.md §6.6。
+ *
+ * 「其他…」原地变成一行输入框（[OtherField]），键盘跟着弹；写完点对勾落成一颗实心胶囊，点它能改。
  *
  * 答完后整张卡片向上收起化入回合抬头「· 到点」右侧的伴随印，「答」印在伴随印上盖下 —— 正文区不留大块表单。
  */
@@ -80,9 +98,6 @@ fun answerLabelOf(q: AskQuestion, pick: Pick?, single: Boolean): String? = when 
         if (single && o.detail != null) "${o.label} · ${o.detail}" else o.label
     }
 }
-
-/** 一题在输入框句首垫的字：「¥219.00 是」「什么时候提醒：」 */
-fun scopeLabelOf(q: AskQuestion): String = q.amount?.let { "$it 是" } ?: q.prompt?.let { "${it.trimEnd('？', '?')}：" } ?: "这一题："
 
 /** 点完了、直接说了、没答：卡片从正文收起，化进抬头伴随印 */
 internal val AskState.sealed: Boolean
@@ -97,6 +112,7 @@ fun AskCard(
     block: TurnBlock.Ask,
     onPick: (question: Int, option: Int) -> Unit,
     onOther: (question: Int) -> Unit,
+    onTyped: (question: Int, text: String) -> Unit,
     onSubmit: () -> Unit
 ) {
     val colors = DaodianColors.current
@@ -117,7 +133,7 @@ fun AskCard(
             )
             .animateContentSize(Motion.flow())
     ) {
-        Asking(block, request, onPick, onOther, onSubmit)
+        Asking(block, request, onPick, onOther, onTyped, onSubmit)
     }
 }
 
@@ -128,6 +144,7 @@ private fun Asking(
     request: AskRequest,
     onPick: (question: Int, option: Int) -> Unit,
     onOther: (question: Int) -> Unit,
+    onTyped: (question: Int, text: String) -> Unit,
     onSubmit: () -> Unit
 ) {
     val colors = DaodianColors.current
@@ -142,7 +159,11 @@ private fun Asking(
                 AskGlyph("问", colors.accent, Modifier.padding(top = 3.dp))
                 Text(headed.prompt.orEmpty(), style = HeadPrompt, color = colors.ink, modifier = Modifier.weight(1f))
             }
-            HeadedQuestion(headed, block.picks.firstOrNull(), live) { onPick(0, it) }
+            HeadedQuestion(
+                headed, block.picks.firstOrNull(), editing = block.editing == 0, live = live,
+                draftKey = block.callId,
+                onPick = { onPick(0, it) }, onOther = { onOther(0) }, onTyped = { onTyped(0, it) }
+            )
         } else {
             Row(
                 Modifier.heightIn(min = 28.dp),
@@ -166,12 +187,13 @@ private fun Asking(
                     ) {
                         Question(
                             q = q,
-                            single = request.single,
                             pick = block.picks.getOrNull(i),
                             editing = block.editing == i,
                             live = live,
+                            draftKey = "${block.callId}#$i",
                             onPick = { onPick(i, it) },
-                            onOther = { onOther(i) }
+                            onOther = { onOther(i) },
+                            onTyped = { onTyped(i, it) }
                         )
                     }
                 }
@@ -213,10 +235,19 @@ private fun Asking(
 /** 卡头问句的字：宋体 16，和多题卡里没有金额的那种问句一样大 */
 private val HeadPrompt = DaodianType.cardTitle.copy(fontSize = 16.sp, lineHeight = 24.sp)
 
-/** 一题、问句写在卡头的：底下出处、依据，一排胶囊（点了就算答，没有「其他…」—— 都不是就直接说） */
+/** 一题、问句写在卡头的：底下出处、依据，一排胶囊 + 虚线「其他…」（点了就算答，写完点对勾也算答） */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun HeadedQuestion(q: AskQuestion, pick: Pick?, live: Boolean, onPick: (Int) -> Unit) {
+private fun HeadedQuestion(
+    q: AskQuestion,
+    pick: Pick?,
+    editing: Boolean,
+    live: Boolean,
+    draftKey: String,
+    onPick: (Int) -> Unit,
+    onOther: () -> Unit,
+    onTyped: (String) -> Unit
+) {
     val colors = DaodianColors.current
     val ready by animateFloatAsState(if (live) 1f else 0.55f, Motion.flow(), label = "askReady")
     val selected = (pick as? Pick.Option)?.index
@@ -237,9 +268,10 @@ private fun HeadedQuestion(q: AskQuestion, pick: Pick?, live: Boolean, onPick: (
         q.options.forEachIndexed { j, o ->
             ChipLabel(
                 o.label, detail = o.detail, height = 34.dp,
-                selected = selected == j, dimmed = pick != null && selected != j, enabled = live
+                selected = selected == j, dimmed = (pick != null || editing) && selected != j, enabled = live
             ) { onPick(j) }
         }
+        OtherSlot(pick, editing, live, draftKey, height = 34.dp, onOther = onOther, onTyped = onTyped)
     }
     if (live && ref != null) Addon(ref)
 }
@@ -251,12 +283,13 @@ private val HintText = DaodianType.caption.copy(fontSize = 12.sp, lineHeight = 1
 @Composable
 private fun Question(
     q: AskQuestion,
-    single: Boolean,
     pick: Pick?,
     editing: Boolean,
     live: Boolean,
+    draftKey: String,
     onPick: (Int) -> Unit,
-    onOther: () -> Unit
+    onOther: () -> Unit,
+    onTyped: (String) -> Unit
 ) {
     val colors = DaodianColors.current
     // 参数还在流：猜测先半透明，点不了 —— 可能还在变
@@ -286,25 +319,15 @@ private fun Question(
             if (hint != null) Text(hint, style = HintText, color = colors.muted, modifier = Modifier.padding(top = 2.dp))
 
             val selected = (pick as? Pick.Option)?.index
-            val typed = (pick as? Pick.Typed)?.text
             FlowRow(
                 Modifier.padding(top = 7.dp).graphicsLayer { alpha = ready },
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 q.options.forEachIndexed { j, o ->
-                    ChipLabel(o.label, selected = selected == j, dimmed = pick != null && selected != j, enabled = live) { onPick(j) }
+                    ChipLabel(o.label, selected = selected == j, dimmed = (pick != null || editing) && selected != j, enabled = live) { onPick(j) }
                 }
-                // 点「其他…」自己写的那个，落回来就是一颗实心的
-                if (typed != null) ChipLabel(typed, selected = true, dimmed = false, enabled = false) {}
-                // 一题的卡（问的是一笔账）没有「其他…」：都不是就直接说
-                if (!single) {
-                    ChipLabel(
-                        text = if (editing) "正在输入…" else "其他…",
-                        selected = false, dimmed = false, enabled = live, dashed = true, accent = editing,
-                        onClick = onOther
-                    )
-                }
+                OtherSlot(pick, editing, live, draftKey, onOther = onOther, onTyped = onTyped)
             }
             if (live && ref != null) Addon(ref)
         }
@@ -312,6 +335,83 @@ private fun Question(
 }
 
 private val AmountText = DaodianType.rowTitle.copy(fontSize = 15.sp)
+
+/**
+ * 一题末尾的「其他…」那一格：没写过是虚线「其他…」；写着是一整行输入框；写好了是一颗实心胶囊，点它接着改。
+ * 草稿按题记着（[draftKey]），收起再点开还在
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FlowRowScope.OtherSlot(
+    pick: Pick?,
+    editing: Boolean,
+    live: Boolean,
+    draftKey: String,
+    height: Dp = 32.dp,
+    onOther: () -> Unit,
+    onTyped: (String) -> Unit
+) {
+    val typed = (pick as? Pick.Typed)?.text
+    var draft by rememberSaveable(draftKey) { mutableStateOf("") }
+    // 点开写好的那颗接着改：从它的字起笔
+    LaunchedEffect(editing) { if (editing && draft.isEmpty()) draft = typed.orEmpty() }
+    when {
+        editing -> OtherField(
+            text = draft,
+            onText = { draft = it },
+            height = height,
+            onDone = {
+                val t = draft.trim()
+                // 什么都没写就点对勾：收起，当没点过「其他…」
+                if (t.isEmpty()) onOther() else onTyped(t)
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        typed != null -> ChipLabel(typed, selected = true, dimmed = false, enabled = live, height = height, onClick = onOther)
+        else -> ChipLabel("其他…", selected = false, dimmed = false, enabled = live, dashed = true, height = height, onClick = onOther)
+    }
+}
+
+/** 「其他…」展开成的那行：朱砂边、纸色底，一出来就拿焦点、弹键盘；回车或右边的对勾都是写好了 */
+@Composable
+private fun OtherField(text: String, onText: (String) -> Unit, height: Dp, onDone: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = DaodianColors.current
+    val focus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) {
+        focus.requestFocus()
+        keyboard?.show()
+    }
+    val shape = RoundedCornerShape(height / 2)
+    Row(
+        modifier
+            .height(height + 2.dp)
+            .background(colors.paper, shape)
+            .border(1.dp, colors.accent, shape)
+            .padding(start = 13.dp, end = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        BasicTextField(
+            value = text,
+            onValueChange = onText,
+            singleLine = true,
+            textStyle = DaodianType.bodySmall.copy(fontSize = 14.sp, color = colors.ink),
+            cursorBrush = SolidColor(colors.accent),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { onDone() }),
+            modifier = Modifier.weight(1f).focusRequester(focus)
+        )
+        Box(
+            Modifier
+                .size(height - 6.dp)
+                .background(colors.solid, CircleShape)
+                .clickable(role = Role.Button, onClick = onDone)
+                .semantics { contentDescription = "就是这个" },
+            contentAlignment = Alignment.Center
+        ) { CheckIcon(size = 13.dp, tint = colors.onSolid) }
+    }
+}
 
 /** 模块在这题底下挂的一块（记账：顺手打标签），见 [AssistantPlugin.AskAddon]。不是它的 ref 就什么都不画 */
 @Composable

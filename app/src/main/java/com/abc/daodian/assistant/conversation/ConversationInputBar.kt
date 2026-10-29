@@ -5,11 +5,9 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
@@ -102,12 +100,7 @@ fun ConversationInputBar(
     /** 这会儿能不能加图：回合在跑、问卡等着你答的时候不能，＋ 压暗 */
     attachEnabled: Boolean = true,
     maxImages: Int = Int.MAX_VALUE,
-    placeholder: String = "说一句话……",
-    /**
-     * 点了问卡上某一题的「其他…」：句首垫上「¥219.00 是」，描一圈朱砂 ——
-     * 这时候打的字、说的话只算那一题的答案。见 DESIGN.md §6.6
-     */
-    scope: String? = null
+    placeholder: String = "说一句话……"
 ) {
     val colors = DaodianColors.current
     val hasImages = images.isNotEmpty()
@@ -115,14 +108,13 @@ fun ConversationInputBar(
     val canSend = (text.isNotBlank() || hasImages) && enabled
     val shape = RoundedCornerShape(26.dp)
     val dim by animateFloatAsState(if (enabled) 1f else 0.55f, tween(Motion.SHORT), label = "inputDim")
-    val edge by animateColorAsState(if (scope != null) colors.accent else colors.rule, tween(Motion.SHORT), label = "inputEdge")
     val stopping = !enabled && onStop != null
 
     Column(
         Modifier
             .fillMaxWidth()
             .background(colors.surface, shape)
-            .border(1.dp, edge, shape)
+            .border(1.dp, colors.rule, shape)
             .padding(start = 9.dp, end = 11.dp, top = 11.dp, bottom = 11.dp)
     ) {
         AnimatedVisibility(
@@ -165,17 +157,6 @@ fun ConversationInputBar(
                     if (voice) KeyboardIcon(tint = toggleTint)
                     else MicIcon(size = 20.dp, tint = toggleTint, strokeWidth = 1.2.dp)
                 }
-            }
-
-            AnimatedVisibility(
-                visible = scope != null,
-                enter = expandHorizontally(Motion.settle(Motion.SHORT)) + fadeIn(Motion.settle(Motion.SHORT)),
-                exit = shrinkHorizontally(Motion.flow(Motion.SHORT)) + fadeOut(Motion.exit())
-            ) {
-                // 退场那几帧 scope 已经是 null 了，用最后一次的字画完
-                val last = remember { arrayOfNulls<String>(1) }
-                scope?.let { last[0] = it }
-                Text(last[0].orEmpty(), style = DaodianType.body, color = colors.muted, modifier = Modifier.padding(start = 5.dp))
             }
 
             if (voiceMode) {

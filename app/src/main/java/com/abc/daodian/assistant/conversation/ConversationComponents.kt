@@ -184,6 +184,8 @@ interface TurnActions {
     fun openTrace(route: String) {}
     fun pick(callId: String, question: Int, option: Int) {}
     fun other(callId: String, question: Int) {}
+    /** 问卡某一题「其他…」写好了 */
+    fun typed(callId: String, question: Int, text: String) {}
     fun submit(callId: String) {}
     fun manualAdd() {}
     fun retry() {}
@@ -312,6 +314,7 @@ fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) 
                                         b,
                                         onPick = { q, o -> actions.pick(b.callId, q, o) },
                                         onOther = { q -> actions.other(b.callId, q) },
+                                        onTyped = { q, t -> actions.typed(b.callId, q, t) },
                                         onSubmit = { actions.submit(b.callId) }
                                     )
                                 }

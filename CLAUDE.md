@@ -9,18 +9,15 @@
 **手机和线上**
 - 真机是荣耀 LGE-AN10（Android 15），模型是火山方舟 `deepseek-v4.1-flash`。
 - 线上：**0.1.10 / versionCode 12**（10-24 用 `scripts/publish.sh` 发的：模型服务能选 Chat Completions 接口、「测一下」照聊天真发的请求测）。
-- `main` 上的版本号是 **0.2.0（13）**，没发版；用户手机上的 release 包是本地打的 0.2.0 覆盖装的，「检查更新」不会再提示 0.1.10。debug 包 `com.abc.daodian.debug` 也在。两个包是两个 app（§11.1）。
+- `main` 上的版本号是 **0.2.0（13）**，没发版；用户手机上的 release 包是 10-29 本地打的 0.2.0 覆盖装的（带问卡「其他…」原地写），「检查更新」不会再提示 0.1.10。debug 包 `com.abc.daodian.debug` 也在。两个包是两个 app（§11.1）。
 - 库：`reminder.db` v3、`chat.db` v3、`ledger.db` v2（10-26 起，见下）。库升上去之后旧版本打不开，只能往前走。
 
 **main 上有、还没在真机上验过的**
 - **10-26 `ledger.db` v1 → v2**（通知管家第 2 步，`raw_notification` 加可空列 `noticeId`，auto migration）：下一次发版就带上去。要验：覆盖装 debug 包、打开一次记账页，拉库看 `PRAGMA user_version` 是 2、`noticeId` 这一列在、旧原文和流水都在。
+- **10-29 规则页一条一行**（`InboxScreens.RuleGroup`、`SettingRow` 加 `noteMaxLines`）：列表里只写名字和一行「听什么」，软规则进详情页看。以前小字是「硬条件 → 软规则」整段，三条就一屏。没装机看过。
+- **10-29 建监听的痕改短**（`intake/assistant/IntakeTrace`，DESIGN §12）：只写规则名和对得上几条，点进那条规则；「停了监听」也能点进去。没装机看过。
 
 10-15 到 10-29 别的几样（0.1.10 两种协议、权限页随时能点、诊断补到点那一刻、每晚对账修、`Series` 的完成 / 稍后、转进来的钱记收入、每天查更新、下载不重下、`minSdk` 33、拍一张、对话页改版和抬头伴随印、设置页重排）用户 10-29 说都验过了，挪进了 history。
-
-**还没提交的**
-- **10-29 规则页一条一行**（`InboxScreens.RuleGroup`、`SettingRow` 加 `noteMaxLines`）：列表里只写名字和一行「听什么」，软规则进详情页看。以前小字是「硬条件 → 软规则」整段，三条就一屏。
-- **10-29 建监听的痕改短**（`intake/assistant/IntakeTrace`，DESIGN §12）：只写规则名和对得上几条，点进那条规则；「停了监听」也能点进去。
-- 这两样 JVM 测试和 `assembleDebug` 过了，没装机看过（adb 认不到手机）。
 
 **还开着的事**
 - **通知管家发版**（DESIGN §12，工程文件根目录 `NOTICE_PLAN.md`）：第 1–8 步写完、验过了（10-27 真机上用 `cmd notification post` 模拟走通，真短信、真微信没验）。发 0.2.0 之前还差三样，都在 NOTICE_PLAN 第 8 步：

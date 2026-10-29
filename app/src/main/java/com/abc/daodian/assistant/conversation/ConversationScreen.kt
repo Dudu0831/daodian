@@ -448,6 +448,7 @@ fun ConversationScreen(
                                                         override fun openTrace(route: String) = onOpen(route)
                                                         override fun pick(callId: String, question: Int, option: Int) = vm.pickAsk(callId, question, option)
                                                         override fun other(callId: String, question: Int) = vm.otherAsk(callId, question)
+                                                        override fun typed(callId: String, question: Int, text: String) = vm.typedAsk(callId, question, text)
                                                         override fun submit(callId: String) = vm.submitAsk(callId)
                                                         override fun manualAdd() {
                                                             manualEntry?.let(onOpen)
@@ -572,10 +573,8 @@ fun ConversationScreen(
                 onRemoveImage = vm::removeImage,
                 attachEnabled = !vm.aiBusy && asking == null,
                 maxImages = ConversationImageFiles.MAX_PER_MESSAGE,
-                scope = vm.askScope,
                 placeholder = when {
                     voiceNote != null -> voiceNote.orEmpty()
-                    vm.askScope != null -> "说是什么……"
                     asking != null -> if (asking.single) "都不是？直接说……" else "或者直接说……"
                     vm.aiBusy -> "正在说……"
                     pendingImages.isNotEmpty() -> "说点什么，或者直接发……"

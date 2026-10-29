@@ -158,22 +158,17 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     var asking by mutableStateOf<AskRequest?>(null)
         private set
 
-    /** 点了哪一题的「其他…」。非空时输入框句首垫着 [askScope]，发出去只算这一题 */
-    private var askScopeIndex: Int? = null
-    var askScope by mutableStateOf<String?>(null)
-        private set
-
     /**
      * 一句话 → agent 循环。见 DESIGN.md §6.1
      *
      * 写操作（建提醒、改账）在循环里直接办，对话里留一道痕；拿不准时模型自己出问卡（§6.6）。
-     * 问卡等着的时候，这里发出去的话是给问卡的：点了「其他…」就只答那一题，否则算直接说。
+     * 问卡等着的时候，这里发出去的话是给整张问卡的，算直接说（只答某一题在卡里的「其他…」写）。
      */
     fun sendMessage(text: String) {
         val trimmed = text.trim()
         if (pendingAsk != null) {
             if (trimmed.isBlank()) return
-            if (askScopeIndex != null) fillAsk(trimmed) else sayToAsk(trimmed)
+            sayToAsk(trimmed)
             return
         }
         // 选好的图跟这句话一起走；只有图、没打字也能发（DESIGN.md §6.10）
@@ -319,8 +314,6 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                 } finally {
                     if (pendingAsk === pending) pendingAsk = null
                     asking = null
-                    askScopeIndex = null
-                    askScope = null
                 }
             }
             try {
@@ -390,20 +383,27 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                 a.copy(picks = a.picks.toMutableList().also { it[question] = picked }, editing = a.editing?.takeIf { it != question })
             }
         }
-        if (askScopeIndex == question) clearScope()
         if (pending.request.single && picked != null) viewModelScope.launch {
             delay(SINGLE_PICK_HOLD_MS)
             if (pendingAsk === pending) submitAsk(callId)
         }
     }
 
-    /** 点了某一题的「其他…」：借用输入框，句首垫上那一题。再点一次收回 */
+    /** 点了某一题的「其他…」（或写好的那颗）：那一格原地变成输入框；正写着的再点一次收回。一次只开一题 */
     fun otherAsk(callId: String, question: Int) {
-        val pending = pendingAsk?.takeIf { it.callId == callId } ?: return
-        val on = askScopeIndex != question
-        askScopeIndex = if (on) question else null
-        askScope = if (on) pending.request.questions.getOrNull(question)?.let(::scopeLabelOf) else null
-        patchTurnWith(pending.turnId) { t -> t.withAsk(callId) { it.copy(editing = if (on) question else null) } }
+        val pending = pendingAsk?.takeIf { it.callId == callId && !it.closing } ?: return
+        patchTurnWith(pending.turnId) { t -> t.withAsk(callId) { it.copy(editing = if (it.editing == question) null else question) } }
+    }
+
+    /** 「其他…」那一题写好了（点了对勾）：落回那一题。只有一题的卡就算答完 */
+    fun typedAsk(callId: String, question: Int, text: String) {
+        val pending = pendingAsk?.takeIf { it.callId == callId && !it.closing } ?: return
+        patchTurnWith(pending.turnId) { t ->
+            t.withAsk(callId) { a ->
+                a.copy(picks = a.picks.toMutableList().also { it[question] = Pick.Typed(text) }, editing = null)
+            }
+        }
+        if (pending.request.single) submitAsk(callId)
     }
 
     /** 「就这样」/「都先放着」 */
@@ -422,19 +422,6 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun notesOf(request: AskRequest) =
         request.questions.map { q -> q.ref?.let { AssistantPlugins.askNote(getApplication(), it) } }
 
-    /** 「其他…」那一题，在输入框里写的答案：落回那一题，卡片还等着你 */
-    private fun fillAsk(text: String) {
-        val pending = pendingAsk ?: return
-        val q = askScopeIndex ?: return
-        clearScope()
-        patchTurnWith(pending.turnId) { t ->
-            t.withAsk(pending.callId) { a ->
-                a.copy(picks = a.picks.toMutableList().also { it[q] = Pick.Typed(text) }, editing = null)
-            }
-        }
-        if (pending.request.single) submitAsk(pending.callId)
-    }
-
     /** 没点，直接说了一句：给整张卡的，模型拿原话去对 */
     private fun sayToAsk(text: String) {
         val pending = pendingAsk?.takeIf { !it.closing } ?: return
@@ -449,11 +436,6 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
         pendingAsk = null
         patchTurnWith(pending.turnId) { it.answered(pending.callId, answer) }
         pending.answer.complete(answer)
-    }
-
-    private fun clearScope() {
-        askScopeIndex = null
-        askScope = null
     }
 
     /** 把一个事件叠到那个回合上。规则本身在 ConversationItem.kt，桌面速记也用同一份 */
