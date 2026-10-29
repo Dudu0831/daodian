@@ -482,7 +482,6 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun toggleTrace(turnId: Long, callId: String) = patchTurnWith(turnId) { it.toggleTrace(callId) }
 
     // ---------------- 供应商配置（顶栏印章 → 纸签 → 配置页）----------------
 

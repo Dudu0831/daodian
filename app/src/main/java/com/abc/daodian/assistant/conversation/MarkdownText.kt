@@ -14,22 +14,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -59,27 +53,13 @@ private val MaxColumn = 220.dp
 /** 金额、百分比、笔数这类：这一列全是它就靠右、等宽数字 */
 private val NUMERIC = Regex("^[+\\-−]?[¥￥$]?\\s*[+\\-−]?[\\d,]+(?:\\.\\d+)?\\s*(?:元|块|%|％|笔|次|个)?$")
 
-/** 粗体的标记：画完字之后在这几段底下垫「划重点」那道淡墨 */
-private const val MARK = "mark"
-
-/** 一个回合的正文分不分层。见 DESIGN.md §6.7「分层」 */
-enum class ProseTone {
-    /** 不分层，整块照传进来的字样画 */
-    Plain,
-    /** 回合的第一块正文：第一段（连同它前面的标题）照原样，后面的退一档 */
-    Lead,
-    /** 回合里后来的正文：整块退一档 */
-    Rest
-}
-
 /**
  * 模型说的话，按 Markdown 画。怎么认在 Markdown.kt，见 DESIGN.md §6.7。
  *
  * 流着的时候和 [InkText] 一样逐字洇开、末尾跟光标：到货时刻按原文下标记（[rememberInk]），
  * 去掉标记符后的字拿自己的原文下标（[MdRun.src]）去查。流完了就是普通的几段 Text。
  * 样式守墨宋的规矩（DESIGN.md §8.1）：标题靠宋体和字号、不靠加粗；朱砂只给链接；卡片圆角 5dp。
- * 粗体不加粗，是底下一道淡墨的「划重点」；金额、日期、钟点换宋体、墨色。
- * [tone] 分层：第一段之后的字退成 [DaodianType.proseRest]、ink2。
+ * 粗体用干净的 [FontWeight.SemiBold] + 墨色；金额、日期、钟点用等宽数字 `tnum`，不在句中突兀切换字体。
  * 模型画的图（```svg）交给 [SvgBlock]，见 §6.8。
  */
 @Composable
@@ -89,39 +69,25 @@ fun MarkdownText(
     style: TextStyle,
     color: Color,
     modifier: Modifier = Modifier,
-    caret: Boolean = false,
-    tone: ProseTone = ProseTone.Plain
+    caret: Boolean = false
 ) {
     val colors = DaodianColors.current
     val ink = rememberInk(text, streaming)
     val blocks = remember(text, streaming) { Markdown.parse(text, open = streaming) }
-    val lead = MdLook(style, color, colors)
-    val rest = MdLook(DaodianType.proseRest, colors.ink2, colors)
+    val look = remember(style, color, colors) { MdLook(style, color, colors) }
     if (blocks.isEmpty()) {
         if (caret) Text(buildAnnotatedString { appendCaret(color, ink) }, modifier, style = style)
         return
     }
-    val leadCount = leadCountOf(blocks)
-    val lookOf = { i: Int ->
-        when (tone) {
-            ProseTone.Plain -> lead
-            ProseTone.Lead -> if (i < leadCount) lead else rest
-            ProseTone.Rest -> rest
-        }
-    }
-    Column(modifier) { MdBlocks(blocks, lookOf, ink, caret) }
+    Column(modifier) { MdBlocks(blocks, look, ink, caret) }
 }
 
-/** 第一段：从头数到第一个段落（含）。前面是标题的，标题算在第一段里；一个段落都没有就整块都是 */
-internal fun leadCountOf(blocks: List<MdBlock>): Int =
-    blocks.indexOfFirst { it is MdBlock.Paragraph }.let { if (it < 0) blocks.size else it + 1 }
-
-/** 一套字样和颜色。引用里的字换成 [DaodianPalette.ink2]，其余照旧；标题、划重点、数字一律墨色 */
+/** 一套字样和颜色。引用里的字换成 [DaodianPalette.ink2]，其余照旧；标题、粗体、数字一律墨色 */
 private class MdLook(val body: TextStyle, val color: Color, val colors: DaodianPalette) {
 
     fun heading(level: Int): TextStyle =
-        if (level <= 2) body.copy(fontFamily = DaodianFonts.serif, fontSize = 18.sp, lineHeight = 28.sp)
-        else body.copy(fontFamily = DaodianFonts.serif, fontSize = 16.sp, lineHeight = 26.sp)
+        if (level <= 2) body.copy(fontFamily = DaodianFonts.serif, fontSize = 17.5.sp, lineHeight = 27.sp)
+        else body.copy(fontFamily = DaodianFonts.serif, fontSize = 16.sp, lineHeight = 25.sp)
 
     val code = TextStyle(fontFamily = DaodianFonts.mono, fontSize = 12.5.sp, lineHeight = 19.sp)
     val cell = DaodianType.bodySmall
@@ -142,7 +108,7 @@ private class MdLook(val body: TextStyle, val color: Color, val colors: DaodianP
             val code = r.has(MdStyle.CODE)
             val span = SpanStyle(
                 color = if (tone != base) tone else Color.Unspecified,
-                fontWeight = if (bold) FontWeight.Medium else null,
+                fontWeight = if (bold) FontWeight.SemiBold else null,
                 fontStyle = if (r.has(MdStyle.ITALIC)) FontStyle.Italic else null,
                 textDecoration = if (r.has(MdStyle.STRIKE)) TextDecoration.LineThrough else null,
                 fontFamily = if (code) DaodianFonts.mono else null,
@@ -156,22 +122,20 @@ private class MdLook(val body: TextStyle, val color: Color, val colors: DaodianP
                 }
             } else {
                 withStyle(span) {
-                    if (bold) pushStringAnnotation(MARK, "")
                     if (code) appendInk(r.text, r.src, tone, ink) else appendData(r.text, r.src, tone, ink)
-                    if (bold) pop()
                 }
             }
         }
         if (caret) appendCaret(base, ink)
     }
 
-    /** 金额、日期、钟点换宋体、墨色（[Markdown.dataRanges]）；淡色的字（表头、删除线）里的跟着淡 */
+    /** 金额、日期、钟点用等宽数字（[Markdown.dataRanges]）、墨色，保持句内字体一致；淡色的字（表头、删除线）里的跟着淡 */
     private fun AnnotatedString.Builder.appendData(s: String, src: Int, tone: Color, ink: InkFrame?) {
         val dataTone = if (tone == colors.muted) tone else colors.ink
         var at = 0
         Markdown.dataRanges(s).forEach { r ->
             if (r.first > at) appendInk(s.substring(at, r.first), src + at, tone, ink)
-            withStyle(SpanStyle(color = dataTone, fontFamily = DaodianFonts.serif, fontFeatureSettings = "tnum")) {
+            withStyle(SpanStyle(color = dataTone, fontFeatureSettings = "tnum")) {
                 appendInk(s.substring(r.first, r.last + 1), src + r.first, dataTone, ink)
             }
             at = r.last + 1
@@ -192,10 +156,10 @@ private fun gapBefore(prev: MdBlock?, b: MdBlock): Dp = when {
 
 /** 光标跟在最后一块的最后一个字后面 */
 @Composable
-private fun MdBlocks(blocks: List<MdBlock>, lookOf: (Int) -> MdLook, ink: InkFrame?, caret: Boolean) {
+private fun MdBlocks(blocks: List<MdBlock>, look: MdLook, ink: InkFrame?, caret: Boolean) {
     blocks.forEachIndexed { i, b ->
         val gap = gapBefore(blocks.getOrNull(i - 1), b)
-        MdBlockView(b, if (gap > 0.dp) Modifier.padding(top = gap) else Modifier, lookOf(i), ink, caret && i == blocks.lastIndex)
+        MdBlockView(b, if (gap > 0.dp) Modifier.padding(top = gap) else Modifier, look, ink, caret && i == blocks.lastIndex)
     }
 }
 
@@ -203,9 +167,9 @@ private fun MdBlocks(blocks: List<MdBlock>, lookOf: (Int) -> MdLook, ink: InkFra
 private fun MdBlockView(b: MdBlock, modifier: Modifier, look: MdLook, ink: InkFrame?, caret: Boolean) {
     val colors = look.colors
     when (b) {
-        is MdBlock.Paragraph -> MarkedText(look.inline(b.runs, ink, caret), modifier, look.body, look.color)
+        is MdBlock.Paragraph -> Text(look.inline(b.runs, ink, caret), modifier, style = look.body, color = look.color)
 
-        is MdBlock.Heading -> MarkedText(look.inline(b.runs, ink, caret, colors.ink), modifier, look.heading(b.level), colors.ink)
+        is MdBlock.Heading -> Text(look.inline(b.runs, ink, caret, colors.ink), modifier, style = look.heading(b.level), color = colors.ink)
 
         is MdBlock.ListItem -> Row(modifier.padding(start = ListIndent * b.depth)) {
             Text(
@@ -214,7 +178,7 @@ private fun MdBlockView(b: MdBlock, modifier: Modifier, look: MdLook, ink: InkFr
                 style = look.body.copy(fontFeatureSettings = "tnum"),
                 color = colors.muted
             )
-            MarkedText(look.inline(b.runs, ink, caret), Modifier.weight(1f), look.body, look.color)
+            Text(look.inline(b.runs, ink, caret), Modifier.weight(1f), style = look.body, color = look.color)
         }
 
         // 左边一根细线，和思考过程一个画法
@@ -223,8 +187,7 @@ private fun MdBlockView(b: MdBlock, modifier: Modifier, look: MdLook, ink: InkFr
                 .drawBehind { drawLine(colors.rule2, Offset(0f, 0f), Offset(0f, size.height), 1.dp.toPx()) }
                 .padding(start = 12.dp)
         ) {
-            val quoted = look.quoted()
-            MdBlocks(b.blocks, { quoted }, ink, caret)
+            MdBlocks(b.blocks, look.quoted(), ink, caret)
         }
 
         is MdBlock.Code -> CodeBlock(b, modifier, look, ink, caret)
@@ -247,43 +210,6 @@ private fun bulletOf(depth: Int) = when (depth) {
     0 -> "•"
     1 -> "◦"
     else -> "·"
-}
-
-/**
- * 一段字，粗体（[MARK]）底下垫一道淡墨，压在字的下半截 —— 像拿笔划了重点，不靠加粗。
- * 系统字体多半只有 400 / 700 两档，加粗在中文里要么看不出、要么一团黑。
- */
-@Composable
-private fun MarkedText(text: AnnotatedString, modifier: Modifier, style: TextStyle, color: Color) {
-    val marks = remember(text) { text.getStringAnnotations(MARK, 0, text.length) }
-    val marker = DaodianColors.current.skeleton
-    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
-    Text(
-        text,
-        if (marks.isEmpty()) modifier else modifier.drawBehind {
-            layout?.let { l -> marks.forEach { drawMark(l, it.start, it.end, marker) } }
-        },
-        style = style,
-        color = color,
-        onTextLayout = { layout = it }
-    )
-}
-
-/** 一段划重点：逐行画，从基线往上 0.42em 到往下 0.14em */
-private fun DrawScope.drawMark(l: TextLayoutResult, start: Int, end: Int, color: Color) {
-    if (end <= start || l.lineCount == 0) return
-    val em = l.layoutInput.style.fontSize.toPx()
-    val pad = 1.dp.toPx()
-    val lastLine = minOf(l.getLineForOffset(end - 1), l.lineCount - 1)
-    for (line in l.getLineForOffset(start)..lastLine) {
-        val s = maxOf(start, l.getLineStart(line))
-        val e = minOf(end, l.getLineEnd(line, visibleEnd = true))
-        if (e <= s) continue
-        val left = l.getBoundingBox(s).left
-        val right = l.getBoundingBox(e - 1).right
-        val base = l.getLineBaseline(line)
-        drawRect(color, Offset(minOf(left, right) - pad, base - 0.42f * em), Size(kotlin.math.abs(right - left) + 2 * pad, 0.56f * em))
-    }
 }
 
 /** 代码块：一张淡纸，不折行，长了横着滑 */

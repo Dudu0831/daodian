@@ -16,6 +16,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -57,6 +59,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import com.abc.daodian.assistant.plugin.TraceState
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
@@ -121,6 +124,48 @@ fun SpeakerTag(isError: Boolean = false, breathing: Boolean = false) {
     }
 }
 
+/**
+ * 回合抬头：左侧「· 到点」，右侧伴随印胶囊（[TurnImprintPill]）。
+ * 有问卡收起或工具写痕时，胶囊从右侧轻盈浮现。
+ */
+@Composable
+private fun TurnHeader(
+    isError: Boolean,
+    breathing: Boolean,
+    sealedAsks: List<TurnBlock.Ask>,
+    traces: List<TurnBlock.Trace>,
+    imprintOpen: Boolean,
+    onToggleImprint: () -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth().defaultMinSize(minHeight = 24.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        SpeakerTag(isError = isError, breathing = breathing)
+        AnimatedVisibility(
+            visible = sealedAsks.isNotEmpty() || traces.isNotEmpty(),
+            enter = fadeIn(Motion.flow()) + scaleIn(
+                initialScale = 0.88f,
+                transformOrigin = TransformOrigin(1f, 0.5f),
+                animationSpec = Motion.settle()
+            ),
+            exit = fadeOut(Motion.exit()) + scaleOut(
+                targetScale = 0.9f,
+                transformOrigin = TransformOrigin(1f, 0.5f),
+                animationSpec = Motion.exit()
+            )
+        ) {
+            TurnImprintPill(
+                sealedAsks = sealedAsks,
+                traces = traces,
+                expanded = imprintOpen,
+                onClick = onToggleImprint
+            )
+        }
+    }
+}
+
 @Composable
 private fun BreathingDot(color: Color) {
     val a by rememberInfiniteTransition(label = "breathe").animateFloat(
@@ -135,7 +180,6 @@ private fun BreathingDot(color: Color) {
 /** 回合里能点的东西。对话页全接；桌面速记只接它用得上的几样，其余默认什么都不做 */
 interface TurnActions {
     fun toggleReasoning() {}
-    fun toggleTrace(callId: String) {}
     /** 点了痕：去它指向的那条（路由） */
     fun openTrace(route: String) {}
     fun pick(callId: String, question: Int, option: Int) {}
@@ -150,11 +194,11 @@ interface TurnActions {
 /**
  * 助手的一个回合。见 DESIGN.md §6.5、§6.6。
  *
- * 块按到货顺序摞：正文、痕、问卡，每一块都是展开着进场。还在跑、眼下又没东西在出的时候，
- * 末尾画两根墨条（刚发出去、工具跑完等它接着说、问卡答完等它接着办）。
- * 问卡等着时你直接说了一句：那句话画成你的气泡，后面的回应另起一个「· 到点」。
- *
- * 正文分层（§6.7）：回合的第一段照原样，后面的退一档。
+ * 款式三 · 抬头伴随印：
+ * - 工具写痕（[TurnBlock.Trace]）与答完的问卡（[TurnBlock.Ask] 且 `sealed`）统一收拢进抬头右侧的 [TurnImprintPill]，
+ *   点开胶囊则在抬头下方展开细目抽屉（[TurnImprintDrawer]）。
+ * - 正文区只保留流淌的文字（[TurnBlock.Prose]）与等待你作答的问卡（[TurnBlock.Ask] 且 `!sealed`）。
+ * - 问卡答完那一刻从正文区向上收起，同时抬头伴随印盖下「答」印。
  */
 @Composable
 fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) {
@@ -169,7 +213,6 @@ fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) 
     }
     // 重启读回来的回合不再一块块长出来
     val animate = msg.startedAt != 0L
-    val leadKey = remember(msg.blocks) { msg.visibleBlocks.firstOrNull { it is TurnBlock.Prose }?.key }
 
     Column {
         segments.forEachIndexed { si, (said, blocks) ->
@@ -179,8 +222,48 @@ fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) 
                 UserBubble(said.text, said.sentAt)
                 Spacer(Modifier.height(24.dp))
             }
-            SpeakerTag(isError = msg.isError, breathing = last && msg.waiting)
+
+            val sealedAsks = remember(blocks) { blocks.filterIsInstance<TurnBlock.Ask>().filter { it.state.sealed } }
+            val traces = remember(blocks) { blocks.filterIsInstance<TurnBlock.Trace>() }
+            val hasImprint = sealedAsks.isNotEmpty() || traces.isNotEmpty()
+            val anyFailed = remember(traces) { traces.any { it.state == TraceState.FAILED } }
+            val hasBody = remember(blocks) {
+                blocks.any { it is TurnBlock.Prose || (it is TurnBlock.Ask && !it.state.sealed) }
+            }
+            var imprintOpen by remember(msg.id, si) { mutableStateOf(anyFailed) }
+            LaunchedEffect(anyFailed) {
+                if (anyFailed) imprintOpen = true
+            }
+            LaunchedEffect(msg.streaming, msg.waiting, hasBody, hasImprint) {
+                if (!msg.streaming && !msg.waiting && !hasBody && hasImprint) {
+                    imprintOpen = true
+                }
+            }
+
+            TurnHeader(
+                isError = msg.isError,
+                breathing = last && msg.waiting,
+                sealedAsks = sealedAsks,
+                traces = traces,
+                imprintOpen = imprintOpen,
+                onToggleImprint = { imprintOpen = !imprintOpen }
+            )
+
             Column(Modifier.padding(start = AssistantIndent)) {
+                AnimatedVisibility(
+                    visible = imprintOpen && hasImprint,
+                    enter = expandVertically(Motion.settle(), expandFrom = Alignment.Top) + fadeIn(Motion.flow()),
+                    exit = shrinkVertically(Motion.flow(), shrinkTowards = Alignment.Top) + fadeOut(Motion.exit())
+                ) {
+                    Box(Modifier.padding(top = 8.dp, bottom = 2.dp)) {
+                        TurnImprintDrawer(
+                            sealedAsks = sealedAsks,
+                            traces = traces,
+                            onOpen = actions::openTrace
+                        )
+                    }
+                }
+
                 if (si == 0) {
                     Reveal(msg.waiting && msg.fellBack && msg.blocks.isEmpty()) {
                         Text(
@@ -200,31 +283,41 @@ fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) 
                     }
                 }
 
-                blocks.forEachIndexed { i, b ->
-                    key(b.key) {
-                        Appear(animate, enter = if (b is TurnBlock.Ask) CardEnter else RevealEnter, gap = gapBefore(blocks.getOrNull(i - 1), b)) {
-                            when (b) {
-                                is TurnBlock.Prose -> {
+                var prevBody: TurnBlock? = null
+                blocks.forEach { b ->
+                    when (b) {
+                        is TurnBlock.Prose -> {
+                            val gap = gapBefore(prevBody, b)
+                            prevBody = b
+                            key(b.key) {
+                                Appear(animate, visible = true, enter = RevealEnter, gap = gap) {
                                     val streaming = msg.streaming && b.key == msg.blocks.lastOrNull()?.key
                                     MarkdownText(
-                                        b.text, streaming = streaming, style = DaodianType.prose, color = colors.ink, caret = streaming,
-                                        tone = if (b.key == leadKey) ProseTone.Lead else ProseTone.Rest
+                                        b.text,
+                                        streaming = streaming,
+                                        style = DaodianType.prose,
+                                        color = colors.ink,
+                                        caret = streaming
                                     )
                                 }
-                                is TurnBlock.Trace -> TraceLine(
-                                    b,
-                                    onOpen = actions::openTrace,
-                                    onToggle = { actions.toggleTrace(b.callId) }
-                                )
-                                is TurnBlock.Ask -> AskCard(
-                                    b,
-                                    onPick = { q, o -> actions.pick(b.callId, q, o) },
-                                    onOther = { q -> actions.other(b.callId, q) },
-                                    onSubmit = { actions.submit(b.callId) }
-                                )
-                                is TurnBlock.Said -> Unit
                             }
                         }
+                        is TurnBlock.Ask -> {
+                            val active = !b.state.sealed
+                            val gap = gapBefore(prevBody, b)
+                            if (active) prevBody = b
+                            key(b.key) {
+                                Appear(animate, visible = active, enter = CardEnter, gap = gap) {
+                                    AskCard(
+                                        b,
+                                        onPick = { q, o -> actions.pick(b.callId, q, o) },
+                                        onOther = { q -> actions.other(b.callId, q) },
+                                        onSubmit = { actions.submit(b.callId) }
+                                    )
+                                }
+                            }
+                        }
+                        is TurnBlock.Trace, is TurnBlock.Said -> Unit
                     }
                 }
 
@@ -257,12 +350,19 @@ fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) 
 }
 
 /**
- * 一块内容第一次出现时长出来；[animate] 为 false（重启读回的）就直接在那儿。
- * [gap] 是它离上一块多远（[gapBefore]），问卡答完收成行时跟着收
+ * 一块内容第一次出现时长出来；[animate] 为 false（重启读回的）就直接落定。
+ * 问卡答完时 [visible] 变为 false，向上收起化入抬头伴随印。
  */
 @Composable
-private fun ColumnScope.Appear(animate: Boolean, enter: EnterTransition, gap: Dp, content: @Composable () -> Unit) {
-    val state = remember { MutableTransitionState(!animate).apply { targetState = true } }
+private fun ColumnScope.Appear(
+    animate: Boolean,
+    visible: Boolean = true,
+    enter: EnterTransition,
+    gap: Dp,
+    content: @Composable () -> Unit
+) {
+    val state = remember { MutableTransitionState(if (animate) false else visible) }
+    LaunchedEffect(visible) { state.targetState = visible }
     val top by animateDpAsState(gap, Motion.flow(), label = "blockGap")
     AnimatedVisibility(visibleState = state, enter = enter, exit = RevealExit) {
         Box(Modifier.padding(top = top)) { content() }
@@ -270,22 +370,13 @@ private fun ColumnScope.Appear(animate: Boolean, enter: EnterTransition, gap: Dp
 }
 
 /**
- * 回合里块与块之间（DESIGN.md §6.5「间距」）：痕和答完的问卡是「行」，挨着排、不留空；
- * 行和正文之间 8，整张的问卡前后 12，两块正文之间 14（和段距一样）。第一块离「· 到点」10
+ * 正文区里块与块之间：第一块离「· 到点」10dp；两块正文之间 14dp（和段距一样）；整张问卡前后 12dp。
  */
 private fun gapBefore(prev: TurnBlock?, b: TurnBlock): Dp = when {
     prev == null -> 10.dp
-    prev.isLine && b.isLine -> 0.dp
-    prev.isCard || b.isCard -> 12.dp
-    prev is TurnBlock.Prose && b is TurnBlock.Prose -> 14.dp
-    else -> 8.dp
+    prev is TurnBlock.Ask || b is TurnBlock.Ask -> 12.dp
+    else -> 14.dp
 }
-
-private val TurnBlock.isLine: Boolean
-    get() = this is TurnBlock.Trace || this is TurnBlock.Ask && state.sealed
-
-private val TurnBlock.isCard: Boolean
-    get() = this is TurnBlock.Ask && !state.sealed
 
 private val RevealEnter: EnterTransition =
     expandVertically(Motion.settle(), expandFrom = Alignment.Top) + fadeIn(Motion.flow())

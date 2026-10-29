@@ -47,14 +47,6 @@ class MarkdownTest {
     }
 
     @Test
-    fun `the lead runs through the first paragraph and takes a heading before it`() {
-        assertEquals(2, leadCountOf(Markdown.parse("## 本月\n这个月花了不少。\n\n第二段")))
-        assertEquals(1, leadCountOf(Markdown.parse("两条都记下了。\n\n- 带伞\n- 交房租")))
-        // 一个段落都没有：整块都是第一段，不分层
-        assertEquals(2, leadCountOf(Markdown.parse("- 一\n- 二")))
-    }
-
-    @Test
     fun `words for days and bare numbers are not picked`() {
         // 认不准的不认：认错了满屏宋体
         assertEquals(emptyList<String>(), picked("明天周三，每月 4 号，第 9 笔，#12"))

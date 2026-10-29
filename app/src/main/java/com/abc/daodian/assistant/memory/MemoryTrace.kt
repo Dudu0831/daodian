@@ -6,9 +6,9 @@ import com.abc.daodian.assistant.plugin.TraceText
 import com.abc.daodian.assistant.plugin.TraceView
 
 /**
- * 记忆的写操作在对话里留的痕：「✓ 记住了 · 『晚点』一般指晚上 9 点 ›」，点了去记忆页。见 DESIGN.md §6.6、§6.9
+ * 记忆的写操作在对话里留的痕：伴随印细目里「记住了 · 『晚点』一般指晚上 9 点 ›」，点了去记忆页。见 DESIGN.md §6.6、§6.9
  *
- * 记忆不属于哪个模块（助手自己的），所以不走 AssistantPlugin.trace，由 TraceLine 先问它。
+ * 记忆不属于哪个模块（助手自己的），所以不走 AssistantPlugin.trace，由 TraceLine.kt 的 traceViewOf 先问它。
  */
 object MemoryTrace {
 

@@ -445,7 +445,6 @@ fun ConversationScreen(
                                                 val actions = remember(msg.id) {
                                                     object : TurnActions {
                                                         override fun toggleReasoning() = vm.toggleReasoning(msg.id)
-                                                        override fun toggleTrace(callId: String) = vm.toggleTrace(msg.id, callId)
                                                         override fun openTrace(route: String) = onOpen(route)
                                                         override fun pick(callId: String, question: Int, option: Int) = vm.pickAsk(callId, question, option)
                                                         override fun other(callId: String, question: Int) = vm.otherAsk(callId, question)

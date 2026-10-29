@@ -104,7 +104,7 @@ sealed interface TurnBlock {
     /** 模型说的话 */
     data class Prose(override val key: String, override val step: Int, val text: String) : TurnBlock
 
-    /** 一次写操作留下的痕：一行小字，不是卡片。见 TraceLine.kt */
+    /** 一次写操作留下的痕：画在回合抬头的伴随印里，不是卡片。见 TraceLine.kt */
     data class Trace(
         val callId: String,
         val tool: String,
@@ -117,8 +117,7 @@ sealed interface TurnBlock {
         /** 办成后指向的记录（提醒 id、流水 id），点痕去那儿 */
         val ref: Long? = null,
         /** 办成的时刻。对勾只在刚办成时描一次 */
-        val doneAt: Long = 0,
-        val expanded: Boolean = false
+        val doneAt: Long = 0
     ) : TurnBlock {
         override val key: String get() = callId
     }
@@ -215,8 +214,6 @@ fun ConversationItem.AssistantTurn.answered(callId: String, answer: AskAnswer): 
     }
 }
 
-fun ConversationItem.AssistantTurn.toggleTrace(callId: String): ConversationItem.AssistantTurn =
-    copy(blocks = blocks.map { if (it is TurnBlock.Trace && it.callId == callId) it.copy(expanded = !it.expanded) else it })
 
 /** 进入新的一步 */
 private fun ConversationItem.AssistantTurn.enteringStep(step: Int) =
