@@ -27,6 +27,7 @@ import com.abc.daodian.intake.Intake
 import com.abc.daodian.intake.IntakeModule
 import com.abc.daodian.intake.IntakeRoutes
 import com.abc.daodian.intake.core.inbox.InboxState
+import com.abc.daodian.intake.legacy.OldSetup
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
@@ -48,9 +49,10 @@ import java.time.ZoneId
  * 通知管家的页（设置 → 功能 → 通知管家）：监听连没连着（重连、扫一遍），再是规则、收到的通知两个入口。
  * 全 app 只有这一个监听（DESIGN.md §2.3）。设计稿方向 A：https://claude.ai/artifact/VhupokZXiZjFpi4iijS72w
  * 通知使用权本身在「权限」页（[StewardPermissionSection]）；这里没开时只写一行红字、点了去开。
+ * 0.1.x 在设置里勾过记账、派活的，最上面多一组照着列出来（[OldSetupGroup]，0.2.1 删）。
  */
 @Composable
-fun StewardScreen(onBack: () -> Unit, open: (String) -> Unit) {
+fun StewardScreen(onBack: () -> Unit, open: (String) -> Unit, say: (String) -> Unit) {
     val vm = activityViewModel<IntakeViewModel>()
     val colors = DaodianColors.current
     val context = LocalContext.current
@@ -68,7 +70,9 @@ fun StewardScreen(onBack: () -> Unit, open: (String) -> Unit) {
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
         ) {
-            GroupLabel("监听", top = 12.dp)
+            val old by vm.oldSetup.collectAsState()
+            old?.takeIf { !it.isEmpty }?.let { OldSetupGroup(it, vm::appName, say) }
+            GroupLabel("监听", top = if (old?.isEmpty == false) 28.dp else 12.dp)
             PaperGroup {
                 if (!granted) {
                     SettingRow(
@@ -100,6 +104,35 @@ fun StewardScreen(onBack: () -> Unit, open: (String) -> Unit) {
             }
             Entries(open)
             Spacer(Modifier.height(40.dp))
+        }
+    }
+}
+
+/**
+ * 0.1.x 在设置里勾的：记账听的 app、派活听的人。0.2.0 不搬过来，这里照着列，点一行把它垫成一句话放进对话输入框，
+ * 你看一眼再发。只在旧配置里有东西时出现；0.2.1 连 [OldSetup] 一起删（docs/cleanup.md）
+ */
+@Composable
+private fun OldSetupGroup(old: OldSetup.Setup, appName: (String) -> String, say: (String) -> Unit) {
+    val colors = DaodianColors.current
+    GroupLabel("以前设置里勾的", top = 12.dp)
+    PaperGroup {
+        if (old.hasLedger) {
+            val apps = old.ledgerApps.map(appName)
+            SettingRow(title = "记账", note = apps.joinToString("、"), onClick = { say(OldSetup.ledgerSay(apps)) }) {
+                ChevronRightIcon(size = 13.dp, tint = colors.muted)
+            }
+        }
+        if (old.hasLedger && old.hasRelay) GroupRule()
+        if (old.hasRelay) {
+            val apps = old.relayApps.map(appName)
+            SettingRow(
+                title = "派活",
+                note = listOfNotNull(apps.joinToString("、").ifEmpty { null }, OldSetup.peopleText(old.people)).joinToString(" · "),
+                onClick = { say(OldSetup.relaySay(apps, old.people)) }
+            ) {
+                ChevronRightIcon(size = 13.dp, tint = colors.muted)
+            }
         }
     }
 }

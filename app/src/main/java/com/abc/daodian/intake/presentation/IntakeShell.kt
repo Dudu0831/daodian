@@ -53,7 +53,7 @@ object IntakeShell : ShellEntry {
     }
 
     override fun NavGraphBuilder.routes(nav: AppNav) {
-        composable(IntakeRoutes.HOME) { StewardScreen(onBack = nav::back, open = nav::open) }
+        composable(IntakeRoutes.HOME) { StewardScreen(onBack = nav::back, open = nav::open, say = { nav.assistant(it) }) }
         composable(IntakeRoutes.RULES) { RulesScreen(onBack = nav::back, open = nav::open) }
         composable(IntakeRoutes.RULE, arguments = listOf(navArgument("id") { type = NavType.LongType })) {
             RuleScreen(id = it.arguments?.getLong("id") ?: 0L, onBack = nav::back, open = nav::open)

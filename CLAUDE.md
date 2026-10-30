@@ -21,12 +21,15 @@
 
 - **10-29 新功能弹窗**（`whatsnew` 模块，DESIGN §11.4；`ShellEntry` 加了 `Overlay`）：0.2.0 一页「通知管家」，动图 `assets/whatsnew/13/notice.webp`（1.8MB）用户加上、测过了。那句话 10-29 用户定了：「在对话里面说一句，比如「帮我监听菜鸟和短信的快递」。以前勾的要重新说。」
 
+**还没提交的**
+- **10-29 通知管家页「以前设置里勾的」**（`intake/legacy/OldSetup`、`StewardScreen.OldSetupGroup`，DESIGN §12.6）：读 0.1.x 的 DataStore `intake`、`relay`（只读），列记账听的 app、派活的 app 和名单，点一行垫成一句话进对话输入框。0.2.1 删（`docs/cleanup.md`）。JVM 测试（`OldSetupTest`）和 `assembleDebug` 过了，没装机看过：手机上 release 包有没有旧配置、列出来的 app 名对不对、点了输入框里是那句话。
+
 **还开着的事**
 - **通知管家发版**（DESIGN §12，工程文件根目录 `NOTICE_PLAN.md`）：第 1–8 步写完、验过了（10-27 真机上用 `cmd notification post` 模拟走通，真短信、真微信没验）。发 0.2.0 之前还差三样，都在 NOTICE_PLAN 第 8 步：
   - DESIGN 跟着第 8 步改：§2.3 删「现在和以后」那句和「现状：按包名分给订阅者」那段，§6.1 花名册、§08、§10.2、§12 里还写着派活、订阅者、「权限与监听」的地方。
   - 升上来什么都不听：用新功能弹窗那一页说（§11.4），不在对话里垫（NOTICE_PLAN 第 10 节第 1 条）；发版说明写「升级后在对话里重新说一次要听什么」。
   - 第 10 节另外几条（同一件事连发几条、一次性规则谁停、附言给不给整理员、交不出时通知不通知）和 §12.8 没定，不挡发版。
-- **0.2.2 删壳**：派活两个旧路由、`TidyWorker` 空壳、速记的 `activity-alias`，清单在 [docs/cleanup.md](docs/cleanup.md)。
+- **删壳**：0.2.1 删通知管家页「以前设置里勾的」那一组；0.2.2 删派活两个旧路由、`TidyWorker` 空壳、速记的 `activity-alias`。清单在 [docs/cleanup.md](docs/cleanup.md)。
 
 | 功能 | 还没验 |
 |---|---|

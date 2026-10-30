@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.abc.daodian.intake.Intake
+import com.abc.daodian.intake.legacy.OldSetup
+import com.abc.daodian.shared.apps.AppCatalog
 import com.abc.daodian.shared.format.Format
 import java.time.Instant
 import java.time.LocalDate
@@ -39,6 +41,16 @@ class IntakeViewModel(app: Application) : AndroidViewModel(app) {
     fun granted(): Boolean = Intake.granted(getApplication())
 
     fun grantIntent() = Intake.grantIntent(getApplication())
+
+    /** 0.1.x 在设置里勾的（只读，0.2.1 删，见 [OldSetup]）。null = 还没读出来 */
+    private val _oldSetup = MutableStateFlow<OldSetup.Setup?>(null)
+    val oldSetup: StateFlow<OldSetup.Setup?> = _oldSetup.asStateFlow()
+
+    init {
+        viewModelScope.launch { _oldSetup.value = OldSetup.read(getApplication()) }
+    }
+
+    fun appName(pkg: String): String = AppCatalog.label(getApplication(), pkg)
 
     /** 扫一遍：把通知栏里挂着的再交一次；监听没连着就先请系统绑回来，连上了再扫 */
     fun sweep() {

@@ -4,6 +4,14 @@
 
 **规矩**：留壳只留手机上按名字记着的；纯代码不留，换掉那一版直接删（DESIGN.md §2.2「挪包 = 改全类名」）。加了新的壳就在这里记一行。删掉之后把那一行挪到最底下「删过的」。
 
+## 0.2.1 删
+
+| 壳 | 在哪 | 为什么留 | 删的时候连带 |
+|---|---|---|---|
+| 通知管家页顶上「以前设置里勾的」那一组（0.1.x 的记账听哪些 app、派活名单和暗号，只读） | `intake/legacy/OldSetup.kt` 整个文件（连 `test/…/intake/legacy/OldSetupTest.kt`）；`intake/presentation/StewardScreen.kt` 的 `OldSetupGroup` 和调它的两行、头上注释里那句；`IntakeViewModel` 的 `oldSetup`、`appName`、`init`；`IntakeShell` 里传给 `StewardScreen` 的 `say` | 0.2.0 旧配置不搬，升上来的人照着这一组在对话里重新说一次。看过一版就够了，不是手机上按名字记着的东西，0.2.1 直接删 | DESIGN §12 和 CLAUDE.md 里提到这一组的地方；删了之后「待定：手机上留着的旧文件」里那两个 `.preferences_pb` 就真没人读了 |
+
+删完：`./gradlew :app:testDebugUnitTest`；打开设置 → 通知管家，最上面是「监听」。
+
 ## 0.2.2 删
 
 0.2.0 是通知管家切换那一版（派活、订阅者删掉，只剩「听通知」），隔一个版本到 0.2.2 再删下面这些。
@@ -18,7 +26,7 @@
 
 ## 待定：手机上留着的旧文件
 
-0.2.0 照「旧数据不删」（NOTICE_PLAN 第 6 节）没碰，代码也不再读写：
+0.2.0 照「旧数据不删」（NOTICE_PLAN 第 6 节）没碰；两个 `.preferences_pb` 只有 0.2.0 通知管家页顶上那一组读（只读，0.2.1 删），别的代码不再读写：
 
 - `databases/relay.db`（派活收到的每一句）
 - `files/datastore/intake.preferences_pb`（以前每个模块勾了哪些 app）、`relay.preferences_pb`（派活名单、暗号）
