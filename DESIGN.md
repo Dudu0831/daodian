@@ -85,6 +85,7 @@
 - **`intake`** 通知监听：全 app 唯一的通知监听，按你给各模块勾的 app 把通知分下去。只抓、只分，不存、不读懂（§2.3）。
 - **`shared`** 地基：色板、字体、动效、通用组件、人话时间、装了哪些 app、`Launch`。谁也不依赖。
 - **`update`** 检查更新：内测期间查新版、下载、交给系统安装器（§11.2）。只碰 `BuildConfig` 和系统服务，跟智能交互没关系；根目录开 app 时查一次，`shell` 的设置页和抽屉读它的状态。
+- **`whatsnew`** 新功能弹窗：这一版写了新功能、还没看过，打开 app 弹一次（§11.4）。只给壳盖在上面的一层，不给助手。
 - **`module`** 只放模块接头 `Module` 这一个接口。
 
 ```
@@ -103,7 +104,7 @@ shared                地基：没有状态
 | 插口 | 模块给什么 | 现在有的 |
 |---|---|---|
 | `assistant/plugin/AssistantPlugin`（放在模块的 `assistant/`） | 工具、垫在历史前面的现状（`background`，如记账的类别表和标签，§6.9）、写操作留什么痕（`trace`）、空状态例句、连不上模型时「手动填一条」去哪、app 自己发起的一轮（`trigger`，如每晚对账）、问过你还等你点的那一轮（`pendingTrigger`，对话末尾画成虚线段）、问卡上一题顺手办了什么（`askNote`，如挂上的标签，§6.6）和那一块怎么画（`AskAddon`）。**不给提示词**（§6.3 第 6 条） | `ReminderPlugin`、`LedgerPlugin` |
-| `shell/entry/ShellEntry`（放在模块的 `presentation/`） | 名字（`label`：「权限」页上写「提醒要的」，导出诊断里那一段的标题）、自己的页面（路由以模块 id 开头）、抽屉里的一张纸、设置首页「功能」组的行（`settingsEntries`：一个模块一行，只有标题，点进自己的设置页；要写现状的给 `settingsStatus`：底下一句 + 右边一个数）、「权限」页里的一组（`PermissionSection`）、体检项、导出诊断里的一段 | `ReminderShell`、`LedgerShell`、`IntakeShell` |
+| `shell/entry/ShellEntry`（放在模块的 `presentation/`） | 名字（`label`：「权限」页上写「提醒要的」，导出诊断里那一段的标题）、自己的页面（路由以模块 id 开头）、抽屉里的一张纸、设置首页「功能」组的行（`settingsEntries`：一个模块一行，只有标题，点进自己的设置页；要写现状的给 `settingsStatus`：底下一句 + 右边一个数）、「权限」页里的一组（`PermissionSection`）、盖在整个 app 上面的一层（`Overlay`，画在导航上面）、体检项、导出诊断里的一段 | `ReminderShell`、`LedgerShell`、`IntakeShell`、`WhatsNewShell` |
 
 给助手的那个**叫 plugin，不叫 skill**（10-16 从 `AssistantSkill` 改的名）：agent 那边说 skill，一般指按需读进上下文的一段说明，核心是提示词；这个插口偏偏不给提示词，给的是工具、数据和界面上的几块。以后真要按需加载某个模块的规矩，那才叫 skill，名字留着。
 
@@ -121,6 +122,7 @@ shared                地基：没有状态
 | 模块的其余部分 | 再加上 `runtime`、两个插口包、`module`。别的模块不碰 |
 | `intake` 的核心 | 自己、`shared` |
 | `intake` 的接头（`IntakeModule.kt`）和 `presentation/` | 再加上 `shell/entry`、`module` |
+| `whatsnew` | 自己、`shared`、`module`、`shell/entry` |
 | `update`、`shared` | 自己、`shared` |
 | 根目录 | 随便用：只做装配 |
 
@@ -1158,6 +1160,15 @@ MagicOS 各版本菜单名有出入，按关键词找：
 - **导出诊断**（设置 → 系统 →「导出诊断」，`shell/diagnostics/Diagnostics`）：生成一份 txt，交给系统分享（发微信）。7 天内崩过，这一行变红写次数。内容：版本、机型、ROM、时区、电池优化、精确闹钟、系统下一个闹钟是谁排的；模型服务（模型名、网关主机名、key 填没填）；花名册上的几个 agent（名字、归谁、什么时候醒、提示词版本）；体检；各模块一段；最近 5 次崩溃。
 - **只写状态和数，不写内容**：没有对话、记忆、提醒标题、金额、商户、通知原文、key。各模块那一段由 `ShellEntry.diagnostics` 交上来（提醒：各状态条数、排着的下次时刻、最近 30 次响的漂移、派活名单几个人、收到的结果；记账：近 7 天每个 app 抓了几条、账的状态、最近 10 次整理 / 对账；通知监听：使用权、连没连着、谁听哪些包名）。加模块、加段的时候守这条；读库用 `rows()` 只数数、看状态列。
 
+
+
+### 11.4 新功能弹窗（10-29）
+
+- 设计稿 claude.ai/artifact/FWfAW5h7XJbiAzfFwg8UR2：盖住整页的暗色上一张弹窗，左上「版本 · 新功能」、右上叉；中间一段动图，底下宋体标题和一句话；不止一页时左右翻、底下出页码点，一页时不出点。没有别的按钮，点暗处不收，只有叉和返回键收。
+- 什么时候弹：当前 versionCode 在 `whatsnew/Releases` 里写了、prefs（`whatsnew` 的 `seen`）里记的比它小。**只弹当前这一版的**：全新装的也看这一版，跳了几版升上来的不补看前面的。点叉 / 返回才记看过，弹着时杀进程下次还弹。debug 包是另一个 app，自己记一份。
+- 动图：动态 WebP，放在 `assets/whatsnew/<versionCode>/`，`ImageDecoder` + `AnimatedImageDrawable` 放（不加依赖）。画法是 three.js 简笔画，不录真机：场景写成页面，录成 WebP 再放进来，包里不带 three.js。文件不在就只画那块底色。包里只留最近一两版的条目和图。
+- 导出诊断里一行：看过到哪一版。
+- 0.2.0 是第一版用它：一页「通知管家」，说升级后什么都不听、要在对话里重新说（NOTICE_PLAN 第 10 节第 1 条就这么了结，不在对话里垫一句）。
 
 ---
 

@@ -18,6 +18,7 @@ import org.junit.Test
  * | 通知监听层的其余部分（监听、库、管家、插口、给助手的） | 自己、`shared`、`runtime`（管家要跑 agent）、`assistant/plugin`（`IntakePlugin`） |
  * | 通知监听层的 `core/`（规则、收件箱、管家的纯逻辑） | 自己、`intake.Notice`；也不碰 Android、Room（JVM 单测） |
  * | 通知监听层的接头和 `presentation/` | 再加上 `shell/entry`、`module` |
+ * | `whatsnew`（新功能弹窗） | 自己、`shared`、`module`、`shell/entry` |
  * | `update`、`shared` | 自己、`shared` |
  * | `agent`（只剩旧全类名的空壳） | `assistant` |
  *
@@ -40,6 +41,7 @@ class ArchitectureTest {
             p.startsWith("shell/") -> Rule(listOf("shell", "assistant", "runtime", "shared", "update") + ALWAYS)
             p.startsWith("module/") -> Rule(listOf("module", "intake.plugin") + PLUGS + ALWAYS)
             p.startsWith("agent/") -> Rule(listOf("assistant") + ALWAYS)
+            p.startsWith("whatsnew/") -> Rule(listOf("whatsnew", "shared", "module", "shell.entry") + ALWAYS)
             p.startsWith("update/") -> Rule(listOf("update", "shared") + ALWAYS)
             p.startsWith("shared/") -> Rule(listOf("shared") + ALWAYS)
             p.startsWith("intake/core/") -> Rule(listOf("intake.core", "intake.Notice") + ALWAYS)

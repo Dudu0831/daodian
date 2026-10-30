@@ -193,5 +193,8 @@ fun AppNavHost(
                 }
             )
         }
+
+        // 模块盖在最上面的一层（新功能弹窗）
+        uis.forEach { it.Overlay() }
     }
 }

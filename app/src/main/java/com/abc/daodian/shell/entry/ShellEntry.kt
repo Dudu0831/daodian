@@ -41,6 +41,13 @@ interface ShellEntry {
     @Composable
     fun PermissionSection() {}
 
+    /**
+     * 盖在整个 app 上面的一层（新功能弹窗）。壳画在导航上面、对话页和各页都盖得住；
+     * 出不出、什么时候收由模块自己管，不出就什么都不画
+     */
+    @Composable
+    fun Overlay() {}
+
     /** 体检项：挂了会让这个模块的核心功能失效的系统权限 */
     fun health(context: Context): List<HealthItem> = emptyList()
 

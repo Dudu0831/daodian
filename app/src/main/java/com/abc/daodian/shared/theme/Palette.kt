@@ -40,7 +40,9 @@ data class DaodianPalette(
     val skeletonHi: Color,
     /** 出错 / 迟到这类需要被看见的告警字色 */
     val red: Color,
-    val amber: Color
+    val amber: Color,
+    /** 弹窗底下盖住整页的那层暗色（新功能弹窗） */
+    val scrim: Color
 )
 
 val LightPalette = DaodianPalette(
@@ -60,7 +62,8 @@ val LightPalette = DaodianPalette(
     skeleton = Color(0xFFE2DDCF),
     skeletonHi = Color(0xFFCCC5B1),
     red = Color(0xFFB0533F),
-    amber = Color(0xFF8A6A24)
+    amber = Color(0xFF8A6A24),
+    scrim = Color(0x731C1A17)
 )
 
 val DarkPalette = DaodianPalette(
@@ -80,5 +83,6 @@ val DarkPalette = DaodianPalette(
     skeleton = Color(0xFF272419),
     skeletonHi = Color(0xFF3B372B),
     red = Color(0xFFD6786A),
-    amber = Color(0xFFD7AC5C)
+    amber = Color(0xFFD7AC5C),
+    scrim = Color(0x9E000000)
 )
