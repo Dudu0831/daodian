@@ -92,9 +92,9 @@
 根目录                装配：Modules.kt（模块清单）、Agents.kt（agent 花名册）
 shell  →  assistant   壳用助手（对话页是起点）
    ↑ 插口    ↑ 插口     shell/entry、assistant/plugin，由各模块的 Module 交出去
-reminder    ledger    订阅 → 存进自己的库 → 读懂、生成数据；各有自己的后台 agent
-    ↓ 订阅    ↓
-intake                授权、连接、抓、按包名分发
+reminder    ledger    接管家交来的通知 → 存进自己的库 → 读懂、生成数据；各有自己的后台 agent
+    ↓ 插口    ↓
+intake                授权、连接、抓、规则、收件箱、通知管家
 runtime               跑 agent 的：助手和模块都用，它自己谁也不认识
 shared                地基：没有状态
 ```
@@ -108,7 +108,7 @@ shared                地基：没有状态
 
 给助手的那个**叫 plugin，不叫 skill**（10-16 从 `AssistantSkill` 改的名）：agent 那边说 skill，一般指按需读进上下文的一段说明，核心是提示词；这个插口偏偏不给提示词，给的是工具、数据和界面上的几块。以后真要按需加载某个模块的规矩，那才叫 skill，名字留着。
 
-加模块 = 新目录 + `XxxModule`（要的话再加 `XxxPlugin`、`XxxShell`）+ `Modules.kt` 里一行；它给助手的工具要在助手的提示词里写上用法。助手的工具顺序、抽屉里的纸、设置首页的行都按 `Modules.kt` 的顺序。要听通知的订阅者另外在 `SUBSCRIBERS` 里列（§2.3）；要在后台自己跑一个 agent，写 `XxxAgent` + `XxxPrompt`、`Agents.kt` 里加一行（§6.1）。
+加模块 = 新目录 + `XxxModule`（要的话再加 `XxxPlugin`、`XxxShell`）+ `Modules.kt` 里一行；它给助手的工具要在助手的提示词里写上用法。助手的工具顺序、抽屉里的纸、设置首页的行都按 `Modules.kt` 的顺序。要接通知的模块在 `Module.notice` 交一个 `NoticeTarget`（§12.5）；要在后台自己跑一个 agent，写 `XxxAgent` + `XxxPrompt`、`Agents.kt` 里加一行（§6.1）。
 
 **依赖规则**（单元测试 `ArchitectureTest` 照这张表扫 import）
 
@@ -117,10 +117,11 @@ shared                地基：没有状态
 | `runtime` | 只有自己 —— 单独的 Gradle 模块，编译器管，测试不查。要用 app 里的东西（模型配置存在哪、记忆库、trace 写到哪），由 app 实现它的接口装进去（`DaodianApp`）。反过来，app 跑 agent 只能走 `AgentRuntime`：循环（`AgentLoop`）、调模型的客户端（`ResponsesClient`）、工具注册表是 `internal`，app 碰不到（10-16） |
 | `assistant` | 自己、`runtime`、`shared` |
 | `shell` | 自己、`assistant`、`runtime`、`shared`、`update` |
-| `module` | 两个插口包 `assistant/plugin`、`shell/entry` |
-| 模块的核心层（提醒的 `domain / data / application / scheduling / delivery`，记账的 `domain / data / capture`） | 自己、`shared`、`intake` 的核心（`Notice`、`NoticeSubscriber`、`Intake`、`IntakeRoutes`） |
-| 模块的其余部分 | 再加上 `runtime`、两个插口包、`module`。别的模块不碰 |
-| `intake` 的核心 | 自己、`shared` |
+| `module` | 三个插口包 `assistant/plugin`、`shell/entry`、`intake/plugin` |
+| 模块的核心层（提醒的 `domain / data / application / scheduling / delivery`，记账的 `domain / data / capture`） | 自己、`shared`、通知监听层的核心、`intake/plugin` |
+| 模块的其余部分 | 再加上 `runtime`、三个插口包、`module`。别的模块不碰 |
+| `intake` 的 `core/`（规则、收件箱、管家的纯逻辑） | 自己、`intake.Notice`；也不碰 Android、Room |
+| `intake` 的其余部分（监听、库、管家、插口、给助手的） | 自己、`shared`、`runtime`（管家要跑 agent）、`assistant/plugin` |
 | `intake` 的接头（`IntakeModule.kt`）和 `presentation/` | 再加上 `shell/entry`、`module` |
 | `whatsnew` | 自己、`shared`、`module`、`shell/entry` |
 | `update`、`shared` | 自己、`shared` |
@@ -128,13 +129,13 @@ shared                地基：没有状态
 
 测不出来、要自己守的两条：跨模块跳转只用路由字符串，模块不 import `MainActivity`，从外面拉起 app 走 `shared/navigation/Launch`（`route` 去哪页、`trigger` 开一轮 app 发起的、`say` 替你发一句话、`quickAdd` 拉起桌面速记）；模块要用对话记录里的东西走插口包（`assistant/plugin/CallHistory`，如提醒编辑页的「依据」），不碰对话库。
 
-**路由**：助手 `chat`（对话页，起点）、`memory`；壳 `settings`、`permissions`、`provider`；提醒 `reminder/list`、`reminder/edit?id=`、`reminder/log`、`reminder/settings`、`reminder/relay/{id}`（派活名单上某个人的那一页）；记账 `ledger`、`ledger/category/…`、`ledger/txn/{id}`、`ledger/capture`、`ledger/settings`；通知监听 `intake/apps/{订阅者 id}`。
+**路由**：助手 `chat`（对话页，起点）、`memory`；壳 `settings`、`permissions`、`provider`；提醒 `reminder/list`、`reminder/edit?id=`、`reminder/log`、`reminder/settings`、`reminder/relay/{id}` 和 `reminder/relay`（只是壳，跳规则页，0.2.2 删）；记账 `ledger`、`ledger/category/…`、`ledger/txn/{id}`、`ledger/settings`；通知管家 `intake`、`intake/rules`、`intake/rule/{id}`、`intake/notices`、`intake/notice/{id}`。
 路由常量放在 `AssistantRoutes` / `ShellRoutes` / `ReminderRoutes` / `LedgerRoutes` / `IntakeRoutes`，不挂在接头上 —— 通知、小组件（核心层）要用，又不该 import 接头。对话页那个字 `"chat"` 在 `Launch.HOME`，**不改**：通知栏里挂着的、小组件上的 PendingIntent 里存着它，改了点进来 NavHost 找不到页会崩。
 
 **界面归属**：对话的画法（回合、问卡、痕、输入框、速记的纸）归 `assistant`；模块自己的页面归各自的 `presentation/`；导航、抽屉、设置页、权限页、模型配置页的框归 `shell`，内容由模块塞。
 ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、抽屉、设置组拿到同一份。
 
-**三个库互不牵连**：`reminder.db`（提醒、投递日志）、`chat.db`（对话、记忆、整理记录）、`ledger.db`（账）。对话表、账表出岔子，连累不到闹钟。以后改表都是 version + 1、在各自 `autoMigrations` 里加一条。通知监听层不落库，只有一个 DataStore 记每个订阅者勾了哪些 app。（派活试验版另有 `relay.db`，转正时再写进来。）
+**四个库互不牵连**：`reminder.db`（提醒、投递日志）、`chat.db`（对话、记忆、整理记录）、`ledger.db`（账）、`intake.db`（规则、收件箱）。对话表、账表出岔子，连累不到闹钟。以后改表都是 version + 1、在各自 `autoMigrations` 里加一条。通知监听层不落库，只有一个 DataStore 记每个订阅者勾了哪些 app。（派活试验版另有 `relay.db`，转正时再写进来。）
 
 **挪包 = 改全类名**。通知使用权（`intake/NoticeListenerService`）、桌面小组件、已排的闹钟、manifest 里的组件、WorkManager 排着的 Worker 都按全类名记在手机上；Room 的 schemas 目录也按库类的全类名放（只在构建时要：库类改名把目录跟着改名就行，手机上认的是库文件名和表结构）。
 **内测之后不再让人连数据卸载**：要挪按全类名记的类，旧名字得留着 —— Activity 在 manifest 里留一个 `activity-alias` 指向新类，Worker 在旧位置留一个空壳子类。10-15 的 `QuickAddActivity`、`TidyWorker`（还有 `ChatDatabase` 改名 `ConversationDatabase`、schemas 目录跟着改）就是这么挪的；`agent/` 里那个空壳和 manifest 里速记的 alias 过两个版本一起删。存在手机上的名字（库文件、表名、文件目录、DataStore、WorkManager 唯一名、路由字符串、PendingIntent 里的 extra 键）一律不跟着代码改名。
@@ -142,9 +143,9 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 
 ### 2.3 通知监听层（intake）
 
-记账要听支付通知，派活要听名单上那几个人的微信，以后还有快递、航班这类 —— 都从这里进来。**全 app 只有一个通知监听**：通知使用权按组件授，多一个就得让你再去系统设置里开一次。它放在模块下面一层。
+记账要听支付通知，有人发来的事、快递、航班这类要建提醒 —— 都从这里进来。**全 app 只有一个通知监听**：通知使用权按组件授，多一个就得让你再去系统设置里开一次。它放在模块下面一层。
 
-> **现在和以后**：代码现在还是按包名分给两个订阅者（记账、派活），各筛各的、各存各的，见本节末尾「现状」那段。10-26 定了改成「硬条件 → 收件箱 → 通知管家 → 模块子代理」，细节和分几步做在 §12。下面除「现状」那段，写的都是改完之后的样子；「收」那几段（实时回调会丢、正文会被遮蔽、监听会断）现在就是这样，改了也不动。
+链路是「硬条件 → 收件箱 → 通知管家 → 模块子代理」，细节在 §12。0.2.0 切到这条路；以前按包名分给两个订阅者（记账、派活）的那套（`NoticeSubscriber`、`Router`、勾选页）删了。
 
 **分五层，前三层是代码、不允许失败**：
 
@@ -166,9 +167,9 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 
 **实时回调会丢**：真机上监听一直连着，一笔 199.90 的两条通知一条都没收到，约 10%（推测是荣耀冻结了进程）。所以**不能只靠实时回调**：连上时、解锁时、整理前都把通知栏扫一遍。只扫得到还挂在通知栏里的，划掉了的系统不留。
 
-**正文会被系统遮蔽**：招行通知有时收到的是「敏感数据已隐藏」，过几秒再读同一条就是全的。源头是 Android 15 对第三方监听的敏感内容遮蔽，豁免权限 `RECEIVE_SENSITIVE_NOTIFICATIONS` 是 `signature|role`，**我们永远拿不到**。荣耀的 `HnNotificationAssistant` 先用正则判（把「尾号8837的」当成验证码）立刻打上遮蔽，再异步用 TextClassifier 撤掉 —— 线程池满了第二步会被跳过，那条就永远是遮蔽版。对策：有订阅者收了遮蔽版，就隔 5s / 30s / 2min 各重读一次（实测 5 秒那次就拿到了），真正文到了再投一次。遮蔽的那句话直接问 framework 要（`Intake.REDACTED`），跟着系统语言走。
+**正文会被系统遮蔽**：招行通知有时收到的是「敏感数据已隐藏」，过几秒再读同一条就是全的。源头是 Android 15 对第三方监听的敏感内容遮蔽，豁免权限 `RECEIVE_SENSITIVE_NOTIFICATIONS` 是 `signature|role`，**我们永远拿不到**。荣耀的 `HnNotificationAssistant` 先用正则判（把「尾号8837的」当成验证码）立刻打上遮蔽，再异步用 TextClassifier 撤掉 —— 线程池满了第二步会被跳过，那条就永远是遮蔽版。对策：收件箱存了遮蔽版，就隔 5s / 30s / 2min 各重读一次（实测 5 秒那次就拿到了），真正文到了再判一次。遮蔽的那句话直接问 framework 要（`Intake.REDACTED`），跟着系统语言走。
 
-**遮蔽版怎么过硬条件**（方案，§12.3）：正文条件判不了，先只看包名和标题，对上了就先存进收件箱、标上遮蔽，照上面那样重读；真正文到了按全部硬条件再判一次，对不上就删掉那一行。遮蔽版不交管家，等 2 分钟那次重读还是遮蔽版才交。
+**遮蔽版怎么过硬条件**（§12.3）：正文条件判不了，先只看包名和标题，对上了就先存进收件箱、标上遮蔽，照上面那样重读；真正文到了按全部硬条件再判一次，对不上就删掉那一行。遮蔽版不交管家，等 2 分钟那次重读还是遮蔽版才交。
 
 **监听会断，而且断了没人知道**（反编译 Android 15 框架查的，不是猜的）：
 
@@ -178,40 +179,6 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 - 「通知使用权开没开」按组件查（`isNotificationListenerAccessGranted`），不按包名：挪包后旧组件名的授权还挂在包名下，按包名查会误报开着。
 
 **通知管家自己一页**（设置 →「通知管家」，`intake/presentation/StewardScreen`，10-28 从「权限与监听」里挪出来，设计稿方向 A：<https://claude.ai/artifact/VhupokZXiZjFpi4iijS72w>）：监听（连着 / 断了 +「重连」、扫一遍通知栏）、规则、收到的通知。通知使用权本身在「权限」页「通知管家要的」那一组（`IntakeShell.PermissionSection`），**不算进体检结论**（§9.1）；没开时通知管家页最上面一行红字「去开」。设置首页那一行写「连着 · 今天 N 条」、右边在听的规则条数，没开使用权 / 监听断了写红字（`settingsStatus`）。
-
-**现状：按包名分给订阅者**（切换到新链路那一版删掉这一段，§12.7）
-
-**只抓、只分，不存、不读懂。** 抓通知是「不允许失败」那条路（§2.1），越笨越可靠；读懂要联网、要叫模型，各模块的读法也完全不同（记账攒一批每 3 小时整理，派活来一句办一句）。监听层不存任何内容：通知只进勾了它的那个模块的库。
-
-| | 监听层 | 订阅者（模块） |
-|---|---|---|
-| 通知使用权（按组件查）、连没连着、重连、冷启动催绑 | ✓ | |
-| 实时收 + 连上、解锁、手动扫、整理前扫 | ✓ | 可以喊它扫（`Intake.sweep`） |
-| 正文被遮蔽，5s / 30s / 2min 重读再投 | ✓ 标上 `redacted` | 自己定遮蔽版怎么算（记账：被替代，§10.2） |
-| 每个订阅者听哪些 app（路由表）、勾选页 | ✓ | 给名字、用途、红字、排前面的 |
-| 更细的规则（听谁、暗号、认得哪家银行的格式） | | ✓ |
-| 存原文、去重、读懂、生成数据 | | ✓ |
-
-**订阅**：实现 `intake/NoticeSubscriber`（`id`、`label`、`purpose`、可选的 `warn` / `suggested`、`accept`），在根目录 `Modules.kt` 的 `SUBSCRIBERS` 里列一行。`DaodianApp` 启动时装进 `Intake`，比系统来绑监听早。眼下两个：记账 `ledger/capture/LedgerCapture`、派活 `reminder/relay/Relay`。
-
-**路由表**：每个订阅者听哪些 app，是你勾出来的，存在 intake 的 DataStore（`apps.<订阅者 id>`）。来一条通知只按包名查表 —— 包名是唯一一个所有订阅者都用得上、又不用看懂内容就能判断的维度。暗号这类规则留在订阅者：派活要记下名单上的人说的每一句（没带暗号的只是不交给模型），监听层先滤掉它就看不到了；而且判断「是不是名单上的人」得先认得微信的格式，那是订阅者的知识。
-
-**分发的规矩**（`intake/Router`，单元测试 `RouterTest`）：
-
-- 只交给勾了这个 app 的订阅者；谁都没勾的来了就扔。表里有、代码里没注册的 id 忽略。
-- 每个订阅者同时交、分开交：一个抛错、一个慢，都不耽误别的。
-- 同一条可能投不止一次（实时收一次，解锁、手动扫又扫到），订阅者按指纹去重。
-- `accept` 只做落库这种快事；叫模型的重活订阅者自己另起。扫通知栏要等所有订阅者的 `accept` 都返回才算完 —— 抓取页要报「新存几条」，整理前的扫描扫完才往下走。
-
-**勾选页**（`intake/presentation/AppPickerScreen`，路由 `intake/apps/{id}`，设计稿方向 A：<https://claude.ai/artifact/RyPMu2X4dK4Q9kCM1NfXLu>）：各订阅者共用一页，按 id 分开存。只从「权限与监听」页「谁在听」那一组进；模块的设置页里不放「听哪些 app」，也不放任何通知的行（09-30 用户试过：模块页、抓取页、派活页都往「权限与监听」跳，那边又能进勾选页，页面之间来回跳，乱）。
-
-- 列的是桌面上有图标的 app（manifest 里 `<queries>` 声明 MAIN / LAUNCHER，不申请 `QUERY_ALL_PACKAGES`），名字、图标从系统取（`shared/apps/AppCatalog`）。
-- 分两段：进来那一刻在听的在上面，其他在下面（订阅者说要排前面的在前，派活是聊天软件）；这一页里勾勾取取不挪位置，下次进来才排到上面。顶上能搜。
-- 行底下的红字由订阅者给（记账：勾聊天软件、短信会连聊天、验证码一起存下来发给模型）。只提醒，照样能勾。
-- 刚勾上的，当场扫一遍通知栏（`how = picked`）。取消勾选不删订阅者已经存下的。
-- 读不到应用列表时，顶上一行「读取应用列表」+「去开」，只列得出已经勾上的。荣耀不用额外授权就读得到（09-30）。
-
-**（09-30 的布局，已被 §12 和 10-28 的设置页重排取代）** 那时在「权限与监听」页里占几组：使用权、连没连着、扫一遍、「谁在听」「按 app 看」。现在见上面「通知管家自己一页」。
 
 ---
 
@@ -404,7 +371,8 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 |---|---|---|---|---|
 | 助手 `assistant/AssistantAgent` | 助手 | 你在对话页说一句；桌面速记；每晚对账由记账开场 | 能 | ask_user、edit_memory、create_reminder、list_expenses、add_expense、update_expenses、add_category |
 | 记账整理员 `ledger/organize/OrganizerAgent` | 记账 | 后台：每 3 小时、对账前、手动点 | 不能 | record_expenses、list_expenses |
-| 派活 `reminder/relay/RelayAgent` | 提醒 | 后台：名单上的人发来一句（方案是改成提醒子代理、由通知管家交活，§12.5） | 不能 | create_reminder |
+| 通知管家 `intake/steward/StewardAgent` | 通知监听层 | 后台：收件箱里有待办（3 秒防抖，§12.4） | 不能 | hand_off、ignore |
+| 提醒子代理 `reminder/notice/ReminderNoticeAgent` | 提醒 | 后台：通知管家交来一条（§12.5） | 不能 | create_reminder |
 | 记忆整理员 `assistant/memory/tidy/TidyAgent` | 助手 | 后台：闲 10 分钟、攒够 16 轮 | 不能 | save_tidy |
 
 桌面速记是助手的第二个入口（同一份 system 和工具），每晚对账是助手的一轮，配置页「测一下」只调一次模型 —— 这三样都不算单独的 agent。
@@ -484,7 +452,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 3. **先分流**：闲聊、反问、办事分开。早先开头就把每句话当成建提醒请求，「hello」也弹卡。
 4. **拿不准就调 `ask_user`，不在正文里问**；调之前先说一句为什么问，猜好答案（§6.6）。
 5. **决策 6.4 · 不管格式**（用户定的）：不写「别用 Markdown」「能用哪几样」—— 换模型、换供应商，习惯都不一样，界面兼容比约束模型稳（§6.7）。画图例外，得写进提示词：Markdown 模型自己会写，画图它不会主动（§6.8）。
-6. **每个 agent 的提示词写全在自己目录下，不拼别处的段落**（用户 10-15 定的）：助手 `assistant/AssistantPrompt`、记账整理员 `ledger/organize/OrganizerPrompt`、派活 `reminder/relay/RelayPrompt`、记忆整理员 `assistant/memory/tidy/TidyPrompt`。
+6. **每个 agent 的提示词写全在自己目录下，不拼别处的段落**（用户 10-15 定的）：助手 `assistant/AssistantPrompt`、记账整理员 `ledger/organize/OrganizerPrompt`、通知管家 `intake/steward/StewardPrompt`、提醒子代理 `reminder/notice/ReminderNoticePrompt`、记忆整理员 `assistant/memory/tidy/TidyPrompt`。
    模块只给工具（工具自己的说明跟着工具走）和数据（类别表这类垫在历史前面），怎么用这些工具的规矩由用它的 agent 写 —— 以前助手的 system 是基础提示词 + 各模块那一段按 `Modules.kt` 顺序拼的，看全文得跑起来；派活又拼了一份提醒规则，里面的轻提醒那条和它自己的「gentle 一律 false」打架。
    代价：模块加了、删了、改了名工具，要回用它的 agent 的提示词里跟着改。每一轮会变的输入怎么拼（`input(...)`）和 system 放在同一个文件，system 说「每次给你什么」，拼的代码就在下面。
    runtime 造的标记（垫的背景、app 自动发起的一轮）在提示词里插常量（`Preamble.MARK`、`Item.TRIGGER_MARK`），不手抄。
@@ -698,7 +666,7 @@ system（逐字节不变）
 
 - **隐私**：图原样发给网关，和对话、流水一样不脱敏（§10 同一个取舍）。官网数据安全那段要跟着写。
 - 图只增不减：没有清对话的入口，`chat_images/` 跟着 `chat.db` 一直长。以后做清对话、导出、备份要记得它。
-- 桌面速记、派活、整理员都不带图，它们调循环用的是默认参数。
+- 桌面速记、通知管家、提醒子代理、整理员都不带图，它们调循环用的是默认参数。
 
 ---
 
@@ -939,7 +907,7 @@ MagicOS 各版本菜单名有出入，按关键词找：
 
 ```
 ① 采集（一直在跑）
-   通知到达 → 通知监听层（§2.3）→ 记账勾了这个 app → LedgerCapture → raw_notification（待整理）
+   通知到达 → 通知监听层（§2.3）→ 中了规则 → 通知管家交给记账 → LedgerNoticeTarget → raw_notification（待整理）
    实时回调会丢：监听层连上时、解锁时、整理前都扫一遍通知栏，通知管家页能手动扫
 ② 整理（默认每 3 小时，设置里可改）
    代码先数待整理的（不算最近 10 分钟到的）：0 条 → 睡，不花一分钱
@@ -989,9 +957,9 @@ MagicOS 各版本菜单名有出入，按关键词找：
 
 ### 10.2 采集：通知给得出什么、会被遮蔽、会漏
 
-抓通知、听哪些 app、连接、遮蔽后重读都归通知监听层（§2.3）。记账是它的一个订阅者（`capture/LedgerCapture`）：你给记账勾的 app 的通知交过来，**原样**存进 `raw_notification`，不解析。
+抓通知、规则、连接、遮蔽后重读都归通知监听层（§2.3）。记账是通知管家的一个去处（`capture/LedgerNoticeTarget`）：管家交过来的通知**原样**存进 `raw_notification`，不解析。
 
-**听哪些 app 全由你勾**（09-30 那时是设置 →「权限与监听」→ 谁在听 → 记账，现在换成通知管家的规则，§12；监听层的勾选页 `intake/apps/ledger`）。没有内置的，新装默认一个都不听；没勾的来了就扔，一条都不存。勾上聊天软件（微信、QQ、钉钉、飞书）或默认短信 app 时，那一行写一句红字：聊天消息 / 验证码也会原样存下来、发给模型 —— 付款通知和聊天是同一个 app 发的，代码分不开。取消勾选不删已经存下的原文（原文永不删）。抓到的通知写哪家用系统给的名字，卸载了的退回包名。
+**听什么由规则定**（§12）：没有内置的，新装、升上来都一条不听；在对话里说「招行、支付宝的通知记账」建规则，没中规则的来了就扔，一条都不存。付款通知和聊天是同一个 app 发的，代码分不开，所以规则里听聊天软件、短信时要说清哪类消息算（§12.1）。停了、删了规则不删已经存下的原文（原文永不删）。抓到的通知写哪家用系统给的名字，卸载了的退回包名。
 
 下面这张表是作者手机上那几家实测给得出什么（整理员的提示词里也写着，勾上了模型就认得）：
 
@@ -1158,7 +1126,7 @@ MagicOS 各版本菜单名有出入，按关键词找：
 
 - **崩溃记录**（`shell/diagnostics/CrashLog`）：`DaodianApp.onCreate` 第一件事装上；崩了先把版本、机型、线程、堆栈写进 `files/crash/`，再交还系统原来的处理（照样弹「已停止运行」）。留最近 10 份。
 - **导出诊断**（设置 → 系统 →「导出诊断」，`shell/diagnostics/Diagnostics`）：生成一份 txt，交给系统分享（发微信）。7 天内崩过，这一行变红写次数。内容：版本、机型、ROM、时区、电池优化、精确闹钟、系统下一个闹钟是谁排的；模型服务（模型名、网关主机名、key 填没填）；花名册上的几个 agent（名字、归谁、什么时候醒、提示词版本）；体检；各模块一段；最近 5 次崩溃。
-- **只写状态和数，不写内容**：没有对话、记忆、提醒标题、金额、商户、通知原文、key。各模块那一段由 `ShellEntry.diagnostics` 交上来（提醒：各状态条数、排着的下次时刻、最近 30 次响的漂移、派活名单几个人、收到的结果；记账：近 7 天每个 app 抓了几条、账的状态、最近 10 次整理 / 对账；通知监听：使用权、连没连着、谁听哪些包名）。加模块、加段的时候守这条；读库用 `rows()` 只数数、看状态列。
+- **只写状态和数，不写内容**：没有对话、记忆、提醒标题、金额、商户、通知原文、key。各模块那一段由 `ShellEntry.diagnostics` 交上来（提醒：各状态条数、排着的下次时刻、最近 30 次响的漂移；记账：近 7 天每个 app 抓了几条、账的状态、最近 10 次整理 / 对账；通知管家：使用权、连没连着、规则各听哪些包名、近 7 天进来各状态几条、不相关几条、交给谁各几次）。加模块、加段的时候守这条；读库用 `rows()` 只数数、看状态列。
 
 
 
@@ -1172,7 +1140,7 @@ MagicOS 各版本菜单名有出入，按关键词找：
 
 ---
 
-## 12 通知管家：规则、收件箱、子代理（方案，10-26 定的，在做：核心、库写了，没接线）
+## 12 通知管家：规则、收件箱、子代理
 
 起因：派活的规则是在设置页里填的（听哪个 app、名单上是谁、暗号），只认得「某个人发来一句」。快递到驿站、航班变动这类事没有「人」，要看内容才认得出来，这几个格子填不进去，人也不会配。10-24 先写过一版「盯梢」（派活并进一种新规则），10-26 跟用户一路改成现在这样：**记账、派活、以后的别的都走同一条路 —— 硬条件决定进不进来，收件箱存下，通知管家定去处，模块的子代理干活。** 为什么这样分层见 §2.3，这里写细节。
 
@@ -1249,7 +1217,7 @@ MagicOS 各版本菜单名有出入，按关键词找：
 
 ### 12.4 通知管家
 
-`intake/steward/StewardAgent` + `StewardPrompt`（名字可以改），花名册（§6.1）上多一个。**界面上不露面**：不挂顶栏，和现在派活一样后台跑（用户 10-26 定的）；debug 包写 `files/trace_steward.txt`。
+`intake/steward/StewardAgent` + `StewardPrompt`，花名册（§6.1）上的一个。**界面上不露面**：不挂顶栏，后台跑（用户 10-26 定的）；debug 包写 `files/trace_steward.txt`。
 
 - **什么时候醒**：收件箱进了新的，**3 秒防抖**（这 3 秒里又来的一起办，用户 10-26 定的）；打开 app、上一次失败之后也醒一次。进程在这 3 秒里被杀不要紧，待办都在库里，下次醒来接着办。同一时刻只跑一个。
 - **看到什么**（从稳定到常变排，前缀缓存）：system（通用的：读规则、给每条定去处、问不了人）→ 去处清单（每个模块一句：接什么、附言写什么）→ 启用中的规则（编号、名字、软规则）→ 记忆（「老地方」这类）→ 这一批：每条的编号、哪个 app、几点、标题、正文、中了哪几条规则。只照中了的那几条规则办。
@@ -1259,7 +1227,7 @@ MagicOS 各版本菜单名有出入，按关键词找：
 
 ### 12.5 子代理：模块怎么接
 
-模块实现一个新插口 `intake/plugin/NoticeTarget`（名字可以改），在 `Modules.kt` 里列一行，取代现在的 `SUBSCRIBERS`：
+模块实现插口 `intake/plugin/NoticeTarget`，从 `Module.notice` 交出来：
 
 | 给什么 | 提醒 | 记账 |
 |---|---|---|
@@ -1268,8 +1236,8 @@ MagicOS 各版本菜单名有出入，按关键词找：
 | `accept(通知, 附言)`：只做落库这种快事 | 放进自己的队列，马上起子代理 | 原文复制进 `raw_notification`（带上收件箱那一行的 id） |
 | 办完回写一句（`report`） | 「18:00 取快递 3-2-1088」+ 点进那条提醒的路由 | 整理员记好那一笔时回写「午饭 58.00」或「不是账」 |
 
-- **提醒子代理** = 现在的 `RelayAgent` 改过来：输入从「某人说的一句」改成「这条通知 + 管家附言」，手上照旧只有 `create_reminder`；提示词里「我」是发消息的人、「你」是用户那几条留着，写成「通知是某个人发来的话时」那一段。建成了照旧发一条通知告诉你，点开是那条提醒。
-- **记账**：整理员、护栏、对账都不动（§10.1）。变的只有原文从哪来：以前 `LedgerCapture` 从监听层直接收，以后从管家交接收；`raw_notification` 加一列记收件箱的 id，回写用。附言要不要喂给整理员，见 §12.8。
+- **提醒子代理**（`reminder/notice/ReminderNoticeAgent`）是原来的 `RelayAgent` 改的：输入从「某人说的一句」改成「这条通知 + 管家附言」，手上只有 `create_reminder`；提示词里「我」是发消息的人、「你」是用户那几条留着，写成「通知是某个人发来的话时」那一段。建成了照旧发一条通知告诉你，点开是那条提醒。
+- **记账**：整理员、护栏、对账都不动（§10.1）。变的只有原文从哪来：以前从监听层直接收，现在从管家交接收（`LedgerNoticeTarget`）；`raw_notification` 加了一列记收件箱的 id，回写用。附言要不要喂给整理员，见 §12.8。
 - **加一个模块** = 实现 `NoticeTarget` + 自己的 `XxxAgent` / `XxxPrompt` + `Agents.kt` 一行。管家的去处清单自动多一项。
 - 依赖规则多一个插口包 `intake/plugin`（和 `assistant/plugin` 同级），模块碰它，`ArchitectureTest` 跟着改（§2.2）。
 
@@ -1287,18 +1255,11 @@ MagicOS 各版本菜单名有出入，按关键词找：
 
 - **升上来那一刻什么都不听**，和 09-30 那次「记账先一条都不收」一样：发版说明要写清楚，新功能弹窗那一页也说（§11.4）。
 - **以前勾的照着列一行**（10-29，`intake/legacy/OldSetup`、`StewardScreen.OldSetupGroup`）：旧配置里有东西时，通知管家页最上面多一组「以前设置里勾的」——「记账 · 招商银行、支付宝」「派活 · 微信 · 老婆（暗号 #）」。点一行把它垫成一句话放进对话输入框（「帮我监听招商银行、支付宝的通知，记账用」），你看一眼改改再发；还是你自己说、说清楚才建，不算搬。界面上不写「下个版本删」。只读不写，0.2.1 连文件一起删（`docs/cleanup.md`）。
-- **留壳只留手机上按名字记着的**（同 `agent/memory/tidy/TidyWorker.kt` 的路数，§2.2「挪包」）：路由 `reminder/relay/{id}`、`reminder/relay` 还存在通知栏里旧通知的 PendingIntent 里，留一个跳到规则页的空页，切换那一版之后再过两个版本删。`Relay`、`Router` 这些纯代码在切换那一版直接删 —— 删类不删手机上的文件。
+- **留壳只留手机上按名字记着的**（同 `agent/memory/tidy/TidyWorker.kt` 的路数，§2.2「挪包」）：路由 `reminder/relay/{id}`、`reminder/relay` 还存在通知栏里旧通知的 PendingIntent 里，留一个跳到规则页的空页，0.2.2 删（`docs/cleanup.md`）。`Relay`、`Router` 这些纯代码 0.2.0 直接删了 —— 删类不删手机上的文件。
 
 ### 12.7 怎么落
 
-工程文件是根目录的 [`NOTICE_PLAN.md`](NOTICE_PLAN.md)：目录、接口、用到的设计模式、库表、九步和每步怎么验，做完删掉、要紧的并回这里。大的顺序：
-
-1. 核心（纯 Kotlin）、库、模块插口和两个子代理、管家、助手建规则 —— 这五步都不接线，行为不变。
-2. 接线，debug 包里一个开关在老路子和新链路之间切，真机验。
-3. 界面：规则页、收件箱记录页，先出设计稿。
-4. 发版切到新链路，老代码删掉、留路由壳；再过两个版本删壳。
-
-切换那一版跟着改 §2.3（删「现状」那段）、§2.2、§6.1 的花名册、§08 设置页、§10.2 和 CLAUDE.md。
+0.2.0（10-30 发）切到这条路，老代码删了，留的壳记在 `docs/cleanup.md`。工程文件是根目录的 [`NOTICE_PLAN.md`](NOTICE_PLAN.md)：目录、接口、库表、九步和每步怎么验，第 9 步（0.2.2 删壳）做完、要紧的并回这里后删掉。
 
 ### 12.8 要注意的、还没定的
 

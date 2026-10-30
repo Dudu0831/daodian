@@ -9,24 +9,18 @@
 **手机和线上**
 - 真机是荣耀 LGE-AN10（Android 15），模型是火山方舟 `deepseek-v4.1-flash`。
 - 线上：**0.2.0 / versionCode 13**（10-30 用 `scripts/publish.sh` 发的：通知管家、问卡原地写、对话页和设置页改版）。
-- 用户手机上的 release 包是本地打的 0.2.0（13），和线上同一份代码、同号，10-30 用 adb 覆盖装的；装完进程、闹钟没核。debug 包 `com.abc.daodian.debug` 也在。两个包是两个 app（§11.1）。
+- 用户手机上的 release 包是本地打的 0.2.0（13），和线上同一份代码、同号，10-30 用 adb 覆盖装的，用户看过都对。debug 包 `com.abc.daodian.debug` 也在。两个包是两个 app（§11.1）。
 - 库：`reminder.db` v3、`chat.db` v3、`ledger.db` v2（10-26 起，见下）。库升上去之后旧版本打不开，只能往前走。
 
 **main 上有、还没在真机上验过的**
 - **10-26 `ledger.db` v1 → v2**（通知管家第 2 步，`raw_notification` 加可空列 `noticeId`，auto migration）：下一次发版就带上去。要验：覆盖装 debug 包、打开一次记账页，拉库看 `PRAGMA user_version` 是 2、`noticeId` 这一列在、旧原文和流水都在。
-- **10-29 规则页一条一行**（`InboxScreens.RuleGroup`、`SettingRow` 加 `noteMaxLines`）：列表里只写名字和一行「听什么」，软规则进详情页看。以前小字是「硬条件 → 软规则」整段，三条就一屏。没装机看过。
-- **10-29 建监听的痕改短**（`intake/assistant/IntakeTrace`，DESIGN §12）：只写规则名和对得上几条，点进那条规则；「停了监听」也能点进去。没装机看过。
 
 10-15 到 10-29 别的几样（0.1.10 两种协议、权限页随时能点、诊断补到点那一刻、每晚对账修、`Series` 的完成 / 稍后、转进来的钱记收入、每天查更新、下载不重下、`minSdk` 33、拍一张、对话页改版和抬头伴随印、设置页重排）用户 10-29 说都验过了，挪进了 history。
 
 - **10-29 新功能弹窗**（`whatsnew` 模块，DESIGN §11.4；`ShellEntry` 加了 `Overlay`）：0.2.0 一页「通知管家」，动图 `assets/whatsnew/13/notice.webp`（1.8MB）用户加上、测过了。那句话 10-29 用户定了：「在对话里面说一句，比如「帮我监听菜鸟和短信的快递」。以前勾的要重新说。」
 
-**线上有、还没在真机上验过的**
-- **10-29 通知管家页「以前设置里勾的」**（`intake/legacy/OldSetup`、`StewardScreen.OldSetupGroup`，DESIGN §12.6）：读 0.1.x 的 DataStore `intake`、`relay`（只读），列记账听的 app、派活的 app 和名单，点一行垫成一句话进对话输入框。0.2.1 删（`docs/cleanup.md`）。JVM 测试（`OldSetupTest`）和 `assembleDebug` 过了，没装机看过：手机上 release 包有没有旧配置、列出来的 app 名对不对、点了输入框里是那句话。
-
 **还开着的事**
 - **通知管家**（DESIGN §12，工程文件根目录 `NOTICE_PLAN.md`）：0.2.0 发了（真短信、真微信没验）。还剩：
-  - DESIGN 跟着第 8 步改（发版时没改完）：§2.3 删「现在和以后」那句和「现状：按包名分给订阅者」那段，§6.1 花名册、§08、§10.2、§12 里还写着派活、订阅者、「权限与监听」的地方。
   - 第 10 节另外几条（同一件事连发几条、一次性规则谁停、附言给不给整理员、交不出时通知不通知）和 §12.8 没定。
 - **删壳**：0.2.1 删通知管家页「以前设置里勾的」那一组；0.2.2 删派活两个旧路由、`TidyWorker` 空壳、速记的 `activity-alias`。清单在 [docs/cleanup.md](docs/cleanup.md)。
 
@@ -88,7 +82,7 @@ release 签名靠根目录的 `keystore.properties` + `daodian-release.keystore`
   - 响没响、准不准：设置 → 提醒 →「响得准不准」（只有统计）/ 导出诊断里每一次的漂移 / `fire_log` 表
   - 语音：debug 包 `files/quick_trace.txt` 里 `voice ←` 那几行（对话页按住说话那一次开头是 `voice start (hold)`）。按住和上滑按理能用 adb 模拟（还没在这台机器上试过）：`adb shell input swipe x y x y 3000` 是原地按 3 秒，终点的 y 改小就是按着往上滑；按着的那几秒里另开一个 `screencap` 截文字框。说话得真人说
   - 库：`adb exec-out run-as com.abc.daodian.debug cat databases/<名字>.db > <名字>.db`（连 `-wal`、`-shm` 一起拷），再 `sqlite3`
-- **内测的人那边**（release 包，不能 run-as、没有 trace 文件）：让对方点设置 →「导出诊断」发过来。里面是版本、机型、体检、响铃模式 / 音量 / 免打扰 / 三个渠道此刻的样子 / 振动设置 / 全屏许可（「只震不响」「只响不震」「全屏没弹」先看这几行，再看「到点那一刻」：每次响时亮没亮屏、全屏页起没起来）、闹钟排期和最近 30 次响的漂移、派活收到的、各 app 抓了几条、整理 / 对账成没成、最近 5 次崩溃的堆栈（崩溃记在 `files/crash/`，`shell/diagnostics/CrashLog`）。只有状态和数，不带对话、标题、金额、通知原文；各模块的那一段在 `ShellEntry.diagnostics`，加的时候守这条。「agent」那段列花名册上的几个：归谁、什么时候醒、各自的提示词版本
+- **内测的人那边**（release 包，不能 run-as、没有 trace 文件）：让对方点设置 →「导出诊断」发过来。里面是版本、机型、体检、响铃模式 / 音量 / 免打扰 / 三个渠道此刻的样子 / 振动设置 / 全屏许可（「只震不响」「只响不震」「全屏没弹」先看这几行，再看「到点那一刻」：每次响时亮没亮屏、全屏页起没起来）、闹钟排期和最近 30 次响的漂移、各 app 抓了几条、整理 / 对账成没成、最近 5 次崩溃的堆栈（崩溃记在 `files/crash/`，`shell/diagnostics/CrashLog`）。只有状态和数，不带对话、标题、金额、通知原文；各模块的那一段在 `ShellEntry.diagnostics`，加的时候守这条。「agent」那段列花名册上的几个：归谁、什么时候醒、各自的提示词版本
 - **到点全屏页只能靠肉眼或录屏**：`AlarmActivity` 是 `exported=false`，`am start` 起不来；关屏后隔几十秒截图只拍到黑屏（用户已经关掉了）；`appops` 里那条 `USE_FULL_SCREEN_INTENT rejectTime` 也不能当证据。
 - `adb install -r` 在这台机器上**不一定重启 app 进程**，装完用 `ps` 看启动时间，不然跑的还是旧代码。
   10-09 那次覆盖装完进程干脆没起来，`dumpsys alarm` 里旧闹钟原样还在，库要等第一次打开 app（或闹钟响）才被新代码打开、才迁移 —— 验迁移要先打开一次再拉库。
@@ -100,7 +94,7 @@ release 签名靠根目录的 `keystore.properties` + `daodian-release.keystore`
   `DAODIAN_LIVE=1 DAODIAN_BASE_URL=… DAODIAN_KEY=… DAODIAN_MODEL=… ./gradlew :app:testDebugUnitTest --tests '*LiveGatewayTest*' -i`
 - 收到了没有：监听连没连着、谁在听哪些 app：设置 →「通知管家」（深链 `--es com.abc.daodian.launch.ROUTE intake`）；进来的每一条变成了什么：通知管家 →「收到的通知」（深链 `intake/notices`）；通知使用权在设置 →「权限」（深链 `permissions`）。派活的旧路由 `reminder/relay/<id>` 只是壳，跳规则页。
 - 记忆、后台整理：`chat.db` 的 `memories`、`tidy_runs`（成没成、看了哪几轮、摘要原文都在这张表）。闲下来那次整理是 WorkManager 10 分钟后跑，荣耀会拖。
-- 每次发给模型的是什么（提示词版本、垫没垫背景、摘要盖到哪一轮、原样带了哪几轮、折掉几样、带了几张图片、多少字）：debug 包 `files/context_trace.txt`（助手：对话页和速记），`adb shell "run-as com.abc.daodian.debug cat files/context_trace.txt"`；后台的几个 agent 各一份 `files/trace_<id>.txt`（`trace_organizer.txt`、`trace_relay.txt`、`trace_tidy.txt`）
+- 每次发给模型的是什么（提示词版本、垫没垫背景、摘要盖到哪一轮、原样带了哪几轮、折掉几样、带了几张图片、多少字）：debug 包 `files/context_trace.txt`（助手：对话页和速记），`adb shell "run-as com.abc.daodian.debug cat files/context_trace.txt"`；后台的几个 agent 各一份 `files/trace_<id>.txt`（`trace_organizer.txt`、`trace_steward.txt`、`trace_tidy.txt`）
 - 随话发的图片：发出去的在 debug 包 `files/chat_images/`（`adb shell "run-as com.abc.daodian.debug ls -la files/chat_images"`，文件名里带宽高），库里是 `chat_items.images`。模型收不收图不用装机也能先探一下：上面那条打真网关的命令把 `--tests` 换成 `'*LiveGatewayTest*picture*'`，它现画一张写着 4729 的图发过去
 - 整理员每批喂了几样（通知、类别、商户记忆、记忆、最近流水各几条，只数个数）：debug 包 `files/organize_trace.txt`，同上的读法
 - adb 往 `run-as … sh -c` 里传命令时，整条要再包一层双引号（`adb shell "run-as 包名 sh -c '…'"`），不然引号在 adb 这层被拆开，`rm` 之类的只拿到第一个词
