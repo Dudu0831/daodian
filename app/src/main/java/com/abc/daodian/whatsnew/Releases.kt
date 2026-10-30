@@ -17,14 +17,13 @@ class Release(val versionCode: Int, val versionName: String, val pages: List<Pag
 object Releases {
 
     val ALL: List<Release> = listOf(
-        // 这句还是设计稿上的，发 0.2.0 前再定
         Release(
             versionCode = 13,
             versionName = "0.2.0",
             pages = listOf(
                 Page(
                     title = "通知管家",
-                    line = "升级后先什么都不听，在对话里说一句要听什么就行。",
+                    line = "在对话里面说一句，比如「帮我监听菜鸟和短信的快递」。以前勾的要重新说。",
                     media = "whatsnew/13/notice.webp"
                 )
             )
