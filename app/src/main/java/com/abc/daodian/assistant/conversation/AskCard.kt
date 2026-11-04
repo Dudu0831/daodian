@@ -5,14 +5,12 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
@@ -29,9 +27,11 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,8 +40,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
@@ -57,6 +60,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -79,15 +83,19 @@ import com.abc.daodian.shared.theme.Motion
 import com.abc.daodian.shared.ui.CheckIcon
 import com.abc.daodian.shared.ui.InkChip
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.dropWhile
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /*
  * 问卡：对话里唯一的卡片。模型拿不准时先猜好几个答案，你点一下；都不对就点「其他…」自己写，
  * 或者什么都不点、直接在输入框里说一句。见 DESIGN.md §6.6。
  *
- * 「其他…」原地变成一行输入框（[OtherField]），键盘跟着弹；写完点对勾落成一颗实心胶囊，点它能改。
+ * 等你答时钉在输入条上面，不进对话列表。多题的卡一次看一题，顶上一排页签（金额），点完自动跳到下一题没答的。
  *
- * 答完后整张卡片向上收起化入回合抬头「· 到点」右侧的伴随印，「答」印在伴随印上盖下 —— 正文区不留大块表单。
+ * 「其他…」原地变成一行输入框（[OtherField]），键盘跟着弹，底下的输入条让开；写完点对勾落成一颗实心胶囊，点它能改。
+ *
+ * 答完后卡片收起，「答」印盖在回合抬头「· 到点」右侧的伴随印上。
  */
 
 /** 问卡的一题答成了什么，收起后细目里写它；null = 先放着 */
@@ -151,7 +159,24 @@ private fun Asking(
     val live = block.state == AskState.READY
     val headed = request.headed()
     // 这张卡一出来就已经有的题（一次性请求）一起错峰升起；流式时每收全一题升一题
-    val initialRows = remember { if (block.state == AskState.DRAFT) 0 else request.questions.size }
+    val paged = headed == null && request.questions.size > 1
+    var at by rememberSaveable(block.callId) { mutableIntStateOf(0) }
+    val current = at.coerceAtMost(request.questions.lastIndex).coerceAtLeast(0)
+    // 这一题刚点完：停一下让你看清点的是哪个，跳到下一题没答的。改答案、取消不跳
+    val answered = block.picks.count { it != null }
+    var lastAnswered by remember { mutableIntStateOf(answered) }
+    LaunchedEffect(answered) {
+        val advance = answered > lastAnswered
+        lastAnswered = answered
+        if (!advance || block.editing != null) return@LaunchedEffect
+        delay(PAGE_HOLD_MS)
+        val total = request.questions.size
+        (1 until total).map { (current + it) % total }
+            .firstOrNull { block.picks.getOrNull(it) == null }
+            ?.let { at = it }
+    }
+    // 页签切走时这一题不在界面上了，「其他…」的草稿要留着
+    val drafts = rememberSaveableStateHolder()
 
     Column {
         if (headed != null) {
@@ -164,6 +189,25 @@ private fun Asking(
                 draftKey = block.callId,
                 onPick = { onPick(0, it) }, onOther = { onOther(0) }, onTyped = { onTyped(0, it) }
             )
+        } else if (paged) {
+            AskTabs(request, block.picks, current) { i ->
+                block.editing?.takeIf { it != i }?.let(onOther)
+                at = i
+            }
+            val i = current
+            drafts.SaveableStateProvider("${block.callId}#$i") {
+                Question(
+                    q = request.questions[i],
+                    pick = block.picks.getOrNull(i),
+                    editing = block.editing == i,
+                    live = live,
+                    draftKey = "${block.callId}#$i",
+                    paged = true,
+                    onPick = { onPick(i, it) },
+                    onOther = { onOther(i) },
+                    onTyped = { onTyped(i, it) }
+                )
+            }
         } else {
             Row(
                 Modifier.heightIn(min = 28.dp),
@@ -172,37 +216,28 @@ private fun Asking(
             ) {
                 AskGlyph("问", colors.accent)
                 Text(
-                    request.label.ifBlank { if (request.single) "问一下" else "${request.questions.size} 题" },
+                    request.label.ifBlank { "问一下" },
                     style = DaodianType.caption,
                     color = colors.ink2
                 )
             }
-            request.questions.forEachIndexed { i, q ->
-                key(i) {
-                    val appear = remember { MutableTransitionState(false).apply { targetState = true } }
-                    val delayMs = if (i < initialRows) i * 60 else 0
-                    AnimatedVisibility(
-                        visibleState = appear,
-                        enter = fadeIn(Motion.settle(delay = delayMs)) + slideInVertically(Motion.settle(delay = delayMs)) { it / 6 }
-                    ) {
-                        Question(
-                            q = q,
-                            pick = block.picks.getOrNull(i),
-                            editing = block.editing == i,
-                            live = live,
-                            draftKey = "${block.callId}#$i",
-                            onPick = { onPick(i, it) },
-                            onOther = { onOther(i) },
-                            onTyped = { onTyped(i, it) }
-                        )
-                    }
-                }
+            request.questions.firstOrNull()?.let { q ->
+                Question(
+                    q = q,
+                    pick = block.picks.firstOrNull(),
+                    editing = block.editing == 0,
+                    live = live,
+                    draftKey = "${block.callId}#0",
+                    onPick = { onPick(0, it) },
+                    onOther = { onOther(0) },
+                    onTyped = { onTyped(0, it) }
+                )
             }
         }
 
-        // 卡脚只有多题的卡才有：一题的点了就算答
+        // 卡脚只有多题的卡才有：一题的点了就算答。写「其他…」时收起，键盘上面只留这一题
         AnimatedVisibility(
-            visible = live && !request.single,
+            visible = live && !request.single && block.editing == null,
             enter = expandVertically(Motion.settle()) + fadeIn(Motion.flow()),
             exit = shrinkVertically(Motion.flow()) + fadeOut(Motion.exit())
         ) {
@@ -231,6 +266,49 @@ private fun Asking(
         }
     }
 }
+
+/** 点完一题到跳下一题之间停多久：看得清点的是哪个，又不至于干等 */
+private const val PAGE_HOLD_MS = 260L
+
+/** 多题卡的卡头：「问」字 + 一排页签。问账的写金额，别的写第几题；答过的带小勾 */
+@Composable
+private fun AskTabs(request: AskRequest, picks: List<Pick?>, current: Int, onSelect: (Int) -> Unit) {
+    val colors = DaodianColors.current
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AskGlyph("问", colors.accent, Modifier.padding(end = 6.dp))
+            request.questions.forEachIndexed { i, q ->
+                val on = i == current
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .clickable(role = Role.Tab, onClick = { onSelect(i) }),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Row(
+                        Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(
+                            q.amount?.removeSuffix(".00") ?: "第 ${i + 1} 题",
+                            style = TabText,
+                            color = if (on) colors.ink else colors.muted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (picks.getOrNull(i) != null) CheckIcon(size = 10.dp, tint = colors.accent)
+                    }
+                    Box(Modifier.fillMaxWidth().height(2.dp).background(if (on) colors.accent else Color.Transparent))
+                }
+            }
+        }
+        HorizontalDivider(color = colors.ruleSoft)
+    }
+}
+
+private val TabText = DaodianType.rowTitle.copy(fontSize = 14.sp)
 
 /** 卡头问句的字：宋体 16，和多题卡里没有金额的那种问句一样大 */
 private val HeadPrompt = DaodianType.cardTitle.copy(fontSize = 16.sp, lineHeight = 24.sp)
@@ -287,6 +365,7 @@ private fun Question(
     editing: Boolean,
     live: Boolean,
     draftKey: String,
+    paged: Boolean = false,
     onPick: (Int) -> Unit,
     onOther: () -> Unit,
     onTyped: (String) -> Unit
@@ -295,7 +374,7 @@ private fun Question(
     // 参数还在流：猜测先半透明，点不了 —— 可能还在变
     val ready by animateFloatAsState(if (live) 1f else 0.55f, Motion.flow(), label = "askReady")
     Column {
-        HorizontalDivider(color = colors.ruleSoft)
+        if (!paged) HorizontalDivider(color = colors.ruleSoft)
         Column(Modifier.padding(top = 9.dp, bottom = 10.dp)) {
             // 问卡的类在 :runtime 里，跨模块的属性不能 smart cast，先取出来
             val amount = q.amount
@@ -303,7 +382,7 @@ private fun Question(
             val prompt = q.prompt
             val hint = q.hint
             val ref = q.ref
-            if (amount != null) {
+            if (amount != null && !paged) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(amount, style = AmountText, color = colors.ink, modifier = Modifier.alignByBaseline())
                     Text(
@@ -365,6 +444,7 @@ private fun FlowRowScope.OtherSlot(
                 // 什么都没写就点对勾：收起，当没点过「其他…」
                 if (t.isEmpty()) onOther() else onTyped(t)
             },
+            onClose = onOther,
             modifier = Modifier.fillMaxWidth()
         )
         typed != null -> ChipLabel(typed, selected = true, dimmed = false, enabled = live, height = height, onClick = onOther)
@@ -372,15 +452,25 @@ private fun FlowRowScope.OtherSlot(
     }
 }
 
-/** 「其他…」展开成的那行：朱砂边、纸色底，一出来就拿焦点、弹键盘；回车或右边的对勾都是写好了 */
+/**
+ * 「其他…」展开成的那行：朱砂边、纸色底，一出来就拿焦点、弹键盘；回车或右边的对勾都是写好了。
+ * 系统返回收了键盘 = 不写了（[onClose]），草稿留着 —— 不然输入条让开了就回不来
+ */
 @Composable
-private fun OtherField(text: String, onText: (String) -> Unit, height: Dp, onDone: () -> Unit, modifier: Modifier = Modifier) {
+private fun OtherField(text: String, onText: (String) -> Unit, height: Dp, onDone: () -> Unit, onClose: () -> Unit, modifier: Modifier = Modifier) {
     val colors = DaodianColors.current
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) {
         focus.requestFocus()
         keyboard?.show()
+    }
+    val ime = WindowInsets.ime
+    val density = LocalDensity.current
+    val close by rememberUpdatedState(onClose)
+    LaunchedEffect(Unit) {
+        snapshotFlow { ime.getBottom(density) > 0 }.dropWhile { !it }.first { !it }
+        close()
     }
     val shape = RoundedCornerShape(height / 2)
     Row(

@@ -182,11 +182,6 @@ interface TurnActions {
     fun toggleReasoning() {}
     /** 点了痕：去它指向的那条（路由） */
     fun openTrace(route: String) {}
-    fun pick(callId: String, question: Int, option: Int) {}
-    fun other(callId: String, question: Int) {}
-    /** 问卡某一题「其他…」写好了 */
-    fun typed(callId: String, question: Int, text: String) {}
-    fun submit(callId: String) {}
     fun manualAdd() {}
     fun retry() {}
     /** 带图的那句被网关退回来了，去模型配置页换一个看得了图的 */
@@ -199,8 +194,8 @@ interface TurnActions {
  * 款式三 · 抬头伴随印：
  * - 工具写痕（[TurnBlock.Trace]）与答完的问卡（[TurnBlock.Ask] 且 `sealed`）统一收拢进抬头右侧的 [TurnImprintPill]，
  *   点开胶囊则在抬头下方展开细目抽屉（[TurnImprintDrawer]）。
- * - 正文区只保留流淌的文字（[TurnBlock.Prose]）与等待你作答的问卡（[TurnBlock.Ask] 且 `!sealed`）。
- * - 问卡答完那一刻从正文区向上收起，同时抬头伴随印盖下「答」印。
+ * - 正文区只保留流淌的文字（[TurnBlock.Prose]）。等你答的问卡不在回合里，钉在输入条上面（[AskCard]、[ConversationScreen]）。
+ * - 问卡答完那一刻从输入条上面收起，同时抬头伴随印盖下「答」印。
  */
 @Composable
 fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) {
@@ -304,23 +299,7 @@ fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) 
                                 }
                             }
                         }
-                        is TurnBlock.Ask -> {
-                            val active = !b.state.sealed
-                            val gap = gapBefore(prevBody, b)
-                            if (active) prevBody = b
-                            key(b.key) {
-                                Appear(animate, visible = active, enter = CardEnter, gap = gap) {
-                                    AskCard(
-                                        b,
-                                        onPick = { q, o -> actions.pick(b.callId, q, o) },
-                                        onOther = { q -> actions.other(b.callId, q) },
-                                        onTyped = { q, t -> actions.typed(b.callId, q, t) },
-                                        onSubmit = { actions.submit(b.callId) }
-                                    )
-                                }
-                            }
-                        }
-                        is TurnBlock.Trace, is TurnBlock.Said -> Unit
+                        is TurnBlock.Ask, is TurnBlock.Trace, is TurnBlock.Said -> Unit
                     }
                 }
 
@@ -377,7 +356,6 @@ private fun ColumnScope.Appear(
  */
 private fun gapBefore(prev: TurnBlock?, b: TurnBlock): Dp = when {
     prev == null -> 10.dp
-    prev is TurnBlock.Ask || b is TurnBlock.Ask -> 12.dp
     else -> 14.dp
 }
 
@@ -387,9 +365,6 @@ private val RevealExit: ExitTransition =
     shrinkVertically(Motion.flow(), shrinkTowards = Alignment.Top) + fadeOut(Motion.exit())
 private val BarsExit: ExitTransition =
     shrinkVertically(Motion.exit(), shrinkTowards = Alignment.Top) + fadeOut(Motion.exit())
-private val CardEnter: EnterTransition =
-    expandVertically(Motion.settle(Motion.LONG), expandFrom = Alignment.Top) + fadeIn(Motion.flow())
-
 /** 回合里的一块：块与块的间距长在块自己身上，收起时一起收，不会留一截空白 */
 @Composable
 private fun ColumnScope.Reveal(
