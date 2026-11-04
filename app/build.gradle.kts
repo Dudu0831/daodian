@@ -95,8 +95,16 @@ android {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
     androidResources {
-        // 识别模型 26MB，native 那边整块读进内存；压着放每次打开都要先解压一遍
+        // 识别模型 239MB，native 那边整块读进内存；压着放每次打开都要先解压一遍
         noCompress += "onnx"
+    }
+}
+
+// 语音模型进不了 git（239MB，GitHub 单文件上限 100MB），缺了就别打出一个没有语音的包
+val asrModel = file("src/main/assets/asr/model.int8.onnx")
+tasks.named("preBuild") {
+    doFirst {
+        check(asrModel.exists()) { "缺语音模型 ${asrModel.path}：先跑 ./tools/fetch_asr_model.sh" }
     }
 }
 
@@ -132,7 +140,7 @@ dependencies {
     // 各模块的工具读写参数 JSON。runtime 也用它，版本跟着 openai-java 走（见 libs.versions.toml）
     implementation(libs.jackson.databind)
 
-    // 桌面速记的本地语音识别，见 DESIGN.md 决策 8.3。官方只发 GitHub Releases 的 AAR，没有 Maven 坐标。
+    // 本地语音识别（速记和对话页），见 DESIGN.md 决策 8.3。官方只发 GitHub Releases 的 AAR，没有 Maven 坐标。
     // 用的是 onnxruntime 静态链接那版：arm64 只有一个 24MB 的 .so，不和别的 onnxruntime 撞
     implementation(files("libs/sherpa-onnx-static-link-onnxruntime-1.13.8.aar"))
 

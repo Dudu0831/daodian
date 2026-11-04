@@ -27,3 +27,6 @@ __pycache__/
 /dist/
 /.kotlin/
 /scripts/
+
+# 语音模型 239MB 进不了 git（GitHub 单文件上限 100MB），用 tools/fetch_asr_model.sh 拉
+/app/src/main/assets/asr/
