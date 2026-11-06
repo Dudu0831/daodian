@@ -94,6 +94,14 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
+    // 只有一个几 KB 的小库：语音模型放掉后让原生堆把空页还给系统（src/main/cpp/heap_purge.c）。
+    // 要装 NDK 27.0.12077973 和 CMake 3.22.1（sdkmanager），AGP 8.7 默认就找这两个版本
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
     androidResources {
         // 识别模型 239MB，native 那边整块读进内存；压着放每次打开都要先解压一遍
         noCompress += "onnx"

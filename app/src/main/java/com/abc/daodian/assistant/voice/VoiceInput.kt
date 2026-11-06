@@ -136,6 +136,8 @@ class VoiceInput(private val context: Context) {
         // 录音线程可能还在解最后一段，拆早了 native 那边会踩空指针 —— 拿到 session 锁再拆
         CoroutineScope(Dispatchers.Default).launch {
             session.withLock { loading.await().getOrNull()?.release() }
+            // 模型的几百 MB 释放了，分配器还攥着空页不还；马上还给系统，别等它几分钟后自己收
+            QuickTrace.log(context, "voice heap purged=${NativeHeap.purge()}")
         }
     }
 

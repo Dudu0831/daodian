@@ -15,7 +15,7 @@
 **main 上有、还没在真机上验过的**
 - **10-26 `ledger.db` v1 → v2**（通知管家第 2 步，`raw_notification` 加可空列 `noticeId`，auto migration）：下一次发版就带上去。要验：覆盖装 debug 包、打开一次记账页，拉库看 `PRAGMA user_version` 是 2、`noticeId` 这一列在、旧原文和流水都在。
 
-- **11-04 语音换 SenseVoice + VAD 假流式**（[VOICE_PLAN.md](VOICE_PLAN.md) 第 1 步，DESIGN §8.3 还没改）：认中英日韩粤、带标点；用户在 debug 包上按住说试过，「跟得上语速」。速记没单独验。模型 239MB 不进 git，`tools/fetch_asr_model.sh` 拉；debug 包每次说话留 `files/voice_last.wav`、`quick_trace.txt` 里 `voice seg` 记每一段。第 2 步（11-05）：退后台、换回打字、说话档闲 60 秒放掉模型，`quick_trace` 里 `voice model loaded / released` 时机都对上了；放掉后 RSS 先停在 270–390MB（原生堆留着约 100MB 已释放的页），几分钟内自己掉到 60MB 上下，不用管。
+- **11-04 语音换 SenseVoice + VAD 假流式**（[VOICE_PLAN.md](VOICE_PLAN.md) 第 1 步，DESIGN §8.3 还没改）：认中英日韩粤、带标点；用户在 debug 包上按住说试过，「跟得上语速」。速记没单独验。模型 239MB 不进 git，`tools/fetch_asr_model.sh` 拉；debug 包每次说话留 `files/voice_last.wav`、`quick_trace.txt` 里 `voice seg` 记每一段。第 2 步（11-05）：退后台、换回打字、说话档闲 60 秒放掉模型，`quick_trace` 里 `voice model loaded / released` 时机都对上了；放掉后原生堆会攥着约 100MB 空页，荣耀几分钟后才收；11-05 加了 `heap_purge.c`（`mallopt(M_PURGE_ALL)`），放掉后 1–2 秒内从 600MB 掉到 170MB 上下，`quick_trace` 里 `voice heap purged=true`。
 
 - **10-31 问卡钉在输入条上面**（DESIGN §6.6；本地 release 包 11-01 装上，用户上手试过，细项没逐条验）：等你答的卡不进对话列表；多题改金额页签、点完跳下一笔；写「其他…」时输入条让开、卡脚收起，系统返回收键盘算不写了。下一次发版带上去。
 
@@ -52,6 +52,7 @@
 ```bash
 export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 ./tools/fetch_asr_model.sh     # 新克隆 / 换机器先跑一次：语音模型 239MB 不进 git
+# 还要 NDK 27.0.12077973 + CMake 3.22.1（sdkmanager 装，只编一个 4KB 的小库）；第一次构建 CMake 配置偶尔报错，重跑就过
 ./gradlew :app:assembleDebug   # 打包（JDK 21 在 gradle.properties 里钉死，换机器要改那行）
 ./gradlew :app:installDebug    # 装机；MagicOS 会弹安装确认框，装不上重试一次通常就过
 ```
