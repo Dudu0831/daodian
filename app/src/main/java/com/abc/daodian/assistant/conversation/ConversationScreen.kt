@@ -53,6 +53,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -146,7 +147,8 @@ fun ConversationScreen(
     var imeHoldUntil by remember { mutableLongStateOf(0L) }
 
     // 说话：和桌面速记同一套本地识别（VoiceInput，见 DESIGN.md 决策 8.3），收法不一样 ——
-    // 点最左边的麦克风，输入框换成「按住说话」；按着说，松手这句直接发，按着上滑是取消（§8.3「对话页：按住说话」）
+    // 点最右那一格的麦克风，输入框换成「按住说话」；按着说，原地松手这句直接发，
+    // 拖到左边「取消」、拖到右边「转文字」看着字发（§8.3「对话页：按住说话」）
     val context = LocalContext.current
     val focus = LocalFocusManager.current
     val voice = remember { VoiceInput(context.applicationContext) }
@@ -158,6 +160,11 @@ fun ConversationScreen(
     // 这一句不要了：文字框淡掉的那几帧照样画成虚线、划掉的字，别让人以为发出去了
     var dropped by remember { mutableStateOf(false) }
     var heard by remember { mutableStateOf("") }
+    // heard 里前多少个字锁定了（拖到右边时那截深色）
+    var heardLocked by remember { mutableIntStateOf(0) }
+    // 手指最后在哪一格：松手后不清，那一层按松手时的样子淡掉
+    var holdZone by remember { mutableStateOf(VoiceHold.Holding) }
+    var heldMillis by remember { mutableLongStateOf(0L) }
     var level by remember { mutableFloatStateOf(0f) }
     var holdStartedAt by remember { mutableLongStateOf(0L) }
     // 没听清 / 用不了：打字那一档顶替占位字，说话那一档写在输入条上面、过几秒自己收。没听清不是出错，不写红字
@@ -197,6 +204,13 @@ fun ConversationScreen(
         if (voiceMode && voiceNote != null) {
             delay(VOICE_NOTE_MILLIS)
             voiceNote = null
+        }
+    }
+    // 按着的时候中间那条波形越来越长：十分之一秒走一格就够
+    LaunchedEffect(hold != VoiceHold.Idle) {
+        while (hold != VoiceHold.Idle) {
+            heldMillis = SystemClock.uptimeMillis() - holdStartedAt
+            delay(100)
         }
     }
     // 松手之后一般几百毫秒就解完。迟迟没回来（识别那边卡住了）就别让文字框一直挂着、也按不了下一句
@@ -338,18 +352,26 @@ fun ConversationScreen(
         }
         voiceNote = null
         heard = ""
+        heardLocked = 0
         dropped = false
         hold = VoiceHold.Holding
+        holdZone = VoiceHold.Holding
+        heldMillis = 0L
         holdStartedAt = SystemClock.uptimeMillis()
         voice.start(hold = true) { event ->
             when (event) {
                 VoiceInput.Event.Ready -> Unit
-                is VoiceInput.Event.Partial -> heard = event.text
+                is VoiceInput.Event.Partial -> {
+                    heard = event.text
+                    heardLocked = event.locked
+                }
                 is VoiceInput.Event.Level -> level = event.value
-                // 松手之后解完了（或者按满了时长）：这句直接发，不落进输入框
+                // 松手之后解完了（或者按满了时长）：这句直接发，不落进输入框。
+                // 原地松手和拖到右边松手现在都发字；语音条是下一步（VOICE_PLAN 第 4 步 b）
                 is VoiceInput.Event.Final -> {
                     val said = event.text.ifBlank { heard }
                     heard = said
+                    heardLocked = said.length
                     endHold()
                     if (said.isBlank()) voiceNote = "没听清，再说一次？" else send(said, typed = false)
                 }
@@ -368,10 +390,10 @@ fun ConversationScreen(
         }
     }
 
-    fun releaseHold(cancelled: Boolean) {
+    fun releaseHold(zone: VoiceHold) {
         if (hold == VoiceHold.Idle) return
         when {
-            cancelled -> cancelHold()
+            zone == VoiceHold.Cancel -> cancelHold()
             // 点了一下就抬手：不是要发空话，是不知道得按住
             SystemClock.uptimeMillis() - holdStartedAt < MIN_HOLD_MILLIS -> {
                 cancelHold()
@@ -513,9 +535,12 @@ fun ConversationScreen(
             ) {
                 VoiceHoldOverlay(
                     heard = heard,
+                    locked = heardLocked,
                     level = level,
-                    armed = hold == VoiceHold.Armed || dropped,
+                    zone = holdZone,
+                    dropped = dropped,
                     pressed = hold != VoiceHold.Idle,
+                    heldMillis = heldMillis,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -599,7 +624,12 @@ fun ConversationScreen(
                 },
                 hold = hold,
                 onHoldStart = ::beginHold,
-                onHoldArm = { armed -> if (hold != VoiceHold.Idle) hold = if (armed) VoiceHold.Armed else VoiceHold.Holding },
+                onHoldZone = { zone ->
+                    if (hold != VoiceHold.Idle) {
+                        hold = zone
+                        holdZone = zone
+                    }
+                },
                 onHoldEnd = ::releaseHold,
                 onStop = { vm.stopStreaming() },
                 images = pendingImages,

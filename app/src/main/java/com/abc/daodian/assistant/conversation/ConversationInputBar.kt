@@ -41,6 +41,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -54,29 +57,35 @@ import com.abc.daodian.shared.ui.PlusIcon
 import com.abc.daodian.shared.ui.SendIcon
 import com.abc.daodian.shared.ui.StopIcon
 
-/** 「按住说话」那一块现在是哪一档 */
+/** 「按住说话」那一块现在是哪一档：手指在中间、拖到左边「取消」、还是拖到右边「转文字」 */
 enum class VoiceHold {
     Idle,
-    /** 按着，松手就发 */
+    /** 按着，原地松手就发 */
     Holding,
-    /** 按着滑上去了，松手就不要了 */
-    Armed
+    /** 拖到左边了，松手就不要了 */
+    Cancel,
+    /** 拖到右边了，中间出字，松手发字 */
+    Text
 }
 
-/** 按着往上滑过这么远算「要取消」；滑回来到这个数以内才算反悔 —— 两个数错开，手抖不会来回跳 */
-private val ARM_DISTANCE = 72.dp
-private val DISARM_DISTANCE = 56.dp
+/**
+ * 落点（原型 https://claude.ai/artifact/VtJp6zsX1jJJSarSxQwY3U）：手指过了屏幕左右三成算到了；
+ * 按下的地方本来就靠边的，还得再往那边挪 [ZONE_MIN_TRAVEL] 才算，不然一按下就在「取消」里。
+ * 回到离那条线 [ZONE_BACK] 以内的中间才算回来 —— 进出两个数错开，手抖不会来回跳
+ */
+private const val ZONE_EDGE = 0.3f
+private val ZONE_MIN_TRAVEL = 40.dp
+private val ZONE_BACK = 20.dp
 
 /**
- * 底部那根横条。解析中整条压暗，发送键淡成空心圈里一个墨块 —— 那不只是禁用态，是「停」，
- * 按下去掐断当前这条流（见 DESIGN.md §6.2）。字在一路往外冒的时候，
- * 用户必须能喊停，否则只能干等。
+ * 底部那根横条。解析中整条压暗，最右那一格成了空心圈里一个墨块 —— 那不只是禁用态，是「停」，
+ * 按下去掐断当前这条流（见 DESIGN.md §6.2）。字在一路往外冒的时候，用户必须能喊停，否则只能干等。
  *
- * 最左边那个键在打字和说话之间换：点一下麦克风，中间的输入框换成「按住说话」，图标变成键盘，
- * 再点一下换回来（见 DESIGN.md §8.3「对话页：按住说话」）。按住时屏幕中间那个文字框不归这里画（[VoiceHoldOverlay]）。
- *
- * 最右那一格：没东西可发时是 ＋（加图片），框里一有字或有图就换成发送，回合在跑时是「停」。
- * 选好的图排在输入框上面一行（[PendingImages]）。见 DESIGN.md §6.10
+ * 最左是 ＋（加图片），选好的图排在输入框上面一行（[PendingImages]，DESIGN.md §6.10）。
+ * 最右那一格轮着换（11-04 定）：空着时是麦克风 / 键盘，点一下在打字和「按住说话」之间换；
+ * 有东西可发换成实心的发送，回合在跑时是「停」。框里有字时没有麦克风 —— 先发掉或清空才能换档；
+ * 说话那一档带着图时键盘被发送顶掉，得先发图或叉掉。
+ * 按住时屏幕中间那一层不归这里画（[VoiceHoldOverlay]，DESIGN.md §8.3）。
  */
 @Composable
 fun ConversationInputBar(
@@ -89,12 +98,14 @@ fun ConversationInputBar(
     hold: VoiceHold = VoiceHold.Idle,
     /** 手指按下去了。没权限之类开不了的，调用方自己不接就行，后面两个回调照样会来 */
     onHoldStart: () -> Unit = {},
-    onHoldArm: (armed: Boolean) -> Unit = {},
-    onHoldEnd: (cancelled: Boolean) -> Unit = {},
+    /** 手指换了落点（[VoiceHold.Holding] / [VoiceHold.Cancel] / [VoiceHold.Text]） */
+    onHoldZone: (VoiceHold) -> Unit = {},
+    /** 松手了，[zone] 是松手时的落点；手势被掐了（页面切走）算 [VoiceHold.Cancel] */
+    onHoldEnd: (zone: VoiceHold) -> Unit = {},
     onStop: (() -> Unit)? = null,
     /** 选好、还没发的图 */
     images: List<String> = emptyList(),
-    /** 点了 ＋（最右那一格的，或者缩略图后面虚线那一格） */
+    /** 点了 ＋（最左那一格的，或者缩略图后面虚线那一格） */
     onAttach: () -> Unit = {},
     onRemoveImage: (String) -> Unit = {},
     /** 这会儿能不能加图：回合在跑、问卡等着你答的时候不能，＋ 压暗 */
@@ -104,8 +115,8 @@ fun ConversationInputBar(
 ) {
     val colors = DaodianColors.current
     val hasImages = images.isNotEmpty()
-    // 有图就能发，不用非得配一句话
-    val canSend = (text.isNotBlank() || hasImages) && enabled
+    // 说话那一档只看图：框里的字是换档前的，这会儿看不见（一般也没有：有字换不了档）
+    val canSend = ((!voiceMode && text.isNotBlank()) || hasImages) && enabled
     val shape = RoundedCornerShape(26.dp)
     val dim by animateFloatAsState(if (enabled) 1f else 0.55f, tween(Motion.SHORT), label = "inputDim")
     val stopping = !enabled && onStop != null
@@ -135,28 +146,23 @@ fun ConversationInputBar(
             )
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            // 按着的时候不让换档：手指一偏点到它，正说着的话就没了
-            val toggleTint by animateColorAsState(
-                if (hold == VoiceHold.Idle) colors.ink2 else colors.hint, tween(Motion.SHORT), label = "toggleTint"
-            )
-            // 不要按下去那块灰：默认的水波是个方的，罩在这颗小图标上像个灰框。图标自己会换，那就是回应
-            val toggleSource = remember { MutableInteractionSource() }
+            // 最左的 ＋：一根细线图标，不要按下去那块灰 —— 默认的水波是个方的，罩在这颗小图标上像个灰框。
+            // 按着说话的时候不让点：手指一偏点到它，正说着的话就没了
+            val canAttach = attachEnabled && hold == VoiceHold.Idle
             Box(
                 Modifier
                     .size(36.dp)
                     .graphicsLayer { alpha = dim }
                     .clickable(
-                        interactionSource = toggleSource,
+                        interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        enabled = enabled && hold == VoiceHold.Idle,
-                        onClick = onToggleVoice
+                        enabled = canAttach,
+                        onClick = onAttach
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Crossfade(voiceMode, animationSpec = tween(Motion.SHORT), label = "voiceToggle") { voice ->
-                    if (voice) KeyboardIcon(tint = toggleTint)
-                    else MicIcon(size = 20.dp, tint = toggleTint, strokeWidth = 1.2.dp)
-                }
+                val tint by animateColorAsState(if (canAttach) colors.ink2 else colors.hint, tween(Motion.SHORT), label = "plusTint")
+                PlusIcon(size = 19.dp, tint = tint, strokeWidth = 1.2.dp)
             }
 
             if (voiceMode) {
@@ -164,7 +170,7 @@ fun ConversationInputBar(
                     hold = hold,
                     enabled = enabled,
                     onStart = onHoldStart,
-                    onArm = onHoldArm,
+                    onZone = onHoldZone,
                     onEnd = onHoldEnd,
                     modifier = Modifier.weight(1f).padding(start = 5.dp).graphicsLayer { alpha = dim }
                 )
@@ -191,19 +197,20 @@ fun ConversationInputBar(
                 }
             }
 
-            // 最右那一格（设计稿「甲」）：没东西可发时是 ＋，一有字或有图就换成实心的发送，回合在跑时是空心圈里的「停」。
-            // 实心只属于发送，空心圈只属于「停」，＋ 和左边的麦克风一样只是一根细线图标。
-            // 说话那一档松手就发，没有发送键；只有带着图、又不想说话的时候它才出来。
+            // 最右那一格：实心只属于发送，空心圈只属于「停」，麦克风 / 键盘和左边的 ＋ 一样只是一根细线图标。
             // 压暗只加在文字和左边那个键上，不加在整条 Row 上 —— alpha 会 clamp 到 1，
             // 套在父层的话「停」再怎么提也提不回来，看着就像个禁用的按钮。
             val key = when {
                 stopping -> SendKey.Stop
                 !enabled -> SendKey.None
-                canSend && (!voiceMode || hasImages) -> SendKey.Send
-                else -> SendKey.Attach
+                canSend -> SendKey.Send
+                // 框里有字（只是空格之类发不出去的）也不给换档：先清空
+                !voiceMode && text.isNotEmpty() -> SendKey.None
+                voiceMode -> SendKey.Keyboard
+                else -> SendKey.Mic
             }
-            // 按着说话的时候不让点：手指一偏点到它，正说着的话就没了
-            val canAttach = attachEnabled && hold == VoiceHold.Idle
+            // 按着说话的时候不让换档：手指一偏点到它，正说着的话就没了
+            val canToggle = hold == VoiceHold.Idle
             if (voiceMode) Spacer(Modifier.width(6.dp))
             val fill by animateColorAsState(
                 if (key == SendKey.Send) colors.solid else colors.solid.copy(alpha = 0f), tween(Motion.SHORT), label = "sendFill"
@@ -211,11 +218,12 @@ fun ConversationInputBar(
             val ring by animateColorAsState(
                 when (key) {
                     SendKey.Send -> colors.solid
-                    SendKey.Attach -> colors.rule2.copy(alpha = 0f)
-                    else -> colors.rule2
+                    SendKey.Stop -> colors.rule2
+                    else -> colors.rule2.copy(alpha = 0f)
                 },
                 tween(Motion.SHORT), label = "sendRing"
             )
+            val line = key == SendKey.Mic || key == SendKey.Keyboard
             Box(
                 Modifier
                     .size(36.dp)
@@ -223,28 +231,30 @@ fun ConversationInputBar(
                     .border(1.5.dp, ring, CircleShape)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
-                        // ＋ 没有底，默认那块方的水波罩上去像个灰框（和左边那个键同一个道理）
-                        indication = if (key == SendKey.Attach) null else LocalIndication.current,
+                        // 细线图标没有底，默认那块方的水波罩上去像个灰框；图标自己会换，那就是回应
+                        indication = if (line) null else LocalIndication.current,
                         enabled = when (key) {
                             SendKey.Send, SendKey.Stop -> true
-                            SendKey.Attach -> canAttach
+                            SendKey.Mic, SendKey.Keyboard -> canToggle
                             SendKey.None -> false
                         }
                     ) {
                         when (key) {
                             SendKey.Send -> onSend()
                             SendKey.Stop -> onStop?.invoke()
-                            SendKey.Attach -> onAttach()
+                            SendKey.Mic, SendKey.Keyboard -> onToggleVoice()
                             SendKey.None -> Unit
                         }
                     },
                 contentAlignment = Alignment.Center
             ) {
+                val lineTint by animateColorAsState(if (canToggle) colors.ink2 else colors.hint, tween(Motion.SHORT), label = "toggleTint")
                 Crossfade(targetState = key, animationSpec = tween(Motion.SHORT), label = "sendKey") { k ->
                     when (k) {
                         SendKey.Send -> SendIcon(tint = colors.onSolid)
                         SendKey.Stop -> StopIcon(tint = colors.ink2)
-                        SendKey.Attach -> PlusIcon(size = 19.dp, tint = if (canAttach) colors.ink2 else colors.hint, strokeWidth = 1.2.dp)
+                        SendKey.Mic -> MicIcon(size = 20.dp, tint = lineTint, strokeWidth = 1.2.dp)
+                        SendKey.Keyboard -> KeyboardIcon(tint = lineTint)
                         SendKey.None -> Unit
                     }
                 }
@@ -253,31 +263,34 @@ fun ConversationInputBar(
     }
 }
 
-private enum class SendKey { Send, Stop, Attach, None }
+private enum class SendKey { Send, Stop, Mic, Keyboard, None }
 
 /**
- * 「按住说话」那一块：按下开始，松手结束；按着往上滑过 [ARM_DISTANCE] 是要取消，滑回来接着说。
- * 手指滑出这一块之后事件照样送到这里（落点在按下那一刻就定了），所以量的是离按下那个点往上走了多远。
+ * 「按住说话」那一块：按下开始，松手结束；按着往左拖是取消、往右拖是转文字，拖回中间照旧。
+ * 手指滑出这一块之后事件照样送到这里（落点在按下那一刻就定了），所以按屏幕上的横坐标算落点。
  */
 @Composable
 private fun HoldToTalk(
     hold: VoiceHold,
     enabled: Boolean,
     onStart: () -> Unit,
-    onArm: (Boolean) -> Unit,
-    onEnd: (cancelled: Boolean) -> Unit,
+    onZone: (VoiceHold) -> Unit,
+    onEnd: (zone: VoiceHold) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = DaodianColors.current
     // 手势协程活得比一次重组久，回调得取最新的
     val start by rememberUpdatedState(onStart)
-    val arm by rememberUpdatedState(onArm)
+    val zoneTo by rememberUpdatedState(onZone)
     val end by rememberUpdatedState(onEnd)
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    // 这一块在窗口里从哪儿起：手指的坐标是相对这一块的，换成屏幕上的才好比三成线
+    val left = remember { floatArrayOf(0f) }
     val fill by animateColorAsState(
-        if (hold == VoiceHold.Holding) colors.skeletonHi else colors.surfaceAlt, tween(Motion.SHORT), label = "holdFill"
+        if (hold == VoiceHold.Idle) colors.surfaceAlt else colors.skeletonHi, tween(Motion.SHORT), label = "holdFill"
     )
     val ink by animateColorAsState(
-        if (hold == VoiceHold.Armed) colors.muted else colors.ink, tween(Motion.SHORT), label = "holdInk"
+        if (hold == VoiceHold.Cancel) colors.accent else colors.ink, tween(Motion.SHORT), label = "holdInk"
     )
 
     Box(
@@ -285,50 +298,61 @@ private fun HoldToTalk(
             .height(36.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(fill)
+            .onGloballyPositioned { left[0] = it.positionInWindow().x }
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
-                val armAt = ARM_DISTANCE.toPx()
-                val disarmAt = DISARM_DISTANCE.toPx()
+                val width = screenWidth.toPx()
+                val travel = ZONE_MIN_TRAVEL.toPx()
+                val back = ZONE_BACK.toPx()
                 awaitEachGesture {
                     val down = awaitFirstDown()
                     down.consume()
                     start()
-                    var armed = false
+                    val downX = left[0] + down.position.x
+                    // 按下的地方本来就靠边，就从按下的地方再挪一截才算到
+                    val cancelLine = minOf(width * ZONE_EDGE, downX - travel)
+                    val textLine = maxOf(width * (1 - ZONE_EDGE), downX + travel)
+                    var zone = VoiceHold.Holding
                     var ended = false
                     try {
                         while (true) {
                             val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
                             change.consume()
                             if (!change.pressed) break
-                            val up = down.position.y - change.position.y
-                            val now = up > if (armed) disarmAt else armAt
-                            if (now != armed) {
-                                armed = now
-                                arm(now)
+                            val x = left[0] + change.position.x
+                            val now = when {
+                                x < cancelLine -> VoiceHold.Cancel
+                                x > textLine -> VoiceHold.Text
+                                x > cancelLine + back && x < textLine - back -> VoiceHold.Holding
+                                else -> zone
+                            }
+                            if (now != zone) {
+                                zone = now
+                                zoneTo(now)
                             }
                         }
                         ended = true
-                        end(armed)
+                        end(zone)
                     } finally {
                         // 手势被掐了（页面切走、这一块被换掉）：当取消，别把说了一半的发出去
-                        if (!ended) end(true)
+                        if (!ended) end(VoiceHold.Cancel)
                     }
                 }
             },
         contentAlignment = Alignment.Center
     ) {
-        Crossfade(
-            targetState = when (hold) {
-                VoiceHold.Idle -> "按住说话"
-                VoiceHold.Holding -> "松手发送"
-                VoiceHold.Armed -> "滑回来接着说"
-            },
-            animationSpec = tween(Motion.SHORT),
-            label = "holdLabel"
-        ) {
+        Crossfade(targetState = holdLabel(hold), animationSpec = tween(Motion.SHORT), label = "holdLabel") {
             Text(it, style = HoldLabel, color = ink, maxLines = 1)
         }
     }
+}
+
+/** 按着时输入条上和那一层里写的同一句 */
+internal fun holdLabel(hold: VoiceHold) = when (hold) {
+    VoiceHold.Idle -> "按住说话"
+    VoiceHold.Holding -> "松手发送"
+    VoiceHold.Text -> "松手发送文字"
+    VoiceHold.Cancel -> "松手取消"
 }
 
 private val HoldLabel = DaodianType.rowTitle.copy(fontSize = 15.sp, letterSpacing = 0.3.em)

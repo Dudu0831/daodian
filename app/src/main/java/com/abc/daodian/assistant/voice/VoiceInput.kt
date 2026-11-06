@@ -58,8 +58,11 @@ class VoiceInput(private val context: Context) {
 
     sealed interface Event {
         data object Ready : Event
-        /** 边说边出来的字，每次都是到目前为止的全文。正在说的那段可能改字，锁定了的段不再变 */
-        data class Partial(val text: String) : Event
+        /**
+         * 边说边出来的字，每次都是到目前为止的全文。正在说的那段可能改字，锁定了的段不再变：
+         * 前 [locked] 个字是锁定的，后面是正在说的那段（对话页拿它画两层灰）
+         */
+        data class Partial(val text: String, val locked: Int = text.length) : Event
         /** 音量，已经归一到 0..1 */
         data class Level(val value: Float) : Event
         /** 说完了。一个字都没认出来时是空串 */
@@ -185,6 +188,8 @@ class VoiceInput(private val context: Context) {
             emit(Event.Ready)
             val chunk = ShortArray(CHUNK)
             var said = ""
+            // 字没变、只是正在说的那段锁定了，也得再报一次：对话页那截字要从浅灰变深
+            var saidLocked = 0
             var heard = 0
             while (!finishing) {
                 coroutineContext.ensureActive()
@@ -208,9 +213,10 @@ class VoiceInput(private val context: Context) {
                     tr = open() ?: return emit(Event.Error(LOAD_FAILED))
                 }
                 val text = tr.feed(samples, live = true)
-                if (text.isNotEmpty() && text != said) {
+                if (text.isNotEmpty() && (text != said || tr.lockedLength != saidLocked)) {
                     said = text
-                    emit(Event.Partial(text))
+                    saidLocked = tr.lockedLength
+                    emit(Event.Partial(text, tr.lockedLength))
                 }
                 // 按住说话不看停顿：什么时候收由手指定，旁边一直有人说话也不会收不了
                 if (!hold && tr.atEndpoint) {
@@ -264,6 +270,8 @@ class VoiceInput(private val context: Context) {
     private class Transcript(private val e: Engine) {
         private val locked = StringBuilder()
         private var live = ""
+        /** 全文里前多少个字是锁定的（全文 = 锁定的 + 正在说的，前一截原样） */
+        val lockedLength: Int get() = locked.length
         /** 上一段结束之后的声音，从第 [pendingStart] 个样本算起 */
         private var pending = FloatArray(RATE * 4)
         private var pendingLen = 0
