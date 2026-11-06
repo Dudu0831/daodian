@@ -71,7 +71,9 @@ data class Input(
     val text: String,
     val at: ZonedDateTime,
     val trigger: Boolean = false,
-    val images: List<String> = emptyList()
+    val images: List<String> = emptyList(),
+    /** 这句话的原声（语音条），见 [Item.UserMessage.audio] */
+    val audio: String? = null
 )
 
 /** 后台 agent 跑完一次的结果（[AgentRuntime.runOnce]） */

@@ -65,8 +65,13 @@ class VoiceInput(private val context: Context) {
         data class Partial(val text: String, val locked: Int = text.length) : Event
         /** 音量，已经归一到 0..1 */
         data class Level(val value: Float) : Event
-        /** 说完了。一个字都没认出来时是空串 */
-        data class Final(val text: String) : Event
+        /**
+         * 说完了。一个字都没认出来时是空串。按住说话的那种（`start(hold = true)`）还带着这一次的原声 [pcm]：
+         * 16kHz 单声道 16 位小端，对话页拿去存成语音条；速记那种是 null
+         */
+        class Final(val text: String, val pcm: ByteArray? = null) : Event {
+            override fun toString() = "Final(text=$text, pcm=${pcm?.size ?: 0}B)"
+        }
         data class Error(val message: String) : Event
     }
 
@@ -180,8 +185,8 @@ class VoiceInput(private val context: Context) {
             Transcript(e).also { t -> early.forEach { t.feed(it, live = false) }; early.clear() }
         }
         var tr: Transcript? = null
-        // debug 包把这一次的原声留下来（files/voice_last.wav），认错了好拿去对
-        val raw = if (BuildConfig.DEBUG) ByteArrayOutputStream(RATE * 2 * 10) else null
+        // 按住说话的原声要存成语音条；debug 包还把每一次的原声留下来（files/voice_last.wav），认错了好拿去对
+        val raw = if (hold || BuildConfig.DEBUG) ByteArrayOutputStream(RATE * 2 * 10) else null
         try {
             record.startRecording()
             if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) return emit(Event.Error(MIC_BUSY))
@@ -231,11 +236,11 @@ class VoiceInput(private val context: Context) {
             val text = t.finish()
             QuickTrace.log(context, "voice decodes ${t.stats}")
             t.segments.forEach { QuickTrace.log(context, "voice seg $it") }
-            emit(Event.Final(text))
+            emit(Event.Final(text, if (hold) raw?.toByteArray() else null))
         } finally {
             record.release()
             tr?.let { QuickTrace.log(context, "voice vad ${it.vadStats}") }
-            raw?.let { runCatching { writeWav(File(context.filesDir, "voice_last.wav"), it.toByteArray()) } }
+            if (BuildConfig.DEBUG) raw?.let { runCatching { writeWav(File(context.filesDir, "voice_last.wav"), it.toByteArray()) } }
         }
     }
 

@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.abc.daodian.assistant.AssistantAgent
+import com.abc.daodian.assistant.conversation.data.ConversationAudioFiles
 import com.abc.daodian.assistant.conversation.data.ConversationImageFiles
 import com.abc.daodian.assistant.conversation.data.ConversationStore
 import com.abc.daodian.assistant.memory.Recall
@@ -132,6 +133,9 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     /** 那句话带的图，重试时原样再带上 */
     private var lastImages: List<String> = emptyList()
 
+    /** 那句话是语音条的话，原声的路径。重试时照样带上 */
+    private var lastAudio: String? = null
+
     /** 上一轮是 app 自己发起的（对账）：重试时照样按自动发起的一轮重发 */
     private var lastTrigger = false
 
@@ -164,16 +168,24 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
      * 写操作（建提醒、改账）在循环里直接办，对话里留一道痕；拿不准时模型自己出问卡（§6.6）。
      * 问卡等着的时候，这里发出去的话是给整张问卡的，算直接说（只答某一题在卡里的「其他…」写）。
      */
-    fun sendMessage(text: String) {
+    fun sendMessage(text: String, audio: String? = null) {
         val trimmed = text.trim()
         if (pendingAsk != null) {
+            // 问卡等着时按住说的，算直接说：答案画成一句字（存在问卡的结果里，没处放录音），录音不留
+            audio?.let(ConversationAudioFiles::delete)
             if (trimmed.isBlank()) return
             sayToAsk(trimmed)
             return
         }
         // 选好的图跟这句话一起走；只有图、没打字也能发（DESIGN.md §6.10）
-        if (trimmed.isBlank() && _pendingImages.value.isEmpty()) return
-        if (aiBusy) return
+        if (trimmed.isBlank() && _pendingImages.value.isEmpty()) {
+            audio?.let(ConversationAudioFiles::delete)
+            return
+        }
+        if (aiBusy) {
+            audio?.let(ConversationAudioFiles::delete)
+            return
+        }
 
         val images = ConversationImageFiles.commit(getApplication(), _pendingImages.value)
         _pendingImages.value = emptyList()
@@ -181,9 +193,19 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
         if (trimmed.isBlank() && images.isEmpty()) return
         lastUserInput = trimmed
         lastImages = images
+        lastAudio = audio
         lastTrigger = false
-        _messages.value = _messages.value + ConversationItem.UserText(newId(), trimmed, images = images)
-        runTurn(trimmed, images = images)
+        _messages.value = _messages.value + ConversationItem.UserText(newId(), trimmed, images = images, audio = audio)
+        runTurn(trimmed, images = images, audio = audio)
+    }
+
+    /**
+     * 按住说话原地松手：原声编好存下，发成一条语音条，模型读的是认出来的 [text]。
+     * 编不了（这台手机没有 AAC 编码器）就照打字那样发字，别让这句话没了
+     */
+    fun sendVoice(text: String, pcm: ByteArray?) = viewModelScope.launch {
+        val audio = if (pendingAsk == null && pcm != null) ConversationAudioFiles.save(getApplication(), pcm) else null
+        sendMessage(text, audio)
     }
 
     // ---------------- 随话发的图片（DESIGN.md §6.10）----------------
@@ -257,6 +279,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                 _messages.value = _messages.value + ConversationItem.UserText(newId(), trigger.text, trigger = true)
                 lastUserInput = trigger.text
                 lastImages = emptyList()
+                lastAudio = null
                 lastTrigger = true
                 runTurn(trigger.text, trigger = true)
             }
@@ -287,13 +310,19 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
         val trimmed = lastUserInput ?: return
         if (aiBusy) return
         _messages.value = _messages.value.filterNot { it is ConversationItem.AssistantTurn && it.isError }
-        runTurn(trimmed, retry = true, trigger = lastTrigger, images = lastImages)
+        runTurn(trimmed, retry = true, trigger = lastTrigger, images = lastImages, audio = lastAudio)
     }
 
     /**
      * 跑一轮。一个回合**原地长大**：正文、痕、问卡按到货顺序摞，中途不换消息类型。见 DESIGN.md §6.5
      */
-    private fun runTurn(text: String, retry: Boolean = false, trigger: Boolean = false, images: List<String> = emptyList()) {
+    private fun runTurn(
+        text: String,
+        retry: Boolean = false,
+        trigger: Boolean = false,
+        images: List<String> = emptyList(),
+        audio: String? = null
+    ) {
         streamJob = viewModelScope.launch {
             val session = session.await()
             if (retry) session.discardLastTurn()
@@ -319,7 +348,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 var finished = false
                 val app = getApplication<Application>()
-                AgentRuntime.run(AssistantAgent.build(app), session, Input(text, ZonedDateTime.now(), trigger, images), asker, Recall.conversation(app))
+                AgentRuntime.run(AssistantAgent.build(app), session, Input(text, ZonedDateTime.now(), trigger, images, audio), asker, Recall.conversation(app))
                     .collect { event ->
                         patchTurn(turnId, event)
                         if (event is AgentEvent.Finished) finished = true
@@ -357,6 +386,11 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                         restoredInput = text
                         // 图跟原话一起退回去：文件还在，回到待发那一行
                         if (images.isNotEmpty()) _pendingImages.value = images
+                        // 语音条撤回：字退回输入框，录音不留（VOICE_PLAN §2.7）
+                        audio?.let {
+                            ConversationAudioFiles.delete(it)
+                            if (lastAudio == it) lastAudio = null
+                        }
                     }
                     session.discardLastTurn()
                 }

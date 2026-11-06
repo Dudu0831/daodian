@@ -190,7 +190,7 @@ object AgentRuntime {
             client(s, profile), ToolRegistry(agent.tools), agent.prompt.text, agent.context, agent.maxSteps,
             onRequest = { preamble, sent, request -> s.tracer.request(agent, preamble, sent, request) }
         )
-        return loop.run(session, input.text, input.at, asker, input.trigger, background, input.images)
+        return loop.run(session, input.text, input.at, asker, input.trigger, background, input.images, input.audio)
             .onEach { if (it is AgentEvent.Finished || it is AgentEvent.Failed) ApiHealth.record(it) }
     }
 

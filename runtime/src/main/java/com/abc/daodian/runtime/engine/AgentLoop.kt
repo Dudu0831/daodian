@@ -60,9 +60,10 @@ internal class AgentLoop(
         asker: Asker = Asker.NONE,
         trigger: Boolean = false,
         background: Background = Background.NONE,
-        images: List<String> = emptyList()
+        images: List<String> = emptyList(),
+        audio: String? = null
     ): Flow<AgentEvent> = flow {
-        session.begin(Item.UserMessage(input, now, trigger, images))
+        session.begin(Item.UserMessage(input, now, trigger, images, audio))
         // 工具落库时把原话存成「来源」。只发了图没打字的，来源写成这句，别留空
         val said = input.ifBlank { if (images.isEmpty()) input else "（发了 ${images.size} 张图片，没打字）" }
         val toolContext = ToolContext(now, said, asker, model = llm.model)

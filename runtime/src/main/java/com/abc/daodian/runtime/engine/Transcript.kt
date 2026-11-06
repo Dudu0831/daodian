@@ -17,13 +17,16 @@ sealed interface Item {
      * 用户没说过这句，界面上画成一条分隔线而不是气泡。
      * [at] 是这句话的时刻，重放时跟着一起给模型，「明天」才算得对。
      * [images] 是随这句话发来的图片（本机文件的路径，存之前缩小过），可以只有图、没有字。
-     * 更早几轮的图喂给模型前会折成一句话，见 [com.abc.daodian.runtime.context.FoldImages]
+     * 更早几轮的图喂给模型前会折成一句话，见 [com.abc.daodian.runtime.context.FoldImages]。
+     * [audio] 是这句话的原声（本机文件路径，对话页按住说话原地松手发的语音条）。只给界面画、给你回放，
+     * 模型不听它 —— 模型读的是 [text]，认出来的字
      */
     data class UserMessage(
         val text: String,
         val at: ZonedDateTime,
         val trigger: Boolean = false,
-        val images: List<String> = emptyList()
+        val images: List<String> = emptyList(),
+        val audio: String? = null
     ) : Item {
         /** 喂给模型的样子：`[2026-09-18 21:03 周五 +08:00] 原话`。格式在 AssistantPrompt「时间」那段里有交代 */
         fun content(): String =

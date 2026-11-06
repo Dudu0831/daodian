@@ -19,7 +19,11 @@ import kotlinx.coroutines.launch
  * 写盘排在一条单线程上：同一轮的几次覆盖、以及随后的「整轮拿掉」必须按发生的顺序落地，
  * 否则晚到的旧快照会把删掉的一轮又写回来。写盘不挂在页面上 —— 页面关了，已经发生的照样要存下。
  */
-class ConversationStore private constructor(private val dao: ConversationDao, private val imageDir: File) : Session.Listener {
+class ConversationStore private constructor(
+    private val dao: ConversationDao,
+    private val imageDir: File,
+    private val audioDir: File
+) : Session.Listener {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val writes = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
@@ -51,7 +55,8 @@ class ConversationStore private constructor(private val dao: ConversationDao, pr
             turnId = turnId, seq = seq, kind = if (item.trigger) TRIGGER else USER, text = item.text,
             atMillis = item.at.toInstant().toEpochMilli(), zoneId = item.at.zone.id,
             // 只存文件名：目录是哪儿由这台机器说了算
-            images = item.images.joinToString("\n") { File(it).name }.ifEmpty { null }
+            images = item.images.joinToString("\n") { File(it).name }.ifEmpty { null },
+            audio = item.audio?.let { File(it).name }
         )
         is Item.AssistantMessage -> ConversationItemEntity(turnId = turnId, seq = seq, kind = ASSISTANT, text = item.text)
         is Item.ToolCall -> ConversationItemEntity(
@@ -69,7 +74,8 @@ class ConversationStore private constructor(private val dao: ConversationDao, pr
             row.text,
             Instant.ofEpochMilli(row.atMillis ?: 0).atZone(row.zoneId?.let(ZoneId::of) ?: ZoneId.systemDefault()),
             trigger = row.kind == TRIGGER,
-            images = row.images?.lines()?.filter { it.isNotBlank() }?.map { File(imageDir, it).path }.orEmpty()
+            images = row.images?.lines()?.filter { it.isNotBlank() }?.map { File(imageDir, it).path }.orEmpty(),
+            audio = row.audio?.let { File(audioDir, it).path }
         )
         ASSISTANT -> Item.AssistantMessage(row.text)
         TOOL_CALL -> Item.ToolCall(row.callId.orEmpty(), row.toolName.orEmpty(), row.text)
@@ -92,7 +98,11 @@ class ConversationStore private constructor(private val dao: ConversationDao, pr
 
         fun get(context: Context): ConversationStore =
             instance ?: synchronized(this) {
-                instance ?: ConversationStore(ConversationDatabase.get(context).chatDao(), ConversationImageFiles.dir(context)).also { instance = it }
+                instance ?: ConversationStore(
+                    ConversationDatabase.get(context).chatDao(),
+                    ConversationImageFiles.dir(context),
+                    ConversationAudioFiles.dir(context)
+                ).also { instance = it }
             }
     }
 }

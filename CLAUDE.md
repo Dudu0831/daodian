@@ -10,12 +10,12 @@
 - 真机是荣耀 LGE-AN10（Android 15），模型是火山方舟 `deepseek-v4.1-flash`。
 - 线上：**0.2.0 / versionCode 13**（10-30 用 `scripts/publish.sh` 发的：通知管家、问卡原地写、对话页和设置页改版）。
 - 用户手机上的 release 包是本地打的 0.2.0（13），和线上同一份代码、同号，10-30 用 adb 覆盖装的，用户看过都对。debug 包 `com.abc.daodian.debug` 也在。两个包是两个 app（§11.1）。
-- 库：`reminder.db` v3、`chat.db` v3、`ledger.db` v2（10-26 起，见下）。库升上去之后旧版本打不开，只能往前走。
+- 库：`reminder.db` v3、`chat.db` v4（11-05 起，语音条加 `audio` 列，见下）、`ledger.db` v2（10-26 起，见下）。库升上去之后旧版本打不开，只能往前走。
 
 **main 上有、还没在真机上验过的**
 - **10-26 `ledger.db` v1 → v2**（通知管家第 2 步，`raw_notification` 加可空列 `noticeId`，auto migration）：下一次发版就带上去。要验：覆盖装 debug 包、打开一次记账页，拉库看 `PRAGMA user_version` 是 2、`noticeId` 这一列在、旧原文和流水都在。
 
-- **11-04 语音换 SenseVoice + VAD 假流式**（[VOICE_PLAN.md](VOICE_PLAN.md) 第 1 步，DESIGN §8.3 还没改）：认中英日韩粤、带标点；用户在 debug 包上按住说试过，「跟得上语速」。速记没单独验。模型 239MB 不进 git，`tools/fetch_asr_model.sh` 拉；debug 包每次说话留 `files/voice_last.wav`、`quick_trace.txt` 里 `voice seg` 记每一段。第 2 步（11-05）：退后台、换回打字、说话档闲 60 秒放掉模型，`quick_trace` 里 `voice model loaded / released` 时机都对上了；放掉后原生堆会攥着约 100MB 空页，荣耀几分钟后才收；11-05 加了 `heap_purge.c`（`mallopt(M_PURGE_ALL)`），放掉后 1–2 秒内从 600MB 掉到 170MB 上下，`quick_trace` 里 `voice heap purged=true`。第 4 步 a（11-05）：＋ 挪到最左、最右麦克风 / 发送 / 停；按住左「取消」右「转文字」，拖到右边出两层灰的字；原地松手暂时还是发字（语音条是 4b）。
+- **11-04 语音换 SenseVoice + VAD 假流式**（[VOICE_PLAN.md](VOICE_PLAN.md) 第 1 步，DESIGN §8.3 还没改）：认中英日韩粤、带标点；用户在 debug 包上按住说试过，「跟得上语速」。速记没单独验。模型 239MB 不进 git，`tools/fetch_asr_model.sh` 拉；debug 包每次说话留 `files/voice_last.wav`、`quick_trace.txt` 里 `voice seg` 记每一段。第 2 步（11-05）：退后台、换回打字、说话档闲 60 秒放掉模型，`quick_trace` 里 `voice model loaded / released` 时机都对上了；放掉后原生堆会攥着约 100MB 空页，荣耀几分钟后才收；11-05 加了 `heap_purge.c`（`mallopt(M_PURGE_ALL)`），放掉后 1–2 秒内从 600MB 掉到 170MB 上下，`quick_trace` 里 `voice heap purged=true`。第 4 步 a（11-05）：＋ 挪到最左、最右麦克风 / 发送 / 停；按住左「取消」右「转文字」，拖到右边出两层灰的字；第 4 步 b（11-05）：原地松手发语音条（`files/chat_audio/` 里的 m4a，文件名带时长和波形；模型读的照样是字），点了放 / 停、长按字洇出来；喊停撤回时字退回输入框、录音删掉；问卡等着时按住说照旧算回答，画成字（录音不留）。`chat.db` v3 → v4 在 debug 包上演过（一条旧记录，`user_version` 4、`audio` 列在、旧行原样）。
 
 - **10-31 问卡钉在输入条上面**（DESIGN §6.6；本地 release 包 11-01 装上，用户上手试过，细项没逐条验）：等你答的卡不进对话列表；多题改金额页签、点完跳下一笔；写「其他…」时输入条让开、卡脚收起，系统返回收键盘算不写了。下一次发版带上去。
 

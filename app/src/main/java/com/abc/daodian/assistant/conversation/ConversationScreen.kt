@@ -152,7 +152,12 @@ fun ConversationScreen(
     val context = LocalContext.current
     val focus = LocalFocusManager.current
     val voice = remember { VoiceInput(context.applicationContext) }
-    DisposableEffect(voice) { onDispose { voice.release() } }
+    DisposableEffect(voice) {
+        onDispose {
+            voice.release()
+            VoicePlayback.stop()
+        }
+    }
     var voiceMode by rememberSaveable { mutableStateOf(false) }
     var hold by remember { mutableStateOf(VoiceHold.Idle) }
     // 松手了，最后几个字还在解：文字框先留着，解完才发
@@ -193,6 +198,7 @@ fun ConversationScreen(
     }
     // 切到后台就不录了，说了一半的不发；模型也放掉 —— 后台不带着 500MB（VOICE_PLAN §2.3）
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        VoicePlayback.stop()
         cancelHold()
         voice.release()
     }
@@ -330,7 +336,7 @@ fun ConversationScreen(
     }
 
     /** [typed] = 发的是输入框里打的字，发完清空；说出来的那句不动输入框里还没发的草稿 */
-    fun send(text: String, typed: Boolean = true) {
+    fun send(text: String, typed: Boolean = true, pcm: ByteArray? = null) {
         // 选好了图的话，不打字也能发
         if (text.isBlank() && pendingImages.isEmpty()) return
         if (vm.aiBusy && asking == null) return
@@ -338,7 +344,8 @@ fun ConversationScreen(
         // 还压在输入框后面：这时贴底跟随会先把列表往上推，紧接着整页又跟着键盘往下落一大截，一上一下。
         // 等键盘收完再跟 —— 收的这一路它们自己从输入框后面露出来，列表只往下落
         if (asking == null && ime.getBottom(density) > 0) imeHoldUntil = System.nanoTime() + IME_HOLD_NANOS
-        vm.sendMessage(text)
+        // 带着原声的是语音条：编好存下再发（VOICE_PLAN §2.7）
+        if (pcm != null) vm.sendVoice(text, pcm) else vm.sendMessage(text)
         if (typed) input = ""
         follow = true
     }
@@ -351,6 +358,8 @@ fun ConversationScreen(
             return
         }
         voiceNote = null
+        // 正放着语音条就停下：不然录进去的是自己的回放
+        VoicePlayback.stop()
         heard = ""
         heardLocked = 0
         dropped = false
@@ -367,13 +376,18 @@ fun ConversationScreen(
                 }
                 is VoiceInput.Event.Level -> level = event.value
                 // 松手之后解完了（或者按满了时长）：这句直接发，不落进输入框。
-                // 原地松手和拖到右边松手现在都发字；语音条是下一步（VOICE_PLAN 第 4 步 b）
+                // 原地松手发语音条（模型读的照样是字），拖到右边松手发字、不留录音
                 is VoiceInput.Event.Final -> {
                     val said = event.text.ifBlank { heard }
                     heard = said
                     heardLocked = said.length
+                    val asText = holdZone == VoiceHold.Text
                     endHold()
-                    if (said.isBlank()) voiceNote = "没听清，再说一次？" else send(said, typed = false)
+                    when {
+                        said.isBlank() -> voiceNote = "没听清，再说一次？"
+                        asText -> send(said, typed = false)
+                        else -> send(said, typed = false, pcm = event.pcm)
+                    }
                 }
                 // 说到一半出错：半句话不替你发，听到的放进输入框，换回打字自己看着办
                 is VoiceInput.Event.Error -> {

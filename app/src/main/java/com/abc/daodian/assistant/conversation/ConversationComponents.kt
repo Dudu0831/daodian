@@ -71,13 +71,20 @@ private val AssistantIndent = 14.dp
 /** 刚发出的气泡从下方升起；列表滚回来重组时不再升。[onOpenImage]：点了第几张图 */
 @Composable
 fun UserBubble(msg: ConversationItem.UserText, onOpenImage: (Int) -> Unit = {}) =
-    UserBubble(msg.text, msg.sentAt, msg.images, onOpenImage)
+    UserBubble(msg.text, msg.sentAt, msg.images, onOpenImage, msg.audio)
 
 /**
  * 随话发的图在上、字在下，都靠右，一起升起。只有图的那句没有墨色气泡（DESIGN.md §6.10）
  */
 @Composable
-fun UserBubble(text: String, sentAt: Long, images: List<String> = emptyList(), onOpenImage: (Int) -> Unit = {}) {
+fun UserBubble(
+    text: String,
+    sentAt: Long,
+    images: List<String> = emptyList(),
+    onOpenImage: (Int) -> Unit = {},
+    /** 语音条的原声：有它就画成语音条，字收着、长按才出来（[VoiceBubble]） */
+    audio: String? = null
+) {
     val colors = DaodianColors.current
     val rise = remember { Animatable(if (System.currentTimeMillis() - sentAt < 600) 0f else 1f) }
     LaunchedEffect(Unit) { rise.animateTo(1f, Motion.settle()) }
@@ -95,8 +102,10 @@ fun UserBubble(text: String, sentAt: Long, images: List<String> = emptyList(), o
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        if (images.isNotEmpty()) BubbleImages(images, tail = text.isBlank(), onOpen = onOpenImage)
-        if (text.isNotBlank()) {
+        if (images.isNotEmpty()) BubbleImages(images, tail = text.isBlank() && audio == null, onOpen = onOpenImage)
+        if (audio != null) {
+            VoiceBubble(audio, text)
+        } else if (text.isNotBlank()) {
             Text(
                 text,
                 style = DaodianType.body,

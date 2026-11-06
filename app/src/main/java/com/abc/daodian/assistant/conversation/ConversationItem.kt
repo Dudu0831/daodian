@@ -33,7 +33,9 @@ sealed interface ConversationItem {
         /** app 自己发起的一轮（每晚对账）：画成一条分隔线，不是气泡 —— 这句话用户没说过 */
         val trigger: Boolean = false,
         /** 随这句话发的图片（本机文件路径）。画在气泡上面；只有图没有字时就只画图。见 DESIGN.md §6.10 */
-        val images: List<String> = emptyList()
+        val images: List<String> = emptyList(),
+        /** 语音条的原声（本机文件路径）。有它就画成语音条，[text] 默认收着、长按才出来（VOICE_PLAN §2.7） */
+        val audio: String? = null
     ) : ConversationItem
 
     data class AssistantTurn(
@@ -308,7 +310,9 @@ private fun ConversationItem.AssistantTurn.settleThought() =
  * 只剩用户一句话的轮（当时失败了、没重试）只画气泡。
  */
 fun restoredMessages(turns: List<Turn>, traced: Set<String>, newId: () -> Long): List<ConversationItem> = turns.flatMap { turn ->
-    val user = ConversationItem.UserText(newId(), turn.input.text, sentAt = 0, trigger = turn.input.trigger, images = turn.input.images)
+    val user = ConversationItem.UserText(
+        newId(), turn.input.text, sentAt = 0, trigger = turn.input.trigger, images = turn.input.images, audio = turn.input.audio
+    )
     val results = turn.items.filterIsInstance<Item.ToolResult>().associateBy { it.callId }
     val blocks = mutableListOf<TurnBlock>()
     turn.items.forEach { item ->
