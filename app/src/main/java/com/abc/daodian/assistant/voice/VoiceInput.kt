@@ -26,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -76,11 +77,14 @@ class VoiceInput(private val context: Context) {
     private val session = Mutex()
     private var engine: Deferred<Result<Engine>>? = null
     private var job: Job? = null
+    /** 闲着 [IDLE_RELEASE_MS] 之后把模型放掉的那个计时 */
+    private var idle: Job? = null
     @Volatile private var finishing = false
 
     /** 先把模型加载上：对话页切到「按住说话」时调，第一次按下去就不用等那两三秒 */
     fun warmUp() {
         if (available && engine == null) engine = scope.async(Dispatchers.Default) { load() }
+        armIdle()
     }
 
     /**
@@ -99,9 +103,10 @@ class VoiceInput(private val context: Context) {
                 onEvent(event)
             }
         }
+        idle?.cancel()
         job = scope.launch(Dispatchers.IO) {
             session.withLock { listen(loading, hold, emit) }
-        }
+        }.also { it.invokeOnCompletion { scope.launch { armIdle() } } }
     }
 
     /** 说完了：停止收音，结果随后从 [Event.Final] 回来 */
@@ -117,14 +122,30 @@ class VoiceInput(private val context: Context) {
         job = null
     }
 
-    /** 这个实例不再用了：停收音，等录音那边退出后把模型从内存里放掉 */
+    /**
+     * 停收音，等录音那边退出后把模型从内存里放掉（SenseVoice 跑起来 500MB 上下，VOICE_PLAN §2.3）。
+     * 放掉之后这个实例照样能用：下次 [warmUp] / [start] 再加载，加载那会儿录音先攒着
+     */
     fun release() {
+        idle?.cancel()
+        idle = null
         cancel()
         val loading = engine ?: return
         engine = null
+        QuickTrace.log(context, "voice model released")
         // 录音线程可能还在解最后一段，拆早了 native 那边会踩空指针 —— 拿到 session 锁再拆
         CoroutineScope(Dispatchers.Default).launch {
             session.withLock { loading.await().getOrNull()?.release() }
+        }
+    }
+
+    /** 模型在内存里、又没在收音：[IDLE_RELEASE_MS] 之后放掉 */
+    private fun armIdle() {
+        idle?.cancel()
+        if (engine == null || job?.isActive == true) return
+        idle = scope.launch {
+            delay(IDLE_RELEASE_MS)
+            if (job?.isActive != true) release()
         }
     }
 
@@ -397,6 +418,8 @@ class VoiceInput(private val context: Context) {
         const val CHUNK = RATE / 10
         /** 按住说话最长收这么久 */
         const val HOLD_MAX_SECONDS = 60
+        /** 模型加载着、闲了这么久就放掉 */
+        const val IDLE_RELEASE_MS = 60_000L
         /** 正在说的那段隔这么久重算一次 */
         const val REDECODE_MS = 400L
         /** 一段最长这么久，到了 VAD 强行切开：段越长重算越慢 */

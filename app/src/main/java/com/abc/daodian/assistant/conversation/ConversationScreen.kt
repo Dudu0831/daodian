@@ -184,10 +184,15 @@ fun ConversationScreen(
             voiceNote = "没有麦克风权限，可以在系统设置里给「到点」打开"
         }
     }
-    // 切到后台就不录了，说了一半的不发
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { cancelHold() }
-    // 换到说话那一档就把模型加载上，第一次按下去不用等
-    LaunchedEffect(voiceMode) { if (voiceMode) voice.warmUp() }
+    // 切到后台就不录了，说了一半的不发；模型也放掉 —— 后台不带着 500MB（VOICE_PLAN §2.3）
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        cancelHold()
+        voice.release()
+    }
+    // 回到前台还停在说话那一档：先加载上
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { if (voiceMode) voice.warmUp() }
+    // 换到说话那一档就把模型加载上，第一次按下去不用等；换回打字就放掉。在说话档闲 60 秒 VoiceInput 自己放
+    LaunchedEffect(voiceMode) { if (voiceMode) voice.warmUp() else voice.release() }
     LaunchedEffect(voiceNote, voiceMode) {
         if (voiceMode && voiceNote != null) {
             delay(VOICE_NOTE_MILLIS)
