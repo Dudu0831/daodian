@@ -386,7 +386,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                         restoredInput = text
                         // 图跟原话一起退回去：文件还在，回到待发那一行
                         if (images.isNotEmpty()) _pendingImages.value = images
-                        // 语音条撤回：字退回输入框，录音不留（VOICE_PLAN §2.7）
+                        // 语音条撤回：字退回输入框，录音不留（§8.3）
                         audio?.let {
                             ConversationAudioFiles.delete(it)
                             if (lastAudio == it) lastAudio = null
@@ -524,8 +524,8 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
             AssistantAgent.build(app),
             profile.value.copy(
                 baseUrl = ProviderStore.normalizeBaseUrl(baseUrl),
-                apiKey = apiKey.trim(),
-                model = model.trim(),
+                apiKey = ProviderStore.firstLine(apiKey),
+                model = ProviderStore.firstLine(model),
                 thinking = thinking,
                 api = api
             ),

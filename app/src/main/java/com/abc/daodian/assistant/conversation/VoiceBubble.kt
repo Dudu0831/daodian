@@ -77,7 +77,7 @@ private const val INK_STAGGER_MS = 28
 private const val INK_FADE_MS = 220
 
 /**
- * 对话里的语音条（VOICE_PLAN §2.7，原型 https://claude.ai/artifact/VtJp6zsX1jJJSarSxQwY3U「乙」）。
+ * 对话里的语音条（§8.3，原型 https://claude.ai/artifact/VtJp6zsX1jJJSarSxQwY3U「乙」）。
  *
  * 墨色实心靠右：▶ + 波形 + `7″`，宽度随时长。点一下播放 / 暂停，一次只放一条（[VoicePlayback]）。
  * 默认不显示字；长按不弹菜单，条轻轻一缩，字直接在条下面一个一个洇出来。

@@ -7,7 +7,10 @@ import android.os.Build
 import android.os.PowerManager
 import androidx.core.content.FileProvider
 import com.abc.daodian.BuildConfig
+import com.abc.daodian.assistant.conversation.data.ConversationAudioFiles
 import com.abc.daodian.assistant.provider.ProviderStore
+import com.abc.daodian.assistant.voice.VoiceInput
+import com.abc.daodian.assistant.voice.VoiceStats
 import com.abc.daodian.runtime.AgentRuntime
 import com.abc.daodian.runtime.model.ProviderProfile
 import com.abc.daodian.shared.format.DiagnosticText.time
@@ -71,6 +74,11 @@ object Diagnostics {
         else appendLine(
             if (profile.isConfigured) "${profile.model} · ${Format.host(profile.baseUrl)} · ${if (profile.api == ProviderProfile.Api.CHAT) "chat" else "responses"} · key 已填 · 思考${if (profile.thinking) "开" else "关"}"
             else "没配好（网关、key、模型有一项空着）"
+        )
+
+        section("语音")
+        appendLine(
+            VoiceStats.describe(context, VoiceInput.modelPresent(context), ConversationAudioFiles.dir(context)).trimEnd()
         )
 
         section("agent")

@@ -34,7 +34,7 @@ sealed interface ConversationItem {
         val trigger: Boolean = false,
         /** 随这句话发的图片（本机文件路径）。画在气泡上面；只有图没有字时就只画图。见 DESIGN.md §6.10 */
         val images: List<String> = emptyList(),
-        /** 语音条的原声（本机文件路径）。有它就画成语音条，[text] 默认收着、长按才出来（VOICE_PLAN §2.7） */
+        /** 语音条的原声（本机文件路径）。有它就画成语音条，[text] 默认收着、长按才出来（§8.3） */
         val audio: String? = null
     ) : ConversationItem
 

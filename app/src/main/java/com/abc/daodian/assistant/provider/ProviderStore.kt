@@ -49,9 +49,9 @@ object ProviderStore {
             // 思考开关不算「存过配置」：只拨了开关时，三格照样用种子
             val base = if (p.contains(BASE_URL) || p.contains(API_KEY) || p.contains(MODEL)) {
                 seed.copy(
-                    baseUrl = p[BASE_URL].orEmpty(),
-                    apiKey = p[API_KEY].orEmpty(),
-                    model = p[MODEL].orEmpty()
+                    baseUrl = normalizeBaseUrl(p[BASE_URL].orEmpty()),
+                    apiKey = firstLine(p[API_KEY].orEmpty()),
+                    model = firstLine(p[MODEL].orEmpty())
                 )
             } else {
                 seed
@@ -73,8 +73,8 @@ object ProviderStore {
     ) {
         context.applicationContext.providerDataStore.edit { p ->
             p[BASE_URL] = normalizeBaseUrl(baseUrl)
-            p[API_KEY] = apiKey.trim()
-            p[MODEL] = model.trim()
+            p[API_KEY] = firstLine(apiKey)
+            p[MODEL] = firstLine(model)
             p[THINKING] = thinking
             p[API] = api.name
         }
@@ -90,10 +90,14 @@ object ProviderStore {
      * 这里只留到 `/v1` 为止，多出来的路径原样留着会拼成 `/v1/responses/responses`。
      */
     fun normalizeBaseUrl(raw: String): String {
-        var s = raw.trim().trimEnd('/')
+        var s = firstLine(raw).trimEnd('/')
         listOf("/chat/completions", "/responses", "/completions").forEach { tail ->
             if (s.endsWith(tail, ignoreCase = true)) s = s.dropLast(tail.length).trimEnd('/')
         }
         return s
     }
+
+    /** 单行配置项（地址 / key / 模型）粘进多行时只留第一条非空行，免得换行后面的字被单行框裁掉看不见 */
+    fun firstLine(raw: String): String =
+        raw.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
 }

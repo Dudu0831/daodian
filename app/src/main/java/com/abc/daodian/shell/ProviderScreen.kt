@@ -301,7 +301,7 @@ private fun Field(
             if (value.isEmpty()) Text(placeholder, style = DaodianType.body, color = colors.hint)
             BasicTextField(
                 value = value,
-                onValueChange = onChange,
+                onValueChange = { onChange(if ('\n' in it || '\r' in it) ProviderStore.firstLine(it) else it) },
                 textStyle = DaodianType.body.copy(color = colors.ink),
                 singleLine = true,
                 keyboardOptions = keyboard,

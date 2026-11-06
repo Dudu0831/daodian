@@ -196,7 +196,7 @@ fun ConversationScreen(
             voiceNote = "没有麦克风权限，可以在系统设置里给「到点」打开"
         }
     }
-    // 切到后台就不录了，说了一半的不发；模型也放掉 —— 后台不带着 500MB（VOICE_PLAN §2.3）
+    // 切到后台就不录了，说了一半的不发；模型也放掉 —— 后台不带着 500MB（§8.3）
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         VoicePlayback.stop()
         cancelHold()
@@ -344,7 +344,7 @@ fun ConversationScreen(
         // 还压在输入框后面：这时贴底跟随会先把列表往上推，紧接着整页又跟着键盘往下落一大截，一上一下。
         // 等键盘收完再跟 —— 收的这一路它们自己从输入框后面露出来，列表只往下落
         if (asking == null && ime.getBottom(density) > 0) imeHoldUntil = System.nanoTime() + IME_HOLD_NANOS
-        // 带着原声的是语音条：编好存下再发（VOICE_PLAN §2.7）
+        // 带着原声的是语音条：编好存下再发（§8.3）
         if (pcm != null) vm.sendVoice(text, pcm) else vm.sendMessage(text)
         if (typed) input = ""
         follow = true

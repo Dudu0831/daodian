@@ -34,7 +34,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * 语音输入：自己录音，在手机上用 sherpa-onnx 识别。见 DESIGN.md 决策 8.3、VOICE_PLAN.md
+ * 语音输入：自己录音，在手机上用 sherpa-onnx 识别。见 DESIGN.md 决策 8.3
  *
  * 两处在用，收法不一样：桌面速记停顿够了自己收；对话页是按住说话（[start] 的 `hold`），
  * 不看停顿，松手（[stop]）才收。
@@ -47,7 +47,7 @@ import kotlinx.coroutines.withContext
  * **假流式**：SenseVoice 是非流式的（一整段一次算完，带标点、认中英日韩粤），所以边说边出字是拼出来的 ——
  * Silero VAD 按停顿把话切成段（一段最长 [SEGMENT_MAX_SECONDS] 秒），说完的段解一次就锁定；
  * 正在说的那段每 [REDECODE_MS] 毫秒整段重算一次，前几个字可能跟着改。真机上 4 线程解一段 8 秒内的话
- * 0.1–0.25 秒（VOICE_PLAN §1.1）。不切段的话 30 秒要算 1 秒，跟不上。
+ * 0.1–0.25 秒（§8.3）。不切段的话 30 秒要算 1 秒，跟不上。
  *
  * 模型在 assets/asr/（SenseVoice int8 239MB + VAD 0.6MB，`tools/fetch_asr_model.sh` 拉），第一次 [start]
  * （或 [warmUp]）时才加载，真机约 2.5 秒；加载那会儿录音照常进来、先攒着，模型好了一口气喂进去 —— 开头那几个字不会丢。
@@ -76,9 +76,7 @@ class VoiceInput(private val context: Context) {
     }
 
     /** 模型随包带着；缺了（没跑 fetch_asr_model.sh 就构建）就当这台手机没有语音 */
-    val available: Boolean by lazy {
-        context.assets.list(MODEL_DIR)?.let { MODEL_FILE in it && VAD_FILE in it } == true
-    }
+    val available: Boolean by lazy { modelPresent(context) }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     /** 一次只许一段录音在跑：前一段被 cancel 之后，要等它把麦克风和识别流都放掉，下一段才开始 */
@@ -131,7 +129,7 @@ class VoiceInput(private val context: Context) {
     }
 
     /**
-     * 停收音，等录音那边退出后把模型从内存里放掉（SenseVoice 跑起来 500MB 上下，VOICE_PLAN §2.3）。
+     * 停收音，等录音那边退出后把模型从内存里放掉（SenseVoice 跑起来 500MB 上下，§8.3）。
      * 放掉之后这个实例照样能用：下次 [warmUp] / [start] 再加载，加载那会儿录音先攒着
      */
     fun release() {
@@ -143,7 +141,12 @@ class VoiceInput(private val context: Context) {
         QuickTrace.log(context, "voice model released")
         // 录音线程可能还在解最后一段，拆早了 native 那边会踩空指针 —— 拿到 session 锁再拆
         CoroutineScope(Dispatchers.Default).launch {
-            session.withLock { loading.await().getOrNull()?.release() }
+            session.withLock {
+                loading.await().getOrNull()?.let {
+                    it.release()
+                    VoiceStats.released()
+                }
+            }
             // 模型的几百 MB 释放了，分配器还攥着空页不还；马上还给系统，别等它几分钟后自己收
             QuickTrace.log(context, "voice heap purged=${NativeHeap.purge()}")
         }
@@ -167,6 +170,13 @@ class VoiceInput(private val context: Context) {
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             return emit(Event.Error("没有麦克风权限"))
         }
+        // 诊断里那一行（VoiceStats）：说了多久、解得多快、最后怎样。被 cancel 的就是「取消」
+        var outcome = "取消"
+        var heard = 0
+        suspend fun fail(message: String) {
+            outcome = "出错：$message"
+            emit(Event.Error(message))
+        }
         val record = AudioRecord(
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
             RATE,
@@ -177,7 +187,7 @@ class VoiceInput(private val context: Context) {
         )
         if (record.state != AudioRecord.STATE_INITIALIZED) {
             record.release()
-            return emit(Event.Error(MIC_BUSY))
+            return fail(MIC_BUSY)
         }
         // 模型还没加载好时录下的声音
         val early = ArrayList<FloatArray>()
@@ -189,17 +199,16 @@ class VoiceInput(private val context: Context) {
         val raw = if (hold || BuildConfig.DEBUG) ByteArrayOutputStream(RATE * 2 * 10) else null
         try {
             record.startRecording()
-            if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) return emit(Event.Error(MIC_BUSY))
+            if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) return fail(MIC_BUSY)
             emit(Event.Ready)
             val chunk = ShortArray(CHUNK)
             var said = ""
             // 字没变、只是正在说的那段锁定了，也得再报一次：对话页那截字要从浅灰变深
             var saidLocked = 0
-            var heard = 0
             while (!finishing) {
                 coroutineContext.ensureActive()
                 val n = record.read(chunk, 0, chunk.size)
-                if (n < 0) return emit(Event.Error("录音出错了（$n），再试一次"))
+                if (n < 0) return fail("录音出错了（$n），再试一次")
                 if (n == 0) continue
                 heard += n
                 raw?.let { out -> for (k in 0 until n) { val v = chunk[k].toInt(); out.write(v and 0xff); out.write(v shr 8 and 0xff) } }
@@ -215,7 +224,7 @@ class VoiceInput(private val context: Context) {
                         early += samples
                         continue
                     }
-                    tr = open() ?: return emit(Event.Error(LOAD_FAILED))
+                    tr = open() ?: return fail(LOAD_FAILED)
                 }
                 val text = tr.feed(samples, live = true)
                 if (text.isNotEmpty() && (text != said || tr.lockedLength != saidLocked)) {
@@ -231,15 +240,18 @@ class VoiceInput(private val context: Context) {
             }
             // 停顿够了、点了印，或者松手了。先把麦克风放了，再把尾巴解完
             record.stop()
-            val t = tr ?: open() ?: return emit(Event.Error(LOAD_FAILED))
+            val t = tr ?: open() ?: return fail(LOAD_FAILED)
             tr = t
             val text = t.finish()
             QuickTrace.log(context, "voice decodes ${t.stats}")
             t.segments.forEach { QuickTrace.log(context, "voice seg $it") }
+            outcome = if (text.isBlank()) "没听清" else "出字"
             emit(Event.Final(text, if (hold) raw?.toByteArray() else null))
         } finally {
             record.release()
             tr?.let { QuickTrace.log(context, "voice vad ${it.vadStats}") }
+            val (n, avg, max) = tr?.numbers ?: Triple(0, 0L, 0L)
+            VoiceStats.session(context, hold, heard * 1000L / RATE, n, avg, max, outcome)
             if (BuildConfig.DEBUG) raw?.let { runCatching { writeWav(File(context.filesDir, "voice_last.wav"), it.toByteArray()) } }
         }
     }
@@ -255,8 +267,15 @@ class VoiceInput(private val context: Context) {
     private fun load(): Result<Engine> {
         val t0 = System.nanoTime()
         return runCatching { Engine(OfflineRecognizer(context.assets, ASR_CONFIG), Vad(context.assets, VAD_CONFIG)) }
-            .onSuccess { QuickTrace.log(context, "voice model loaded in ${(System.nanoTime() - t0) / 1_000_000}ms") }
-            .onFailure { QuickTrace.log(context, "voice model failed: $it") }
+            .onSuccess {
+                val ms = (System.nanoTime() - t0) / 1_000_000
+                QuickTrace.log(context, "voice model loaded in ${ms}ms")
+                VoiceStats.loadedOk(context, ms)
+            }
+            .onFailure {
+                QuickTrace.log(context, "voice model failed: $it")
+                VoiceStats.loadFailed(context, (System.nanoTime() - t0) / 1_000_000)
+            }
     }
 
     private class Engine(val asr: OfflineRecognizer, val vad: Vad) {
@@ -314,6 +333,10 @@ class VoiceInput(private val context: Context) {
 
         val vadStats: String
             get() = "speech=$speechChunks/$chunks chunks, peak=${"%.3f".format(peak)}"
+
+        /** 解了几次、平均、最慢（毫秒），给诊断 */
+        val numbers: Triple<Int, Long, Long>
+            get() = Triple(decodes, if (decodes == 0) 0L else decodeMs / decodes, decodeMaxMs)
 
         val stats: String
             get() = if (decodes == 0) "n=0" else "n=$decodes avg=${decodeMs / decodes}ms max=${decodeMaxMs}ms"
@@ -427,7 +450,7 @@ class VoiceInput(private val context: Context) {
         return ((db + 55) / 35).toFloat().coerceIn(0f, 1f)
     }
 
-    private companion object {
+    internal companion object {
         const val RATE = 16_000
         /** 一次读 100ms */
         const val CHUNK = RATE / 10
@@ -447,6 +470,10 @@ class VoiceInput(private val context: Context) {
         const val MODEL_DIR = "asr"
         const val MODEL_FILE = "model.int8.onnx"
         const val VAD_FILE = "silero_vad.onnx"
+        /** 模型文件在不在包里（诊断也看这个） */
+        fun modelPresent(context: Context): Boolean =
+            context.assets.list(MODEL_DIR)?.let { MODEL_FILE in it && VAD_FILE in it } == true
+
         const val MIC_BUSY = "麦克风打不开，可能正被别的 app 占着"
         const val LOAD_FAILED = "语音模型加载失败，去 app 里说吧"
 

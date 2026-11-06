@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 把本地语音识别的模型放进 app/src/main/assets/asr/（DESIGN 决策 8.3、VOICE_PLAN.md）。
+# 把本地语音识别的模型放进 app/src/main/assets/asr/（DESIGN 决策 8.3）。
 #
 # 模型 239MB，超过 GitHub 单个文件 100MB 的上限，进不了 git；换机器、新克隆之后跑一次：
 #   ./tools/fetch_asr_model.sh

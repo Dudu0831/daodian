@@ -2,7 +2,7 @@
 //
 // SenseVoice 跑起来 500MB 上下，放掉之后 Native Heap 里还留着约 100MB 空页（dumpsys meminfo 的 free 那一列）。
 // 荣耀几分钟后自己收回去，别的手机不一定 —— 在那之前进程在后台顶着 300MB，容易被当成内存大户杀掉。
-// Java / Kotlin 没有这个接口，只能从 C 调 bionic 的 mallopt。见 VOICE_PLAN.md §2.3。
+// Java / Kotlin 没有这个接口，只能从 C 调 bionic 的 mallopt。见 DESIGN.md §8.3。
 #include <jni.h>
 #include <malloc.h>
 #include <android/api-level.h>

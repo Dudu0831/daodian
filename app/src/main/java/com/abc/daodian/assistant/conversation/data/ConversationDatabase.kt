@@ -25,7 +25,7 @@ import com.abc.daodian.assistant.memory.data.TidyRunEntity
  *
  * v2：加了记忆（`memories`）和整理记录（`tidy_runs`），见 DESIGN.md §6.9。
  * v3：`chat_items` 加一列 `images`，随话发来的图片，见 DESIGN.md §6.10。
- * v4：`chat_items` 加一列 `audio`，语音条的原声（VOICE_PLAN §2.7）。
+ * v4：`chat_items` 加一列 `audio`，语音条的原声（§8.3）。
  */
 @Database(
     entities = [ConversationItemEntity::class, MemoryEntity::class, TidyRunEntity::class],

@@ -15,7 +15,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
- * 对话里的语音条，在本机怎么放（VOICE_PLAN §2.7，做完并进 DESIGN §8.3）。
+ * 对话里的语音条，在本机怎么放（DESIGN.md §8.3）。
  *
  * 按住说话原地松手：这一次的原声编成 AAC（m4a，24kbps，一分钟不到 200KB），放进 [dir]，跟 `chat.db` 一样只增不减；
  * 只有喊停撤回那一句时删掉（字退回输入框，录音不留）。模型从来不听它，读的是认出来的字。
