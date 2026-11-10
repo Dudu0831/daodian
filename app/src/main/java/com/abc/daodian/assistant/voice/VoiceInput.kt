@@ -248,7 +248,7 @@ class VoiceInput(private val context: Context) {
                 }
                 // 按住说话不看停顿：什么时候收由手指定，旁边一直有人说话也不会收不了。
                 // 速记也不看一般的停顿（说一半想一想不该被收掉），只兜忘了点印的
-                val endpoint = if (mode == Mode.Tap) tapEndpoint(tr.spoke, tr.fed, tr.lastSpeechAt, tr.speaking) else null
+                val endpoint = if (mode == Mode.Tap) tapEndpoint(tr.spoke, tr.fed, tr.lastSpeechAt, tr.nearSpeaking) else null
                 if (endpoint != null) {
                     QuickTrace.log(context, "voice endpoint: $endpoint")
                     break
@@ -297,6 +297,13 @@ class VoiceInput(private val context: Context) {
         private var audio = FloatArray(RATE * 10)
         /** VAD 切出来的段：起止样本 */
         private val segs = ArrayList<LongArray>()
+        /** 每段多响（[loudness]，dBFS），和 [segs] 一一对应 */
+        private val segDb = ArrayList<Float>()
+        /** 这一次里最响的那段：近讲门拿它当「你的音量」，比它轻 [GATE_DB] 以上的当成远处别人在说 */
+        private var refDb = Float.NEGATIVE_INFINITY
+        /** 这会儿在说话，而且够响（不是远处的人声）。速记看停没停用它 */
+        var nearSpeaking = false
+            private set
         /** 前几段已经认过、锁进 [locked] 了。后面切好还没锁的几段是「尾巴」，和正在说的那段一起重算 */
         private var lockedSegs = 0
         private val locked = StringBuilder()
@@ -380,10 +387,14 @@ class VoiceInput(private val context: Context) {
             chunks++
             for (x in samples) if (kotlin.math.abs(x) > peak) peak = kotlin.math.abs(x)
             if (speaking) speechChunks++
-            if (speaking) {
-                if (!wasSpeaking) speechStart = fed
+            // 最近半秒够不够响。还没有说完的段可比时，听见的都算
+            nearSpeaking = speaking && near(loudness(audio, maxOf(0L, fed - RATE / 2).toInt(), fed.toInt()))
+            if (nearSpeaking) {
                 spoke = true
                 lastSpeechAt = fed
+            }
+            if (speaking) {
+                if (!wasSpeaking) speechStart = fed
             } else {
                 // 没人说话时只留开口前那一小截，别拿一长串静音去重算
                 pendingStart = maxOf(pendingStart, fed - PREROLL)
@@ -397,7 +408,11 @@ class VoiceInput(private val context: Context) {
                 speaking -> {
                     val gap = maxOf(RATE * REDECODE_MS / 1000, lastTailMs * 2 * RATE / 1000)
                     // 刚开口的那零点几秒不认：声音太短，语种常判错，头几个字先错后改
-                    if (fed - speechStart >= MIN_LIVE && fed - lastDecodeAt >= gap) decodeTail(asr, from, fed)
+                    if (fed - speechStart >= MIN_LIVE && fed - lastDecodeAt >= gap) {
+                        // 正在说的这段明显比你轻：多半是旁边的人，先不出字
+                        val far = !near(loudness(audio, pendingStart.toInt(), fed.toInt()))
+                        decodeTail(asr, from, fed, if (far) pendingStart to fed else null)
+                    }
                 }
                 lockedSegs == segs.size -> tailText = ""
                 // 这段说完了：按 VAD 给的起止再认一次，停够了就照这一遍锁
@@ -407,10 +422,10 @@ class VoiceInput(private val context: Context) {
             return join(locked.toString(), unsettled(tailText))
         }
 
-        private fun decodeTail(asr: OfflineRecognizer, from: Long, to: Long) {
+        private fun decodeTail(asr: OfflineRecognizer, from: Long, to: Long, hush: Pair<Long, Long>? = null) {
             lastDecodeAt = fed
             val t0 = System.nanoTime()
-            tailText = decode(asr, from, to)
+            tailText = decode(asr, from, to, hush)
             lastTailMs = (System.nanoTime() - t0) / 1_000_000
             tailFrom = from
             tailTo = to
@@ -428,7 +443,14 @@ class VoiceInput(private val context: Context) {
             drain()
             val t0 = System.nanoTime()
             var text = ""
-            for ((from, to) in fullPieces(segs.map { it[0] to it[1] }, fed)) {
+            if (BuildConfig.DEBUG) segs.forEachIndexed { i, s ->
+                segments += "段 @%.1fs %.1fs %.0fdB%s".format(
+                    s[0] / RATE.toFloat(), (s[1] - s[0]) / RATE.toFloat(), segDb[i], if (near(segDb[i])) "" else " 轻，不认"
+                )
+            }
+            // 近讲门：比最响那段轻太多的段不认（夹在中间的，认的时候抹成静音，见 decode）
+            val mine = segs.filterIndexed { i, _ -> near(segDb[i]) }
+            for ((from, to) in fullPieces(mine.map { it[0] to it[1] }, fed)) {
                 val piece = decode(asr, from, to)
                 if (BuildConfig.DEBUG) segments += "整句 @%.1fs %.1fs → %s".format(from / RATE.toFloat(), (to - from) / RATE.toFloat(), piece)
                 text = join(text, piece)
@@ -445,9 +467,16 @@ class VoiceInput(private val context: Context) {
             while (!vad.empty()) {
                 val seg = vad.front()
                 vad.pop()
-                val start = seg.start.toLong()
-                val end = start + seg.samples.size
+                val start = seg.start.toLong().coerceIn(0L, fed)
+                val end = (start + seg.samples.size).coerceAtMost(fed)
                 segs += longArrayOf(start, end)
+                val db = loudness(audio, start.toInt(), end.toInt())
+                segDb += db
+                if (db > refDb) {
+                    refDb = db
+                    // 「你的音量」变了，哪些段算轻跟着变：上一回认的那截不能直接拿来锁
+                    tailFrom = -1
+                }
                 pendingStart = maxOf(pendingStart, end)
                 dirty = true
             }
@@ -469,7 +498,12 @@ class VoiceInput(private val context: Context) {
                 var j = lockedSegs
                 while (j + 1 < segs.size && segs[j + 1][1] - first <= TAIL_MAX) j++
                 val end = segs[j][1]
-                var text = if (first == tailFrom && end == tailTo) tailText else decode(asr, first, end)
+                var text = when {
+                    // 这一批全是远处的人声
+                    (lockedSegs..j).none { near(segDb[it]) } -> ""
+                    first == tailFrom && end == tailTo -> tailText
+                    else -> decode(asr, first, end)
+                }
                 val more = j < segs.lastIndex || speaking
                 val gapAfter = (if (j < segs.lastIndex) segs[j + 1][0] else fed) - end
                 if (more && gapAfter < LOCK_PAUSE) text = soften(text)
@@ -492,11 +526,22 @@ class VoiceInput(private val context: Context) {
             }
         }
 
-        private fun decode(asr: OfflineRecognizer, from: Long, to: Long): String {
+        private fun near(db: Float) = db >= refDb - GATE_DB
+
+        /** 认 [from, to) 这一截。里面轻的段（远处的人声）和 [hush] 那一截先抹成静音，模型就听不见 */
+        private fun decode(asr: OfflineRecognizer, from: Long, to: Long, hush: Pair<Long, Long>? = null): String {
             val t0 = System.nanoTime()
+            val clip = audio.copyOfRange(from.toInt(), to.toInt())
+            fun mute(a: Long, b: Long) {
+                val lo = (maxOf(a, from) - from).toInt()
+                val hi = (minOf(b, to) - from).toInt()
+                if (lo < hi) clip.fill(0f, lo, hi)
+            }
+            for (i in segs.indices) if (!near(segDb[i])) mute(segs[i][0], segs[i][1])
+            hush?.let { mute(it.first, it.second) }
             val s = asr.createStream()
             try {
-                s.acceptWaveform(audio.copyOfRange(from.toInt(), to.toInt()), RATE)
+                s.acceptWaveform(clip, RATE)
                 asr.decode(s)
                 return asr.getResult(s).text.trim()
             } finally {
@@ -553,6 +598,30 @@ class VoiceInput(private val context: Context) {
         const val LOCK_PAUSE = RATE.toLong()
         /** 没锁的那一截（尾巴 + 正在说的）最长这么久，超了先把尾巴锁掉：10 秒解一次 0.3 秒上下 */
         const val TAIL_MAX = RATE * 10L
+        /**
+         * 近讲门：比这一次里最响的那段轻这么多（dB）以上的，当成远处别人在说，不认、也不算你还在说。
+         * 嘴离手机十几厘米、别人在一两米外，差 15–20dB；自己一句话里轻重差不到这么多
+         */
+        const val GATE_DB = 12f
+
+        /**
+         * 这一截有多响（dBFS）：切成 50ms 一格，取第八成响的那一格 —— 一截里夹着的停顿不拉低它，
+         * 一两下特别响的（咳嗽、碰到手机）也不抬高它。太短算不出来时返回很小的数
+         */
+        fun loudness(audio: FloatArray, from: Int, to: Int): Float {
+            val frame = RATE / 20
+            val n = (to - from) / frame
+            if (n <= 0) return -100f
+            val db = FloatArray(n) { i ->
+                var sum = 0.0
+                val base = from + i * frame
+                for (k in base until base + frame) sum += audio[k] * audio[k]
+                (10 * log10(sum / frame + 1e-10)).toFloat()
+            }
+            db.sort()
+            return db[(n * 4 / 5).coerceAtMost(n - 1)]
+        }
+
         private const val TRAILING_MARKS = "。，、；：？！.,;:?!…"
 
         /** 还没锁的字怎么给人看：去掉末尾的标点 */
