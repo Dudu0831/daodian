@@ -1,5 +1,6 @@
 package com.abc.daodian.assistant.quick
 
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
@@ -43,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -88,6 +90,7 @@ import com.abc.daodian.shared.theme.Motion
 import com.abc.daodian.shared.ui.MicIcon
 import com.abc.daodian.shared.ui.StopIcon
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** 印落下之后停多久自己缩回去：够看清「已记下」和时间，又不至于让人干等。纸底边那根细线就是它 */
@@ -328,7 +331,7 @@ private fun SheetContent(
     }
 
     Reveal(vm.blocked == null && !vm.aiBusy && !vm.saved) {
-        Transcript(heard = vm.heard, listening = vm.listening, followUp = vm.turn != null, note = vm.note)
+        Transcript(heard = vm.heard, listening = vm.listening, preparing = vm.preparing, followUp = vm.turn != null, note = vm.note)
     }
     Reveal(vm.blocked != null) {
         Column(Modifier.padding(top = 12.dp)) {
@@ -341,15 +344,19 @@ private fun SheetContent(
         SealControls(
             seal = when {
                 vm.aiBusy -> Seal.Busy
+                vm.preparing -> Seal.Preparing
                 vm.listening -> Seal.Listening
                 else -> Seal.Idle
             },
             level = vm.level,
+            startedAt = vm.listenStartedAt,
             faceVisible = sealFaceVisible,
             onFacePlaced = onSealPlaced,
             onSeal = {
                 when {
                     vm.aiBusy -> vm.stop()
+                    // 已经说完了，在等模型：再点也没有可停的
+                    vm.preparing -> Unit
                     vm.listening -> vm.finishListening()
                     else -> onVoice()
                 }
@@ -364,6 +371,7 @@ private fun StateLabel(vm: QuickAddViewModel) {
     val colors = DaodianColors.current
     val label = when {
         vm.blocked != null -> "用不了语音"
+        vm.preparing -> "在认"
         vm.listening -> "在听"
         vm.aiBusy -> "在记"
         vm.saved -> "记好了"
@@ -390,16 +398,19 @@ private fun AskedLine(text: String) {
 }
 
 /**
- * 听写区：说起来就是边说边洇出来的宋体大字；没在说时是一句提示 ——
+ * 听写区：速记不边说边出字（模型两三秒才加载好，§8.3），在听时只是一句提示，墨印跟着音量洇、底下计时；
+ * 点了印整句认一次，认出来的话直接送去，变成上面那道引文。没在说时也是一句提示 ——
  * 印熄下来的原因（没听清、停了）直接顶替提示语，不另起一行红字：没听清不是出错。
  */
 @Composable
-private fun Transcript(heard: String, listening: Boolean, followUp: Boolean, note: String?) {
+private fun Transcript(heard: String, listening: Boolean, preparing: Boolean, followUp: Boolean, note: String?) {
     val colors = DaodianColors.current
     val style = DaodianType.cardTitle.copy(fontWeight = FontWeight.Normal, fontSize = 21.sp, lineHeight = 31.sp)
     Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
         when {
             heard.isNotEmpty() -> InkText(heard, streaming = listening, style = style, color = colors.ink, caret = listening)
+            // 点了印：声音都录下了，整句认一次（模型还在加载的话等它好了）
+            preparing -> Text("说完了，在认——", style = style, color = colors.hint)
             listening -> Text(if (followUp) "直接回答就行——" else "说吧——", style = style, color = colors.hint)
             else -> Text(
                 note ?: if (followUp) "接着说，点一下印" else "点一下印，开始说",
@@ -407,7 +418,7 @@ private fun Transcript(heard: String, listening: Boolean, followUp: Boolean, not
                 color = colors.hint
             )
         }
-        if (heard.isEmpty() && !followUp) {
+        if (heard.isEmpty() && !followUp && !preparing) {
             Text(
                 "比如「明天下午三点交房租」",
                 style = DaodianType.caption,
@@ -418,13 +429,15 @@ private fun Transcript(heard: String, listening: Boolean, followUp: Boolean, not
     }
 }
 
-private enum class Seal { Idle, Listening, Busy }
+/** Preparing：点了印、录音已经停了，在整句认（模型没加载完的话还在等它） —— 空心圈里一支淡墨麦克风，不洇、点了没反应 */
+private enum class Seal { Idle, Listening, Preparing, Busy }
 
-/** 墨印居中，底下一行小字说清按下去会怎样 */
+/** 墨印居中，底下一行小字：在听时是计时（点印才收，看得见听了多久），别的时候说清按下去会怎样 */
 @Composable
 private fun SealControls(
     seal: Seal,
     level: Float,
+    startedAt: Long,
     faceVisible: Boolean,
     onFacePlaced: (Rect) -> Unit,
     onSeal: () -> Unit
@@ -432,18 +445,34 @@ private fun SealControls(
     val colors = DaodianColors.current
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         MicSeal(seal, level, faceVisible, onFacePlaced, onSeal)
-        Crossfade(
-            when (seal) {
-                Seal.Listening -> "停一下就收 · 点纸外取消"
-                Seal.Busy -> "点一下，停"
-                Seal.Idle -> "点一下，说"
-            },
-            animationSpec = Motion.flow(Motion.SHORT),
-            label = "sealCaption"
-        ) {
-            Text(it, style = DaodianType.speakerTag, color = colors.hint)
+        Crossfade(seal, animationSpec = Motion.flow(Motion.SHORT), label = "sealCaption") {
+            when (it) {
+                Seal.Listening -> ListenClock(startedAt)
+                Seal.Preparing -> Text("马上好", style = DaodianType.speakerTag, color = colors.hint)
+                Seal.Busy -> Text("点一下，停", style = DaodianType.speakerTag, color = colors.hint)
+                Seal.Idle -> Text("点一下，说", style = DaodianType.speakerTag, color = colors.hint)
+            }
         }
     }
+}
+
+/** 听了多久，0:07 这样，一秒一跳 */
+@Composable
+private fun ListenClock(startedAt: Long) {
+    val colors = DaodianColors.current
+    var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(startedAt) {
+        while (true) {
+            now = SystemClock.elapsedRealtime()
+            delay(1_000 - (now - startedAt) % 1_000)
+        }
+    }
+    val sec = ((now - startedAt) / 1_000).coerceAtLeast(0)
+    Text(
+        "%d:%02d".format(sec / 60, sec % 60),
+        style = DaodianType.speakerTag.copy(fontFeatureSettings = "tnum"),
+        color = colors.hint
+    )
 }
 
 /**
@@ -462,11 +491,13 @@ private fun MicSeal(
     val colors = DaodianColors.current
     val listening = seal == Seal.Listening
     val busy = seal == Seal.Busy
+    // 空心的两种：送去解析了（停）、等模型（淡墨麦克风）
+    val hollow = busy || seal == Seal.Preparing
     val swell by animateFloatAsState(if (listening) level else 0f, Motion.flow(Motion.CHAR), label = "sealSwell")
     val fill by animateColorAsState(
-        if (busy) colors.solid.copy(alpha = 0f) else colors.solid, Motion.flow(Motion.SHORT), label = "sealFill"
+        if (hollow) colors.solid.copy(alpha = 0f) else colors.solid, Motion.flow(Motion.SHORT), label = "sealFill"
     )
-    val ring by animateColorAsState(if (busy) colors.rule2 else colors.solid, Motion.flow(Motion.SHORT), label = "sealRing")
+    val ring by animateColorAsState(if (hollow) colors.rule2 else colors.solid, Motion.flow(Motion.SHORT), label = "sealRing")
 
     Box(Modifier.size(116.dp), contentAlignment = Alignment.Center) {
         // 无限循环只在真的在听时才进组合 —— 挂着不用也会一直要帧
@@ -493,9 +524,12 @@ private fun MicSeal(
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center
         ) {
-            Crossfade(busy, animationSpec = Motion.flow(Motion.SHORT), label = "sealGlyph") { stop ->
-                if (stop) StopIcon(size = 24.dp, tint = colors.ink2)
-                else MicIcon(size = 26.dp, tint = colors.onSolid, strokeWidth = 1.5.dp)
+            Crossfade(seal, animationSpec = Motion.flow(Motion.SHORT), label = "sealGlyph") {
+                when (it) {
+                    Seal.Busy -> StopIcon(size = 24.dp, tint = colors.ink2)
+                    Seal.Preparing -> MicIcon(size = 26.dp, tint = colors.hint, strokeWidth = 1.5.dp)
+                    else -> MicIcon(size = 26.dp, tint = colors.onSolid, strokeWidth = 1.5.dp)
+                }
             }
         }
     }

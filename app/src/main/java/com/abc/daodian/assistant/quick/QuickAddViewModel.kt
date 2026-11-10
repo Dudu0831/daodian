@@ -1,8 +1,10 @@
 package com.abc.daodian.assistant.quick
 
 import android.app.Application
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
@@ -38,8 +40,14 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
 
     var listening by mutableStateOf(false)
         private set
-    /** 边说边出来的字 */
+    /** 听到的字。速记不边说边出字（`Mode.Tap` 不发 Partial），现在一直是空的；界面那头还认它，哪天要出字直接能用 */
     var heard by mutableStateOf("")
+        private set
+    /** 点了印：录音停了，在整句认（模型没加载完的话先等它）。纸上写「在认」，印点了不再有反应 */
+    var preparing by mutableStateOf(false)
+        private set
+    /** 这一次开始听的时刻（elapsedRealtime），印底下的计时从它数 */
+    var listenStartedAt by mutableLongStateOf(0L)
         private set
     /** 麦克风音量，0..1 */
     var level by mutableFloatStateOf(0f)
@@ -84,9 +92,12 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
         note = null
         heard = ""
         listening = true
-        voice.start { event ->
+        listenStartedAt = SystemClock.elapsedRealtime()
+        // 点印才收，停顿不收；一直没开口、说完忘了点印、满 60 秒由 VoiceInput 兜着收（§8.3）
+        voice.start(VoiceInput.Mode.Tap) { event ->
             when (event) {
                 VoiceInput.Event.Ready -> Unit
+                VoiceInput.Event.Preparing -> preparing = true
                 is VoiceInput.Event.Partial -> heard = event.text
                 is VoiceInput.Event.Level -> level = event.value
                 is VoiceInput.Event.Final -> {
@@ -94,11 +105,10 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
                     endListening()
                     if (said.isBlank()) note = "没听清，再说一次？" else send(said)
                 }
+                // 速记不边说边出字，出错时没有听到一半的字可送，只写原因（§8.3）
                 is VoiceInput.Event.Error -> {
-                    val partial = heard
                     endListening()
-                    // 说到一半出错（多半是停顿超时）：已经听到的字就当说完了，别让人从头再说一遍
-                    if (partial.isNotBlank()) send(partial) else note = event.message
+                    note = event.message
                 }
             }
         }
@@ -191,6 +201,7 @@ class QuickAddViewModel(app: Application) : AndroidViewModel(app) {
         if (listening) QuickTrace.log(getApplication(), "vm endListening heard='$heard' note=$note")
         voice.cancel()
         listening = false
+        preparing = false
         level = 0f
         heard = ""
     }

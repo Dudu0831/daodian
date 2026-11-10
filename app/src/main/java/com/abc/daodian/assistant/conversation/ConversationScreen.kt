@@ -196,7 +196,7 @@ fun ConversationScreen(
             voiceNote = "没有麦克风权限，可以在系统设置里给「到点」打开"
         }
     }
-    // 切到后台就不录了，说了一半的不发；模型也放掉 —— 后台不带着 500MB（§8.3）
+    // 切到后台就不录了，说了一半的不发；模型也还掉，没人借了 10 秒后放 —— 后台不带着 500MB（§8.3）
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         VoicePlayback.stop()
         cancelHold()
@@ -367,9 +367,11 @@ fun ConversationScreen(
         holdZone = VoiceHold.Holding
         heldMillis = 0L
         holdStartedAt = SystemClock.uptimeMillis()
-        voice.start(hold = true) { event ->
+        voice.start(VoiceInput.Mode.Hold) { event ->
             when (event) {
                 VoiceInput.Event.Ready -> Unit
+                // 松手后文字框本来就留着等最后几个字，模型没加载完也是同一个样子
+                VoiceInput.Event.Preparing -> Unit
                 is VoiceInput.Event.Partial -> {
                     heard = event.text
                     heardLocked = event.locked
@@ -382,8 +384,12 @@ fun ConversationScreen(
                     heard = said
                     heardLocked = said.length
                     val asText = holdZone == VoiceHold.Text
+                    // 按满了时长那一刻手指正停在「取消」上：照取消办，不替你发
+                    val unwanted = holdZone == VoiceHold.Cancel
+                    if (unwanted) dropped = true
                     endHold()
                     when {
+                        unwanted -> Unit
                         said.isBlank() -> voiceNote = "没听清，再说一次？"
                         asText -> send(said, typed = false)
                         else -> send(said, typed = false, pcm = event.pcm)

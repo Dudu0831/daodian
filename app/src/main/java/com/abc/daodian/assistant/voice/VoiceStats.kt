@@ -18,7 +18,7 @@ object VoiceStats {
     private const val KEY = "recent"
     private const val KEEP = 12
 
-    /** 这会儿内存里有几份模型（一个对话页、一个速记，正常是 0 或 1） */
+    /** 这会儿内存里有几份模型（全 app 共用一份，正常是 0 或 1；放掉那一下新的又加载上了才会短暂是 2） */
     private val loaded = AtomicInteger(0)
 
     fun loadedOk(context: Context, ms: Long) {
