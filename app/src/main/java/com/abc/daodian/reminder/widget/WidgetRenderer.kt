@@ -26,7 +26,7 @@ import java.time.temporal.ChronoUnit
  * 把数据库里的前几条提醒画成 RemoteViews。见 DESIGN.md §8.2
  *
  * 版面自上而下：抬头 → 提醒 → 脚（左边一行小字，右下角一枚墨印）。提醒怎么摆看条数和高度（[fit]）：
- * 只有一条是大字时钟；两三条挤在 3×2 / 4×2 里是一行一条的时间表；拉高到 3×3 / 4×3 起是大字时钟 + 底下几行。
+ * 只有一条是大字时钟；两三条挤在 3×2 / 4×2 里是一行一条的时间表；拉高到 3×3 / 4×3 起是大字时钟 + 底下几行，拉多高摆多少行。
  * 墨印永远在；高度不够时先砍行，再把「下一条」压成脚上的一行小字 ——
  * 小组件最要紧的是「在桌面上说一句」，其次才是「看一眼」。
  *
@@ -53,8 +53,14 @@ object WidgetRenderer {
      */
     private const val ROW_DP = 26
 
-    /** 最多几行：3×2 里是三条的时间表，再高是大字时钟 + 底下三行。桌面不是列表页，看完前几条就该点进 app */
-    private const val MAX_ROWS = 3
+    /** 小组件最高拉到多少 dp，和 widget_info.xml 的 maxResizeHeight 对得上 */
+    private const val MAX_HEIGHT_DP = 400
+
+    /**
+     * 最多几行（大字时钟底下）：不另设上限，拉多高摆多少，摆到最高那一版放得下为止（400dp 是 8 行）。
+     * 3×2 里的时间表自己就只放得下三行。早先定死三行，7 条拉到 4×4 也只看得见 4 条，用户 11-09 说放开
+     */
+    private const val MAX_ROWS = (MAX_HEIGHT_DP - CHROME_DP - HERO_FULL_DP) / ROW_DP
 
     /** 版式只按高度分台阶，宽度不挑：每一版都放得进最窄的 3 格（和 widget_info.xml 的 minResizeWidth 对得上） */
     private const val MIN_WIDTH_DP = 160f
