@@ -6,9 +6,11 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
@@ -35,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -148,20 +151,22 @@ private fun Asking(
     }
 
     // 一题和多题是同一副骨架（都是翻页器，一题就是只有一页），差别只在两样「收全了才知道」的东西：
-    // 多题的卡头（细线 + 交卷）、一题的「问」印。它们等参数收全（[live]）再浮出来 ——
+    // 多题的卡头（细线 + 交卷）、一题的「问」印。
     // 流到第一题时还不知道后面有没有，以前先画成一题的样子、第二题到了整张换成多题，闪一下。
+    // 第二题收全时卡头的细线从顶上长出来，之后每收全一题多长一段，卡一直停在第一题；交卷那颗等参数收全才淡进来（11-13）。
     // 卡是钉在输入条上面的，卡头从顶上长出来时底下的题在屏幕上不动
     val single = request.questions.size == 1
     AnimatedVisibility(
-        visible = live && !single,
+        visible = !single,
         enter = expandVertically(Motion.settle()) + fadeIn(Motion.flow()),
         exit = shrinkVertically(Motion.flow()) + fadeOut(Motion.exit())
     ) {
         AskProgress(
             picks = List(request.questions.size) { block.picks.getOrNull(it) },
             current = current,
+            live = live,
             modifier = side,
-            onSelect = { i -> scope.launch { pager.animateScrollToPage(i, animationSpec = Motion.flow(PAGE_TURN_MS)) } },
+            onSelect = { i -> if (live) scope.launch { pager.animateScrollToPage(i, animationSpec = Motion.flow(PAGE_TURN_MS)) } },
             onSubmit = onSubmit
         )
     }
@@ -210,8 +215,17 @@ private const val PAGE_HOLD_MS = 260L
  * 这一题是多少钱写在题里，卡头不写字
  */
 @Composable
-private fun AskProgress(picks: List<Pick?>, current: Int, modifier: Modifier, onSelect: (Int) -> Unit, onSubmit: () -> Unit) {
+private fun AskProgress(
+    picks: List<Pick?>,
+    current: Int,
+    live: Boolean,
+    modifier: Modifier,
+    onSelect: (Int) -> Unit,
+    onSubmit: () -> Unit
+) {
     val colors = DaodianColors.current
+    // 卡头出来时已有的几段直接画满；之后流到的题，那一段从零宽长出来
+    val initial = remember { picks.size }
     Row(modifier.padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             picks.forEachIndexed { i, pick ->
@@ -223,9 +237,13 @@ private fun AskProgress(picks: List<Pick?>, current: Int, modifier: Modifier, on
                     },
                     Motion.flow(Motion.SHORT), label = "askSeg"
                 )
+                var grown by remember { mutableStateOf(i < initial) }
+                LaunchedEffect(Unit) { grown = true }
+                val weight by animateFloatAsState(if (grown) 1f else 0.001f, Motion.flow(), label = "askSegGrow")
                 Box(
                     Modifier
-                        .weight(1f)
+                        .weight(weight)
+                        .graphicsLayer { alpha = weight }
                         .height(30.dp)
                         .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Tab) { onSelect(i) }
                         .semantics { contentDescription = "第 ${i + 1} 题" + if (pick != null) "，答了" else "" },
@@ -235,12 +253,18 @@ private fun AskProgress(picks: List<Pick?>, current: Int, modifier: Modifier, on
                 }
             }
         }
-        SubmitPill(
-            answered = picks.count { it != null },
-            total = picks.size,
-            modifier = Modifier.padding(start = 12.dp),
-            onClick = onSubmit
-        )
+        AnimatedVisibility(
+            visible = live,
+            enter = expandHorizontally(Motion.flow()) + fadeIn(Motion.flow()),
+            exit = shrinkHorizontally(Motion.flow()) + fadeOut(Motion.exit())
+        ) {
+            SubmitPill(
+                answered = picks.count { it != null },
+                total = picks.size,
+                modifier = Modifier.padding(start = 12.dp),
+                onClick = onSubmit
+            )
+        }
     }
 }
 
@@ -249,7 +273,7 @@ private fun AskProgress(picks: List<Pick?>, current: Int, modifier: Modifier, on
  * - 一题没答：描边、灰字「先放着」—— 点了整张卡收起，记成先放着
  * - 答了几题：描边、墨字「提交 2/4」—— 交已经答的，剩下的先放着
  * - 答齐了：实心墨底「提交」
- * 参数还在流时整个卡头都还没出来
+ * 参数还在流时它不出来，收全了才淡进来
  */
 @Composable
 private fun SubmitPill(answered: Int, total: Int, modifier: Modifier = Modifier, onClick: () -> Unit) {
