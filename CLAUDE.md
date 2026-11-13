@@ -15,7 +15,7 @@
 **下一版 0.2.1（14）还差的**
 - 删通知管家页「以前设置里勾的」那一组（[docs/cleanup.md](docs/cleanup.md)「0.2.1 删」）。
 - 包 305MB（语音模型 239MB 打在里面），发不发这么大还没定。
-- 要不要给语音加一页新功能弹窗（`whatsnew/14/`）。
+- 新功能弹窗写好了（11-13，`whatsnew/Releases` 里 14 三页：按住说话、说一句就改、让它画给你看）：用户在 debug 包（临时 versionCode 14）上看过。动图源在 `promo/whatsnew-14-*.html`（gitignored），`node promo/export-whatsnew.mjs <页面> <输出.webp>` 录，1050×750 无损。第 2、3 页的功能本身还没在真机上验，没验过就撤那一页。
 - 改版本号、跑测试、`publish.sh`。
 - **知道的问题**：旁边一直有人说话时，速记自动接着听那一轮静不下来，要等满 60 秒或手动关。近讲门（§8.3）你和旁边的声音实际差多少 dB 没拉过 trace（release 包没有 `quick_trace.txt`），`GATE_DB` 12 的余量是凭用户「没问题」—— 有人说自己的话被丢、或别人的话还进来时，先在 debug 包上看 `voice seg 段 @… -31dB` 那几行。
 

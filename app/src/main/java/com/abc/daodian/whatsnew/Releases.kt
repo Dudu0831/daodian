@@ -27,6 +27,27 @@ object Releases {
                     media = "whatsnew/13/notice.webp"
                 )
             )
+        ),
+        Release(
+            versionCode = 14,
+            versionName = "0.2.1",
+            pages = listOf(
+                Page(
+                    title = "按住说话",
+                    line = "按住麦克风说，松手就发；拖到右边，看着字再发。声音在手机里认，不上传。",
+                    media = "whatsnew/14/voice.webp"
+                ),
+                Page(
+                    title = "说一句就改",
+                    line = "「喝水那个改成 9 点」「删了明天的提醒」，不用自己翻列表。",
+                    media = "whatsnew/14/edit.webp"
+                ),
+                Page(
+                    title = "让它画给你看",
+                    line = "「把这周的开销画成图」，图就画在对话里，还能点。",
+                    media = "whatsnew/14/widget.webp"
+                )
+            )
         )
     )
 
