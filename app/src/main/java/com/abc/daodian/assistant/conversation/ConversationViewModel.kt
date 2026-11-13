@@ -166,15 +166,16 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
      * 一句话 → agent 循环。见 DESIGN.md §6.1
      *
      * 写操作（建提醒、改账）在循环里直接办，对话里留一道痕；拿不准时模型自己出问卡（§6.6）。
-     * 问卡等着的时候，这里发出去的话是给整张问卡的，算直接说（只答某一题在卡里的「其他…」写）。
+     * 问卡等着的时候，这里发出去的话答的是问卡上眼前那一题（多题的卡是翻到的那一页，见 [askPage]）。
      */
     fun sendMessage(text: String, audio: String? = null) {
         val trimmed = text.trim()
         if (pendingAsk != null) {
-            // 问卡等着时按住说的，算直接说：答案画成一句字（存在问卡的结果里，没处放录音），录音不留
+            // 问卡等着：打的字、按住说的话都是答眼前这一题（[askPage]）。说的画成一句字
+            // （存在问卡的结果里，没处放录音），录音不留
             audio?.let(ConversationAudioFiles::delete)
             if (trimmed.isBlank()) return
-            sayToAsk(trimmed)
+            pendingAsk?.let { typedAsk(it.callId, askPage.coerceIn(0, it.request.questions.lastIndex.coerceAtLeast(0)), trimmed) }
             return
         }
         // 选好的图跟这句话一起走；只有图、没打字也能发（DESIGN.md §6.10）
@@ -334,6 +335,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
             val asker = Asker { call, request ->
                 val pending = PendingAsk(turnId, call.callId, request, CompletableDeferred())
                 pendingAsk = pending
+                askPage = 0
                 asking = request
                 patchTurnWith(turnId) { t ->
                     t.withAsk(call.callId) { it.copy(request = request, state = AskState.READY, picks = List(request.questions.size) { null }) }
@@ -423,13 +425,25 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 点了某一题的「其他…」（或写好的那颗）：那一格原地变成输入框；正写着的再点一次收回。一次只开一题 */
-    fun otherAsk(callId: String, question: Int) {
-        val pending = pendingAsk?.takeIf { it.callId == callId && !it.closing } ?: return
-        patchTurnWith(pending.turnId) { t -> t.withAsk(callId) { it.copy(editing = if (it.editing == question) null else question) } }
+    /** 多题的问卡翻到了第几题：输入条里写的答的是它 */
+    private var askPage = 0
+
+    fun askPage(callId: String, question: Int) {
+        if (pendingAsk?.callId == callId) askPage = question
     }
 
-    /** 「其他…」那一题写好了（点了对勾）：落回那一题。只有一题的卡就算答完 */
+    /** 点了自己写的那颗：取下来（字由界面交回输入条接着改） */
+    fun untypeAsk(callId: String, question: Int) {
+        val pending = pendingAsk?.takeIf { it.callId == callId && !it.closing } ?: return
+        patchTurnWith(pending.turnId) { t ->
+            t.withAsk(callId) { a ->
+                if (a.picks.getOrNull(question) !is Pick.Typed) a
+                else a.copy(picks = a.picks.toMutableList().also { it[question] = null })
+            }
+        }
+    }
+
+    /** 输入条里写的（或按住说的）：落到那一题上。只有一题的卡就算答完 */
     fun typedAsk(callId: String, question: Int, text: String) {
         val pending = pendingAsk?.takeIf { it.callId == callId && !it.closing } ?: return
         patchTurnWith(pending.turnId) { t ->
@@ -440,7 +454,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
         if (pending.request.single) submitAsk(callId)
     }
 
-    /** 「就这样」/「都先放着」 */
+    /** 右上角那颗：「先放着」/「提交 2/4」/「提交」 */
     fun submitAsk(callId: String) {
         val pending = pendingAsk?.takeIf { it.callId == callId && !it.closing } ?: return
         val block = (_messages.value.firstOrNull { it.id == pending.turnId } as? ConversationItem.AssistantTurn)
@@ -455,16 +469,6 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     /** 各题上顺手办了的事（挂上的标签），问各题 ref 的主人。交卷时问一次 */
     private suspend fun notesOf(request: AskRequest) =
         request.questions.map { q -> q.ref?.let { AssistantPlugins.askNote(getApplication(), it) } }
-
-    /** 没点，直接说了一句：给整张卡的，模型拿原话去对 */
-    private fun sayToAsk(text: String) {
-        val pending = pendingAsk?.takeIf { !it.closing } ?: return
-        pending.closing = true
-        viewModelScope.launch {
-            val notes = notesOf(pending.request)
-            if (pendingAsk === pending) answerAsk(pending, AskAnswer.Said(text, notes))
-        }
-    }
 
     private fun answerAsk(pending: PendingAsk, answer: AskAnswer) {
         pendingAsk = null

@@ -63,6 +63,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -119,14 +120,14 @@ fun ConversationScreen(
     val colors = DaodianColors.current
     val messages by vm.messages.collectAsState()
     val restored by vm.restored.collectAsState()
-    // 问卡在等你：输入框照样能打字 —— 发出去是给问卡的（点了「其他…」只答那一题，否则算直接说）
+    // 问卡在等你：输入框照样能打字 —— 发出去答的是问卡上眼前那一题（§6.6）
     val asking = vm.asking
     // 等你答的那张卡：不进列表，钉在输入条上面。键盘弹起时整张跟着上来，不用和贴底抢位置（§6.6）
     val askBlock = (messages.lastOrNull() as? ConversationItem.AssistantTurn)
         ?.takeIf { vm.aiBusy }
         ?.blocks?.lastOrNull { it is TurnBlock.Ask && !it.state.sealed } as? TurnBlock.Ask
-    // 在卡里写「其他…」：屏幕上只留这一个框，输入条让开
-    val writingInCard = askBlock?.editing != null
+    // 多题的问卡翻到了第几题：占位字跟着说「这笔」还是「这题」
+    var askPage by remember(askBlock?.callId) { mutableIntStateOf(0) }
     val profile by vm.profile.collectAsState()
     val apiState by vm.apiState.collectAsState()
     // 通知弹了、还没对的每晚对账：对话末尾一段虚线。正在跑一轮时收起来 —— 这时候点了也开不了
@@ -590,6 +591,15 @@ fun ConversationScreen(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
                 )
             }
+            // 问卡和输入条是一张纸：上半截问、下半截输入条，外壳在这里画一次（§6.6）
+            val shellShape = RoundedCornerShape(26.dp)
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(shellShape)
+                    .background(colors.surface)
+                    .border(1.dp, colors.rule, shellShape)
+            ) {
             AnimatedVisibility(
                 visible = askBlock != null,
                 enter = fadeIn(Motion.flow()) + expandVertically(Motion.settle(), expandFrom = Alignment.Bottom),
@@ -598,7 +608,7 @@ fun ConversationScreen(
                 // 退场那几帧 askBlock 已经是 null 了，用最后一次的画完
                 val shown = remember { arrayOfNulls<TurnBlock.Ask>(1) }
                 askBlock?.let { shown[0] = it }
-                shown[0]?.let { b ->
+                shown[0]?.let { b -> Column {
                     Box(
                         Modifier
                             .heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.55f)
@@ -607,20 +617,28 @@ fun ConversationScreen(
                         AskCard(
                             b,
                             onPick = { q, o -> vm.pickAsk(b.callId, q, o) },
-                            onOther = { q -> vm.otherAsk(b.callId, q) },
-                            onTyped = { q, t -> vm.typedAsk(b.callId, q, t) },
+                            onRetype = { q, t ->
+                                vm.untypeAsk(b.callId, q)
+                                if (input.isBlank()) input = t
+                            },
+                            onPage = { q ->
+                                askPage = q
+                                vm.askPage(b.callId, q)
+                            },
                             onSubmit = { vm.submitAsk(b.callId) }
                         )
                     }
-                }
+                    HorizontalDivider(color = colors.ruleSoft)
+                } }
             }
             AnimatedVisibility(
-                visible = !writingInCard,
+                visible = true,
                 enter = fadeIn(Motion.flow()) + expandVertically(Motion.flow()),
                 exit = fadeOut(Motion.exit()) + shrinkVertically(Motion.flow())
             ) {
-            Column(Modifier.padding(top = if (askBlock != null) 8.dp else 0.dp)) {
+            Column {
             ConversationInputBar(
+                shell = false,
                 text = input,
                 onTextChange = {
                     voiceNote = null
@@ -663,13 +681,18 @@ fun ConversationScreen(
                 maxImages = ConversationImageFiles.MAX_PER_MESSAGE,
                 placeholder = when {
                     voiceNote != null -> voiceNote.orEmpty()
-                    asking != null -> if (asking.single) "都不是？直接说……" else "或者直接说……"
+                    asking != null -> when {
+                        asking.single -> "都不是？写在这里……"
+                        asking.questions.getOrNull(askPage)?.amount != null -> "这笔都不是？写在这里……"
+                        else -> "这题都不是？写在这里……"
+                    }
                     vm.aiBusy -> "正在说……"
                     pendingImages.isNotEmpty() -> "说点什么，或者直接发……"
                     messages.isEmpty() -> "说一句话……"
                     else -> "再说点什么……"
                 }
             )
+            }
             }
             }
         }

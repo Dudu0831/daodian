@@ -1,71 +1,67 @@
 package com.abc.daodian.assistant.conversation
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.foundation.border
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.saveable.rememberSaveableStateHolder
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -80,20 +76,20 @@ import com.abc.daodian.runtime.ask.Pick
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.theme.Motion
-import com.abc.daodian.shared.ui.CheckIcon
 import com.abc.daodian.shared.ui.InkChip
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.dropWhile
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /*
- * 问卡：对话里唯一的卡片。模型拿不准时先猜好几个答案，你点一下；都不对就点「其他…」自己写，
- * 或者什么都不点、直接在输入框里说一句。见 DESIGN.md §6.6。
+ * 问卡：对话里唯一的卡片。模型拿不准时先猜好几个答案，你点一下；都不对就在输入条里自己写。见 DESIGN.md §6.6。
  *
- * 等你答时钉在输入条上面，不进对话列表。多题的卡一次看一题，顶上一排页签（金额），点完自动跳到下一题没答的。
+ * 等你答时和输入条合成一张纸（11-12「甲 · 连体」）：上半截是问，下半截还是输入条，外壳归 ConversationScreen 画，
+ * 这里不画底、不画边。多题的卡一次看一题，顶上一排细线（答了的朱砂、当前墨色），点完自动翻到下一题没答的。
  *
- * 「其他…」原地变成一行输入框（[OtherField]），键盘跟着弹，底下的输入条让开；写完点对勾落成一颗实心胶囊，点它能改。
+ * 猜测固定一行，装不下横着滑（[ChipRows]）。多题的几题是一摞横着翻的页，在题上左右滑就翻；高取最高的那页，翻的时候卡不动。
+ *
+ * 都不是：在下半截的输入条里写，或者按住说，答的是眼前这一题，发出去落成一颗实心胶囊，点它取下来接着改。
+ * 没有「其他…」那颗、也没有「直接说」了（11-12：两个能打字的地方、一个答一题一个作废整张卡，分不清）。
  *
  * 答完后卡片收起，「答」印盖在回合抬头「· 到点」右侧的伴随印上。
  */
@@ -111,37 +107,24 @@ fun answerLabelOf(q: AskQuestion, pick: Pick?, single: Boolean): String? = when 
 internal val AskState.sealed: Boolean
     get() = this == AskState.ANSWERED || this == AskState.SAID || this == AskState.UNANSWERED
 
-/** 一题、问的是一句话（不是一笔账）：问句直接写在卡头「问」字旁边 */
-private fun AskRequest.headed(): AskQuestion? =
-    questions.singleOrNull()?.takeIf { single && it.amount == null && it.prompt != null }
-
 @Composable
 fun AskCard(
     block: TurnBlock.Ask,
     onPick: (question: Int, option: Int) -> Unit,
-    onOther: (question: Int) -> Unit,
-    onTyped: (question: Int, text: String) -> Unit,
+    /** 点了自己写的那颗：答案取下，字交回输入条接着改 */
+    onRetype: (question: Int, text: String) -> Unit,
+    /** 多题的卡翻到了第几题 —— 输入条里写的答的是这一题 */
+    onPage: (question: Int) -> Unit,
     onSubmit: () -> Unit
 ) {
-    val colors = DaodianColors.current
     val request = remember(block.request, block.arguments) { block.request ?: AskUserTool.draftOf(block.arguments) }
-    val headed = request.headed() != null
-    val shape = RoundedCornerShape(6.dp)
-
     Column(
         Modifier
             .fillMaxWidth()
-            .background(colors.surface, shape)
-            .border(1.dp, colors.rule, shape)
-            .padding(
-                start = 14.dp,
-                end = 14.dp,
-                top = if (headed) 10.dp else 8.dp,
-                bottom = if (headed) 12.dp else 10.dp
-            )
+            .padding(top = 14.dp, bottom = 13.dp)
             .animateContentSize(Motion.flow())
     ) {
-        Asking(block, request, onPick, onOther, onTyped, onSubmit)
+        key(block.callId) { Asking(block, request, onPick, onRetype, onPage, onSubmit) }
     }
 }
 
@@ -151,238 +134,220 @@ private fun Asking(
     block: TurnBlock.Ask,
     request: AskRequest,
     onPick: (question: Int, option: Int) -> Unit,
-    onOther: (question: Int) -> Unit,
-    onTyped: (question: Int, text: String) -> Unit,
+    onRetype: (question: Int, text: String) -> Unit,
+    onPage: (question: Int) -> Unit,
     onSubmit: () -> Unit
 ) {
     val colors = DaodianColors.current
     val live = block.state == AskState.READY
-    val headed = request.headed()
-    // 这张卡一出来就已经有的题（一次性请求）一起错峰升起；流式时每收全一题升一题
-    val paged = headed == null && request.questions.size > 1
-    var at by rememberSaveable(block.callId) { mutableIntStateOf(0) }
-    val current = at.coerceAtMost(request.questions.lastIndex).coerceAtLeast(0)
-    // 这一题刚点完：停一下让你看清点的是哪个，跳到下一题没答的。改答案、取消不跳
+    // 多题的卡是一摞横着翻的页：手指在题上左右滑，或者点卡头的细线
+    val pager = rememberPagerState { request.questions.size.coerceAtLeast(1) }
+    val scope = rememberCoroutineScope()
+    val current = pager.currentPage.coerceIn(0, request.questions.lastIndex.coerceAtLeast(0))
+    // 这一题刚点完：停一下让你看清点的是哪个，翻到下一题没答的。改答案、取消不翻
     val answered = block.picks.count { it != null }
     var lastAnswered by remember { mutableIntStateOf(answered) }
     LaunchedEffect(answered) {
         val advance = answered > lastAnswered
         lastAnswered = answered
-        if (!advance || block.editing != null) return@LaunchedEffect
+        if (!advance) return@LaunchedEffect
         delay(PAGE_HOLD_MS)
         val total = request.questions.size
         (1 until total).map { (current + it) % total }
             .firstOrNull { block.picks.getOrNull(it) == null }
-            ?.let { at = it }
+            ?.let { pager.animateScrollToPage(it, animationSpec = Motion.flow(PAGE_TURN_MS)) }
     }
-    // 页签切走时这一题不在界面上了，「其他…」的草稿要留着
-    val drafts = rememberSaveableStateHolder()
+    LaunchedEffect(current) { onPage(current) }
+    val side = Modifier.padding(horizontal = SIDE)
 
-    Column {
-        if (headed != null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                AskGlyph("问", colors.accent, Modifier.padding(top = 3.dp))
-                Text(headed.prompt.orEmpty(), style = HeadPrompt, color = colors.ink, modifier = Modifier.weight(1f))
-            }
-            HeadedQuestion(
-                headed, block.picks.firstOrNull(), editing = block.editing == 0, live = live,
-                draftKey = block.callId,
-                onPick = { onPick(0, it) }, onOther = { onOther(0) }, onTyped = { onTyped(0, it) }
-            )
-        } else if (paged) {
-            AskTabs(request, block.picks, current) { i ->
-                block.editing?.takeIf { it != i }?.let(onOther)
-                at = i
-            }
-            val i = current
-            drafts.SaveableStateProvider("${block.callId}#$i") {
-                Question(
-                    q = request.questions[i],
-                    pick = block.picks.getOrNull(i),
-                    editing = block.editing == i,
-                    live = live,
-                    draftKey = "${block.callId}#$i",
-                    paged = true,
-                    onPick = { onPick(i, it) },
-                    onOther = { onOther(i) },
-                    onTyped = { onTyped(i, it) }
-                )
-            }
-        } else {
-            Row(
-                Modifier.heightIn(min = 28.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(9.dp)
-            ) {
-                AskGlyph("问", colors.accent)
-                Text(
-                    request.label.ifBlank { "问一下" },
-                    style = DaodianType.caption,
-                    color = colors.ink2
-                )
-            }
-            request.questions.firstOrNull()?.let { q ->
-                Question(
-                    q = q,
-                    pick = block.picks.firstOrNull(),
-                    editing = block.editing == 0,
-                    live = live,
-                    draftKey = "${block.callId}#0",
-                    onPick = { onPick(0, it) },
-                    onOther = { onOther(0) },
-                    onTyped = { onTyped(0, it) }
-                )
-            }
-        }
-
-        // 卡脚只有多题的卡才有：一题的点了就算答。写「其他…」时收起，键盘上面只留这一题
-        AnimatedVisibility(
-            visible = live && !request.single && block.editing == null,
-            enter = expandVertically(Motion.settle()) + fadeIn(Motion.flow()),
-            exit = shrinkVertically(Motion.flow()) + fadeOut(Motion.exit())
+    // 参数刚开始流，一题都还没收全：只有「问」和标签
+    if (request.questions.isEmpty()) {
+        Row(
+            side.heightIn(min = 28.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            val n = block.picks.count { it != null }
-            val total = request.questions.size
-            val unit = if (request.questions.all { it.amount != null }) "笔" else "题"
-            Column {
-                HorizontalDivider(color = colors.ruleSoft)
-                Row(
-                    Modifier.padding(top = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    SolidPill(if (n == 0) "都先放着" else "就这样", onSubmit)
-                    Crossfade(
-                        when (n) {
-                            0 -> "点猜测，或者直接说"
-                            total -> "$n $unit 都点了"
-                            else -> "点了 $n $unit · 没点的先放着"
-                        },
-                        animationSpec = tween(120),
-                        label = "askCount"
-                    ) { Text(it, style = DaodianType.caption, color = colors.muted) }
-                }
-            }
+            AskGlyph("问", colors.accent)
+            Text(request.label.ifBlank { "问一下" }, style = DaodianType.caption, color = colors.ink2)
         }
+        return
+    }
+
+    // 一题和多题是同一副骨架（都是翻页器，一题就是只有一页），差别只在两样「收全了才知道」的东西：
+    // 多题的卡头（细线 + 交卷）、一题的「问」印。它们等参数收全（[live]）再浮出来 ——
+    // 流到第一题时还不知道后面有没有，以前先画成一题的样子、第二题到了整张换成多题，闪一下。
+    // 卡是钉在输入条上面的，卡头从顶上长出来时底下的题在屏幕上不动
+    val single = request.questions.size == 1
+    AnimatedVisibility(
+        visible = live && !single,
+        enter = expandVertically(Motion.settle()) + fadeIn(Motion.flow()),
+        exit = shrinkVertically(Motion.flow()) + fadeOut(Motion.exit())
+    ) {
+        AskProgress(
+            picks = List(request.questions.size) { block.picks.getOrNull(it) },
+            current = current,
+            modifier = side,
+            onSelect = { i -> scope.launch { pager.animateScrollToPage(i, animationSpec = Motion.flow(PAGE_TURN_MS)) } },
+            onSubmit = onSubmit
+        )
+    }
+    Box {
+        // 几页一直都在（beyondViewportPageCount）：翻页器的高取最高的那页，翻的时候卡不动；
+        // 「＋ 打标签」那行也早就读好了，不会翻过去才晚一帧冒出来
+        HorizontalPager(
+            state = pager,
+            contentPadding = PaddingValues(horizontal = SIDE),
+            pageSpacing = SIDE * 2,
+            beyondViewportPageCount = request.questions.size,
+            verticalAlignment = Alignment.Top,
+            // 还在流的时候不给翻：后面的题可能还没收全
+            userScrollEnabled = live && !single,
+            key = { it }
+        ) { i ->
+            Question(
+                q = request.questions[i],
+                pick = block.picks.getOrNull(i),
+                live = live,
+                // 一题：右上角要盖「问」印，字给它让出一截
+                glyphRoom = single,
+                onPick = { onPick(i, it) },
+                onRetype = { onRetype(i, it) }
+            )
+        }
+        val stamp by animateFloatAsState(if (live && single) 1f else 0f, Motion.flow(), label = "askStamp")
+        AskGlyph(
+            "问", colors.accent,
+            Modifier.align(Alignment.TopEnd).padding(end = SIDE, top = 3.dp).graphicsLayer { alpha = stamp }
+        )
     }
 }
+
+/** 问卡里的字离纸边多远 */
+private val SIDE = 16.dp
+
+/** 点细线、答完自动翻到下一题，那一页走多久 */
+private const val PAGE_TURN_MS = 320
 
 /** 点完一题到跳下一题之间停多久：看得清点的是哪个，又不至于干等 */
 private const val PAGE_HOLD_MS = 260L
 
-/** 多题卡的卡头：「问」字 + 一排页签。问账的写金额，别的写第几题；答过的带小勾 */
+/**
+ * 多题卡的卡头：一题一段细线，答了的朱砂、当前墨色、没到的浅灰，点哪段去哪题；最右是交卷的那颗（[SubmitPill]）。
+ * 这一题是多少钱写在题里，卡头不写字
+ */
 @Composable
-private fun AskTabs(request: AskRequest, picks: List<Pick?>, current: Int, onSelect: (Int) -> Unit) {
+private fun AskProgress(picks: List<Pick?>, current: Int, modifier: Modifier, onSelect: (Int) -> Unit, onSubmit: () -> Unit) {
     val colors = DaodianColors.current
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            AskGlyph("问", colors.accent, Modifier.padding(end = 6.dp))
-            request.questions.forEachIndexed { i, q ->
-                val on = i == current
-                Column(
+    Row(modifier.padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            picks.forEachIndexed { i, pick ->
+                val tint by animateColorAsState(
+                    when {
+                        i == current -> colors.ink
+                        pick != null -> colors.accent
+                        else -> colors.rule2
+                    },
+                    Motion.flow(Motion.SHORT), label = "askSeg"
+                )
+                Box(
                     Modifier
                         .weight(1f)
-                        .height(44.dp)
-                        .clickable(role = Role.Tab, onClick = { onSelect(i) }),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .height(30.dp)
+                        .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Tab) { onSelect(i) }
+                        .semantics { contentDescription = "第 ${i + 1} 题" + if (pick != null) "，答了" else "" },
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Text(
-                            q.amount?.removeSuffix(".00") ?: "第 ${i + 1} 题",
-                            style = TabText,
-                            color = if (on) colors.ink else colors.muted,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (picks.getOrNull(i) != null) CheckIcon(size = 10.dp, tint = colors.accent)
-                    }
-                    Box(Modifier.fillMaxWidth().height(2.dp).background(if (on) colors.accent else Color.Transparent))
+                    Box(Modifier.fillMaxWidth().height(3.dp).background(tint, RoundedCornerShape(1.5.dp)))
                 }
             }
         }
-        HorizontalDivider(color = colors.ruleSoft)
+        SubmitPill(
+            answered = picks.count { it != null },
+            total = picks.size,
+            modifier = Modifier.padding(start = 12.dp),
+            onClick = onSubmit
+        )
     }
 }
 
-private val TabText = DaodianType.rowTitle.copy(fontSize = 14.sp)
-
-/** 卡头问句的字：宋体 16，和多题卡里没有金额的那种问句一样大 */
-private val HeadPrompt = DaodianType.cardTitle.copy(fontSize = 16.sp, lineHeight = 24.sp)
-
-/** 一题、问句写在卡头的：底下出处、依据，一排胶囊 + 虚线「其他…」（点了就算答，写完点对勾也算答） */
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * 多题卡右上角那颗，一个时刻只说一件事（11-12，以前是「都先放着 / 就这样」，一个词又是交卷又是放弃）：
+ * - 一题没答：描边、灰字「先放着」—— 点了整张卡收起，记成先放着
+ * - 答了几题：描边、墨字「提交 2/4」—— 交已经答的，剩下的先放着
+ * - 答齐了：实心墨底「提交」
+ * 参数还在流时整个卡头都还没出来
+ */
 @Composable
-private fun HeadedQuestion(
-    q: AskQuestion,
-    pick: Pick?,
-    editing: Boolean,
-    live: Boolean,
-    draftKey: String,
-    onPick: (Int) -> Unit,
-    onOther: () -> Unit,
-    onTyped: (String) -> Unit
-) {
+private fun SubmitPill(answered: Int, total: Int, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val colors = DaodianColors.current
-    val ready by animateFloatAsState(if (live) 1f else 0.55f, Motion.flow(), label = "askReady")
-    val selected = (pick as? Pick.Option)?.index
-    // 问卡的类在 :runtime 里，跨模块的属性不能 smart cast，先取出来
-    val origin = q.context
-    val hint = q.hint
-    val ref = q.ref
-    // 和问句左边对齐：「问」字 18 + 间距 9
-    Column(Modifier.padding(start = 27.dp)) {
-        if (origin != null) Text(origin, style = DaodianType.caption, color = colors.muted, modifier = Modifier.padding(top = 1.dp))
-        if (hint != null) Text(hint, style = HintText, color = colors.muted, modifier = Modifier.padding(top = 1.dp))
-    }
-    FlowRow(
-        Modifier.padding(top = 10.dp).graphicsLayer { alpha = ready },
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp)
+    val all = total > 0 && answered == total
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.96f else 1f, Motion.flow(Motion.SHORT), label = "pillPress")
+    val fill by animateColorAsState(if (all) colors.solid else colors.solid.copy(alpha = 0f), Motion.flow(), label = "pillFill")
+    val edge by animateColorAsState(if (all) colors.solid else colors.rule2, Motion.flow(), label = "pillEdge")
+    val ink by animateColorAsState(
+        when {
+            all -> colors.onSolid
+            answered == 0 -> colors.muted
+            else -> colors.ink
+        },
+        Motion.flow(), label = "pillInk"
+    )
+    val shape = RoundedCornerShape(15.dp)
+    Box(
+        modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .height(30.dp)
+            .background(fill, shape)
+            .border(1.dp, edge, shape)
+            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 12.dp)
+            .animateContentSize(Motion.flow(Motion.SHORT)),
+        contentAlignment = Alignment.Center
     ) {
-        q.options.forEachIndexed { j, o ->
-            ChipLabel(
-                o.label, detail = o.detail, height = 34.dp,
-                selected = selected == j, dimmed = (pick != null || editing) && selected != j, enabled = live
-            ) { onPick(j) }
+        val text = when {
+            all -> "提交"
+            answered == 0 -> "先放着"
+            else -> "提交 $answered/$total"
         }
-        OtherSlot(pick, editing, live, draftKey, height = 34.dp, onOther = onOther, onTyped = onTyped)
+        Text(text, style = DaodianType.bodySmall, color = ink, maxLines = 1)
     }
-    if (live && ref != null) Addon(ref)
 }
+
+/** 问句的字：宋体 17 */
+private val HeadPrompt = DaodianType.cardTitle.copy(fontSize = 17.sp, lineHeight = 25.sp)
 
 private val HintText = DaodianType.caption.copy(fontSize = 12.sp, lineHeight = 17.sp)
 
-/** 卡里的一题：金额打头、后面是出处（没有金额的是出处 + 问句），依据，一排猜测 */
-@OptIn(ExperimentalLayoutApi::class)
+private val AmountText = DaodianType.rowTitle.copy(fontSize = 22.sp, lineHeight = 28.sp)
+
+/**
+ * 卡里的一题：问账的金额打头（宋体 22）、后面是出处；别的是出处 + 问句。底下依据、猜测、模块挂的那一块。
+ * [glyphRoom]：右上角盖着「问」印，字给它让出一截
+ */
 @Composable
 private fun Question(
     q: AskQuestion,
     pick: Pick?,
-    editing: Boolean,
     live: Boolean,
-    draftKey: String,
-    paged: Boolean = false,
+    glyphRoom: Boolean = false,
     onPick: (Int) -> Unit,
-    onOther: () -> Unit,
-    onTyped: (String) -> Unit
+    onRetype: (String) -> Unit
 ) {
     val colors = DaodianColors.current
-    // 参数还在流：猜测先半透明，点不了 —— 可能还在变
-    val ready by animateFloatAsState(if (live) 1f else 0.55f, Motion.flow(), label = "askReady")
+    // 问卡的类在 :runtime 里，跨模块的属性不能 smart cast，先取出来
+    val amount = q.amount
+    val origin = q.context
+    val prompt = q.prompt
+    val hint = q.hint
+    val ref = q.ref
     Column {
-        if (!paged) HorizontalDivider(color = colors.ruleSoft)
-        Column(Modifier.padding(top = 9.dp, bottom = 10.dp)) {
-            // 问卡的类在 :runtime 里，跨模块的属性不能 smart cast，先取出来
-            val amount = q.amount
-            val origin = q.context
-            val prompt = q.prompt
-            val hint = q.hint
-            val ref = q.ref
-            if (amount != null && !paged) {
+        Column(Modifier.padding(end = if (glyphRoom) 28.dp else 0.dp)) {
+            if (amount != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(amount, style = AmountText, color = colors.ink, modifier = Modifier.alignByBaseline())
                     Text(
@@ -391,117 +356,109 @@ private fun Question(
                         modifier = Modifier.weight(1f).alignByBaseline()
                     )
                 }
+                if (prompt != null) Text(prompt, style = DaodianType.bodySmall.copy(fontSize = 14.sp), color = colors.ink2, modifier = Modifier.padding(top = 2.dp))
             } else {
                 if (origin != null) Text(origin, style = DaodianType.caption, color = colors.muted)
                 if (prompt != null) Text(prompt, style = HeadPrompt, color = colors.ink)
             }
-            if (hint != null) Text(hint, style = HintText, color = colors.muted, modifier = Modifier.padding(top = 2.dp))
+            if (hint != null) Text(hint, style = HintText, color = colors.muted, modifier = Modifier.padding(top = 3.dp))
+        }
+        Guesses(q, pick, live, onPick, onRetype)
+        if (live && ref != null) Addon(ref)
+    }
+}
 
-            val selected = (pick as? Pick.Option)?.index
-            FlowRow(
-                Modifier.padding(top = 7.dp).graphicsLayer { alpha = ready },
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                q.options.forEachIndexed { j, o ->
-                    ChipLabel(o.label, selected = selected == j, dimmed = (pick != null || editing) && selected != j, enabled = live) { onPick(j) }
-                }
-                OtherSlot(pick, editing, live, draftKey, onOther = onOther, onTyped = onTyped)
+/**
+ * 一题的猜测。都不是的话在底下输入条里写（或按住说），发出去落成排在最前的一颗实心胶囊（11-12，
+ * 以前这里有一颗虚线「其他…」，点了原地长出输入框）；点那颗 = 取下来，字交回输入条接着改
+ */
+@Composable
+private fun Guesses(q: AskQuestion, pick: Pick?, live: Boolean, onPick: (Int) -> Unit, onRetype: (String) -> Unit) {
+    // 参数还在流：猜测先半透明，点不了 —— 可能还在变
+    val ready by animateFloatAsState(if (live) 1f else 0.55f, Motion.flow(), label = "askReady")
+    val selected = (pick as? Pick.Option)?.index
+    val typed = (pick as? Pick.Typed)?.text
+    if (q.options.isEmpty() && typed == null) return
+    Box(Modifier.padding(top = 11.dp).graphicsLayer { alpha = ready }) {
+        ChipRows {
+            // 自己写的排最前：猜测多到要横滑时，排在最后就在屏幕外了
+            if (typed != null) ChipLabel(typed, selected = true, dimmed = false, enabled = live) { onRetype(typed) }
+            q.options.forEachIndexed { j, o ->
+                ChipLabel(
+                    o.label, detail = o.detail,
+                    selected = selected == j, dimmed = pick != null && selected != j, enabled = live
+                ) { onPick(j) }
             }
-            if (live && ref != null) Addon(ref)
         }
     }
 }
 
-private val AmountText = DaodianType.rowTitle.copy(fontSize = 15.sp)
+private val CHIP_HEIGHT = 34.dp
+private val CHIP_GAP = 7.dp
+
+/** 猜测排几行：固定一行，装不下横着滑（11-12 先做过「最多两行」，这题两行下一题一行，换题时卡一高一矮） */
+private const val CHIP_ROWS = 1
 
 /**
- * 一题末尾的「其他…」那一格：没写过是虚线「其他…」；写着是一整行输入框；写好了是一颗实心胶囊，点它接着改。
- * 草稿按题记着（[draftKey]），收起再点开还在
+ * 一排猜测：[CHIP_ROWS] 行装得下就这么排；装不下（猜测多、字长）就匀成 [CHIP_ROWS] 行横着滑，
+ * 还有没露出来的那一侧边上淡出去。一颗最宽占八成半，再长截断 —— 不然一颗就占满一屏，后面的看不出能滑
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun FlowRowScope.OtherSlot(
-    pick: Pick?,
-    editing: Boolean,
-    live: Boolean,
-    draftKey: String,
-    height: Dp = 32.dp,
-    onOther: () -> Unit,
-    onTyped: (String) -> Unit
-) {
-    val typed = (pick as? Pick.Typed)?.text
-    var draft by rememberSaveable(draftKey) { mutableStateOf("") }
-    // 点开写好的那颗接着改：从它的字起笔
-    LaunchedEffect(editing) { if (editing && draft.isEmpty()) draft = typed.orEmpty() }
-    when {
-        editing -> OtherField(
-            text = draft,
-            onText = { draft = it },
-            height = height,
-            onDone = {
-                val t = draft.trim()
-                // 什么都没写就点对勾：收起，当没点过「其他…」
-                if (t.isEmpty()) onOther() else onTyped(t)
-            },
-            onClose = onOther,
-            modifier = Modifier.fillMaxWidth()
-        )
-        typed != null -> ChipLabel(typed, selected = true, dimmed = false, enabled = live, height = height, onClick = onOther)
-        else -> ChipLabel("其他…", selected = false, dimmed = false, enabled = live, dashed = true, height = height, onClick = onOther)
+private fun ChipRows(content: @Composable () -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val viewport = constraints.maxWidth
+        val gap = with(LocalDensity.current) { CHIP_GAP.roundToPx() }
+        val scroll = rememberScrollState()
+        // 装得下就不接手势：这一排上的左右滑留给翻页
+        Layout(content, Modifier.edgeFade(scroll).horizontalScroll(scroll, enabled = scroll.maxValue > 0)) { measurables, _ ->
+            val chips = measurables.map { it.measure(Constraints(maxWidth = (viewport * 0.85f).toInt())) }
+            fun widthOf(row: List<Placeable>) = row.sumOf { it.width } + gap * (row.size - 1).coerceAtLeast(0)
+            val wrapped = mutableListOf(mutableListOf<Placeable>())
+            chips.forEach { c ->
+                val row = wrapped.last()
+                if (row.isNotEmpty() && widthOf(row) + gap + c.width > viewport) wrapped += mutableListOf(c) else row += c
+            }
+            val rows: List<List<Placeable>> = (if (wrapped.size <= CHIP_ROWS) wrapped else {
+                // 按宽度匀开：每行攒到平均宽度就换行，最后一行兜底
+                val target = widthOf(chips) / CHIP_ROWS
+                val even = mutableListOf(mutableListOf<Placeable>())
+                chips.forEach { c ->
+                    if (even.size < CHIP_ROWS && even.last().isNotEmpty() && widthOf(even.last()) >= target) even += mutableListOf(c)
+                    else even.last() += c
+                }
+                even
+            }).filter { it.isNotEmpty() }
+            val rowHeight = chips.maxOfOrNull { it.height } ?: 0
+            val width = maxOf(viewport, rows.maxOfOrNull(::widthOf) ?: 0)
+            val height = rows.size * rowHeight + gap * (rows.size - 1).coerceAtLeast(0)
+            layout(width, height) {
+                rows.forEachIndexed { r, row ->
+                    var x = 0
+                    row.forEach {
+                        it.placeRelative(x, r * (rowHeight + gap))
+                        x += it.width + gap
+                    }
+                }
+            }
+        }
     }
 }
 
-/**
- * 「其他…」展开成的那行：朱砂边、纸色底，一出来就拿焦点、弹键盘；回车或右边的对勾都是写好了。
- * 系统返回收了键盘 = 不写了（[onClose]），草稿留着 —— 不然输入条让开了就回不来
- */
-@Composable
-private fun OtherField(text: String, onText: (String) -> Unit, height: Dp, onDone: () -> Unit, onClose: () -> Unit, modifier: Modifier = Modifier) {
-    val colors = DaodianColors.current
-    val focus = remember { FocusRequester() }
-    val keyboard = LocalSoftwareKeyboardController.current
-    LaunchedEffect(Unit) {
-        focus.requestFocus()
-        keyboard?.show()
-    }
-    val ime = WindowInsets.ime
-    val density = LocalDensity.current
-    val close by rememberUpdatedState(onClose)
-    LaunchedEffect(Unit) {
-        snapshotFlow { ime.getBottom(density) > 0 }.dropWhile { !it }.first { !it }
-        close()
-    }
-    val shape = RoundedCornerShape(height / 2)
-    Row(
-        modifier
-            .height(height + 2.dp)
-            .background(colors.paper, shape)
-            .border(1.dp, colors.accent, shape)
-            .padding(start = 13.dp, end = 3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        BasicTextField(
-            value = text,
-            onValueChange = onText,
-            singleLine = true,
-            textStyle = DaodianType.bodySmall.copy(fontSize = 14.sp, color = colors.ink),
-            cursorBrush = SolidColor(colors.accent),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { onDone() }),
-            modifier = Modifier.weight(1f).focusRequester(focus)
+/** 横滑的那一排：还能往哪边滑，哪边的边上就淡出去 */
+private fun Modifier.edgeFade(scroll: ScrollState, width: Dp = 22.dp): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val w = width.toPx()
+        if (scroll.canScrollForward) drawRect(
+            Brush.horizontalGradient(listOf(Color.Black, Color.Transparent), startX = size.width - w, endX = size.width),
+            topLeft = Offset(size.width - w, 0f), size = Size(w, size.height), blendMode = BlendMode.DstIn
         )
-        Box(
-            Modifier
-                .size(height - 6.dp)
-                .background(colors.solid, CircleShape)
-                .clickable(role = Role.Button, onClick = onDone)
-                .semantics { contentDescription = "就是这个" },
-            contentAlignment = Alignment.Center
-        ) { CheckIcon(size = 13.dp, tint = colors.onSolid) }
+        if (scroll.canScrollBackward) drawRect(
+            Brush.horizontalGradient(listOf(Color.Transparent, Color.Black), startX = 0f, endX = w),
+            size = Size(w, size.height), blendMode = BlendMode.DstIn
+        )
     }
-}
 
 /** 模块在这题底下挂的一块（记账：顺手打标签），见 [AssistantPlugin.AskAddon]。不是它的 ref 就什么都不画 */
 @Composable
@@ -516,54 +473,29 @@ private fun ChipLabel(
     selected: Boolean,
     dimmed: Boolean,
     enabled: Boolean,
-    dashed: Boolean = false,
-    accent: Boolean = false,
     detail: String? = null,
-    height: Dp = 32.dp,
     onClick: () -> Unit
 ) {
-    val roomy = height > 32.dp
     InkChip(
-        selected = selected, dimmed = dimmed, enabled = enabled, dashed = dashed, accent = accent,
-        shape = RoundedCornerShape(height / 2),
-        modifier = Modifier.height(height),
+        selected = selected, dimmed = dimmed, enabled = enabled,
+        shape = RoundedCornerShape(CHIP_HEIGHT / 2),
+        modifier = Modifier.height(CHIP_HEIGHT),
         onClick = onClick
     ) { onInk ->
         Row(
-            Modifier.padding(horizontal = if (roomy) 14.dp else 13.dp),
+            Modifier.padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
                 text,
-                style = DaodianType.bodySmall.copy(fontSize = if (roomy) 14.sp else 13.5.sp),
-                color = if (dashed) (if (accent) DaodianColors.current.accent else DaodianColors.current.muted) else onInk.fg
+                style = DaodianType.bodySmall.copy(fontSize = 14.sp),
+                color = onInk.fg,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
             )
-            if (detail != null) Text(detail, style = DaodianType.caption, color = onInk.sub)
-        }
-    }
-}
-
-@Composable
-private fun SolidPill(text: String, onClick: () -> Unit) {
-    val colors = DaodianColors.current
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.96f else 1f, Motion.flow(Motion.SHORT), label = "pillPress")
-    Box(
-        Modifier
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .height(36.dp)
-            .background(colors.solid, RoundedCornerShape(18.dp))
-            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
-            .padding(horizontal = 20.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Crossfade(text, animationSpec = tween(120), label = "pillText") {
-            Text(it, style = DaodianType.bodySmall.copy(fontSize = 14.sp), color = colors.onSolid)
+            if (detail != null) Text(detail, style = DaodianType.caption, color = onInk.sub, maxLines = 1)
         }
     }
 }

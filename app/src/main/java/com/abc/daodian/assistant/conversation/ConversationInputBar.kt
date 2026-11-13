@@ -111,7 +111,9 @@ fun ConversationInputBar(
     /** 这会儿能不能加图：回合在跑、问卡等着你答的时候不能，＋ 压暗 */
     attachEnabled: Boolean = true,
     maxImages: Int = Int.MAX_VALUE,
-    placeholder: String = "说一句话……"
+    placeholder: String = "说一句话……",
+    /** 自己画不画底和边。对话页的问卡和输入条合成一张纸，外壳归那边画（DESIGN.md §6.6） */
+    shell: Boolean = true
 ) {
     val colors = DaodianColors.current
     val hasImages = images.isNotEmpty()
@@ -124,8 +126,7 @@ fun ConversationInputBar(
     Column(
         Modifier
             .fillMaxWidth()
-            .background(colors.surface, shape)
-            .border(1.dp, colors.rule, shape)
+            .then(if (shell) Modifier.background(colors.surface, shape).border(1.dp, colors.rule, shape) else Modifier)
             .padding(start = 9.dp, end = 11.dp, top = 11.dp, bottom = 11.dp)
     ) {
         AnimatedVisibility(
