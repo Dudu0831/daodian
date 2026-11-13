@@ -47,6 +47,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -188,13 +189,20 @@ fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) 
             val hasBody = remember(blocks) {
                 blocks.any { it is TurnBlock.Prose || (it is TurnBlock.Ask && !it.state.sealed) }
             }
-            var imprintOpen by remember(msg.id, si) { mutableStateOf(anyFailed) }
+            // 列表把滚出屏幕的条目丢掉、滚回来重画：开没开、自动开过没有都得记在 saveable 里，
+            // 不然回来时又从收着的样子展开一遍，你手动收起的也会被重新打开
+            var imprintOpen by rememberSaveable(msg.id, si) { mutableStateOf(anyFailed) }
+            var autoOpened by rememberSaveable(msg.id, si) { mutableStateOf(false) }
             LaunchedEffect(anyFailed) {
-                if (anyFailed) imprintOpen = true
+                if (anyFailed && !autoOpened) {
+                    imprintOpen = true
+                    autoOpened = true
+                }
             }
             LaunchedEffect(msg.streaming, msg.waiting, hasBody, hasImprint) {
-                if (!msg.streaming && !msg.waiting && !hasBody && hasImprint) {
+                if (!msg.streaming && !msg.waiting && !hasBody && hasImprint && !autoOpened) {
                     imprintOpen = true
+                    autoOpened = true
                 }
             }
 
@@ -296,6 +304,8 @@ fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) 
 
 /**
  * 一块内容第一次出现时长出来；[animate] 为 false（重启读回的）就直接落定。
+ * 「第一次」记在 saveable 里：LazyColumn 把滚出屏幕的条目丢掉、滚回来重画，要是再从 0 高长一遍，
+ * 快速往回翻时整屏一路在展开；往下甩到底时最后那条回答刚进来还是 0 高，列表以为到底了，甩停在问题上。
  * 问卡答完时 [visible] 变为 false，向上收起化入抬头伴随印。
  */
 @Composable
@@ -306,8 +316,12 @@ private fun ColumnScope.Appear(
     gap: Dp,
     content: @Composable () -> Unit
 ) {
-    val state = remember { MutableTransitionState(if (animate) false else visible) }
-    LaunchedEffect(visible) { state.targetState = visible }
+    var shown by rememberSaveable { mutableStateOf(false) }
+    val state = remember { MutableTransitionState(if (animate && !shown) false else visible) }
+    LaunchedEffect(visible) {
+        state.targetState = visible
+        shown = true
+    }
     val top by animateDpAsState(gap, Motion.flow(), label = "blockGap")
     AnimatedVisibility(visibleState = state, enter = enter, exit = RevealExit) {
         Box(Modifier.padding(top = top)) { content() }
