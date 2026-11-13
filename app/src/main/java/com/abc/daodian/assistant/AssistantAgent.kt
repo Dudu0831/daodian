@@ -9,9 +9,11 @@ import com.abc.daodian.runtime.AgentInfo
 import com.abc.daodian.runtime.ask.AskUserTool
 import com.abc.daodian.runtime.context.Compaction
 import com.abc.daodian.runtime.context.ContextPolicy
-import com.abc.daodian.runtime.context.FoldDrawings
-import com.abc.daodian.runtime.context.FoldImages
-import com.abc.daodian.runtime.context.FoldStale
+import com.abc.daodian.runtime.context.fold.FoldDrawings
+import com.abc.daodian.runtime.context.fold.MergeRedraws
+import com.abc.daodian.runtime.context.fold.FoldDone
+import com.abc.daodian.runtime.context.fold.FoldImages
+import com.abc.daodian.runtime.context.fold.FoldStale
 import com.abc.daodian.runtime.context.LastTurns
 import com.abc.daodian.runtime.engine.Turn
 import com.abc.daodian.runtime.memory.MemoryBackend
@@ -57,10 +59,12 @@ object AssistantAgent : AgentInfo {
 
     /**
      * 每步喂哪些轮：摘要之后的（AgentLoop 按 Recall 给的切）最多 [Compaction.HARD_CAP] 轮 ——
-     * 正常早就压成摘要了，这是压缩一直不成时的兜底；旧查询结果、旧图、他早先发来的图片折成一句（§6.8、§6.9、§6.10）
+     * 正常早就压成摘要了，这是压缩一直不成时的兜底。从里到外：画坏重画过的两轮并成一轮（[MergeRedraws]）、
+     * 3 轮以前的查询结果折成一句（[FoldStale]）、6 轮以前办完的事只留头一行（[FoldDone]）、
+     * 6 轮以前画的组件折成带标题的一句（[FoldDrawings]）、6 轮以前他发来的图片折成一句（[FoldImages]）。见 §6.8、§6.9、§6.10
      */
     private fun policy(stale: Set<String>, inner: ContextPolicy): ContextPolicy =
-        FoldImages(FoldDrawings(FoldStale(stale, inner)))
+        FoldImages(FoldDrawings(FoldDone(stale, FoldStale(stale, MergeRedraws(inner)))))
 
     /** 这几轮喂出去是什么样（不裁轮数）：后台整理估要不要压时用，和真发出去的一致 */
     fun foldView(context: Context, turns: List<Turn>): List<Turn> =

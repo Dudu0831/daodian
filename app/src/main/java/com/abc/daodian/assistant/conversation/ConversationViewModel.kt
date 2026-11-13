@@ -1,5 +1,7 @@
 package com.abc.daodian.assistant.conversation
 
+import com.abc.daodian.runtime.context.fold.FoldDrawings
+import com.abc.daodian.runtime.context.fold.MergeRedraws
 import android.app.Application
 import android.net.Uri
 import androidx.compose.runtime.getValue
@@ -315,6 +317,37 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * 组件里点了一下、调了 `say("…")`：照他自己说了这一句办（问卡等着时答的是眼前那一题）。
+     * 模型正说着就先放进输入框，等他自己发。见 DESIGN.md §6.8
+     */
+    fun widgetSay(text: String) {
+        if (aiBusy && pendingAsk == null) restoredInput = text else sendMessage(text)
+    }
+
+    /** 这次进程里刚说出来的回合：只有它们画坏了才自动重画，读回来的历史不重画 */
+    private val redrawable = HashSet<Long>()
+
+    /**
+     * 回合 [turnId] 里的图 / 组件画坏了（解析不了、脚本报错、画出来是空的）：把错原样告诉模型，让它重画一遍。
+     * 只管刚说完的最后一回合，一回合只重画一次，重画出来的那张再坏就不再追了 —— 免得两边来回烧。见 DESIGN.md §6.8
+     */
+    fun drawingBroken(turnId: Long, error: String) {
+        if (!redrawable.remove(turnId)) return
+        viewModelScope.launch {
+            // 图后面可能还在往下写：等这一回合说完
+            streamJob?.join()
+            if (aiBusy || pendingAsk != null || _messages.value.lastOrNull()?.id != turnId) return@launch
+            val text = MergeRedraws.request(error)
+            _messages.value = _messages.value + ConversationItem.UserText(newId(), text, trigger = true)
+            lastUserInput = text
+            lastImages = emptyList()
+            lastAudio = null
+            lastTrigger = true
+            runTurn(text, trigger = true, redraw = true)
+        }
+    }
+
+    /**
      * 跑一轮。一个回合**原地长大**：正文、痕、问卡按到货顺序摞，中途不换消息类型。见 DESIGN.md §6.5
      */
     private fun runTurn(
@@ -322,12 +355,14 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
         retry: Boolean = false,
         trigger: Boolean = false,
         images: List<String> = emptyList(),
-        audio: String? = null
+        audio: String? = null,
+        redraw: Boolean = false
     ) {
         streamJob = viewModelScope.launch {
             val session = session.await()
             if (retry) session.discardLastTurn()
             val turnId = newId()
+            if (!redraw) redrawable += turnId
             _messages.value = _messages.value + ConversationItem.AssistantTurn(turnId, streaming = true)
             aiBusy = true
             Tidy.conversationBusy = true
@@ -357,6 +392,12 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 // 说完一轮：推迟闲下来的整理，攒够了当场在后台压（§6.9）。失败的那轮等着重试，不算
                 if (finished) Tidy.afterTurn(getApplication(), session.turns)
+                // 它没画，照抄了历史里那句省略的旁白：当成画坏了，让它重画一次（§6.8）
+                if (finished) {
+                    val said = (_messages.value.firstOrNull { it.id == turnId } as? ConversationItem.AssistantTurn)
+                        ?.blocks?.filterIsInstance<TurnBlock.Prose>()?.any { FoldDrawings.MARK in it.text } == true
+                    if (said) drawingBroken(turnId, "你写的是历史里那句旁白，没有真的画；要写出完整的 html 代码块")
+                }
             } catch (t: CancellationException) {
                 val turn = _messages.value.firstOrNull { it.id == turnId } as? ConversationItem.AssistantTurn
                 if (turn != null && (turn.committed || turn.blocks.any { it is TurnBlock.Ask })) {

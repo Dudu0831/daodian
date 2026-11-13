@@ -153,7 +153,6 @@ dependencies {
     implementation(files("libs/sherpa-onnx-static-link-onnxruntime-1.13.8.aar"))
 
     // 对话里模型画的图（```svg），见 DESIGN.md §6.8。只画静态的、不联网，约 200KB
-    implementation(libs.androidsvg)
 
     // JVM 单测：工具、提示词、依赖规矩这些不碰 Android API，不需要 Robolectric（runtime 自己的测试在 :runtime 里）
     testImplementation(libs.junit)

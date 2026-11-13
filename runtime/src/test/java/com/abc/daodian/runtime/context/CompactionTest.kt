@@ -1,5 +1,6 @@
 package com.abc.daodian.runtime.context
 
+import com.abc.daodian.runtime.context.fold.FoldStale
 import com.abc.daodian.runtime.engine.Item
 import com.abc.daodian.runtime.engine.Turn
 import java.time.ZonedDateTime
@@ -73,5 +74,15 @@ class CompactionTest {
         val plain = Turn(1, listOf(Item.UserMessage("看", now)))
         val pictured = Turn(1, listOf(Item.UserMessage("看", now, images = listOf("a.jpg", "b.jpg"))))
         assertEquals(Compaction.chars(listOf(plain)) + 2 * Compaction.IMAGE_CHARS, Compaction.chars(listOf(pictured)))
+    }
+
+    @Test
+    fun `once he has gone quiet everything before the protected turns is compacted`() {
+        // 闲下来：不等攒够，最近 KEEP 轮以前的都压
+        assertEquals(2L, Compaction.cut(turns(1L..(Compaction.KEEP + 2L)), idle = true))
+        // 不满 KEEP 轮，闲下来也不压
+        assertNull(Compaction.cut(turns(1L..Compaction.KEEP.toLong()), idle = true))
+        // 还在聊：同样这几轮不压
+        assertNull(Compaction.cut(turns(1L..(Compaction.KEEP + 2L))))
     }
 }

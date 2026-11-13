@@ -1,4 +1,4 @@
-package com.abc.daodian.assistant.conversation
+package com.abc.daodian.assistant.conversation.render
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -29,6 +29,7 @@ class MarkdownTest {
                 is MdBlock.Code -> check(b.lines)
                 is MdBlock.Table -> (listOf(b.header) + b.rows).flatten().forEach(::check)
                 is MdBlock.Svg -> check(b.lines)
+                is MdBlock.Widget -> check(b.lines)
                 MdBlock.Rule -> Unit
             }
         }
@@ -242,6 +243,23 @@ class MarkdownTest {
         assertTrue(Markdown.parse("```\n$chart\n```").single() is MdBlock.Svg)
         assertTrue(Markdown.parse("```xml\n<?xml version=\"1.0\"?>\n$chart\n```").single() is MdBlock.Svg)
         assertTrue(Markdown.parse("```xml\n<config/>\n```").single() is MdBlock.Code)
+    }
+
+    @Test
+    fun `an html fence is a widget and runs only once the fence closes`() {
+        val body = "<div id=\"a\"></div>\n<script>a.textContent = 1</script>"
+        val bs = Markdown.parse("这个月：\n\n```html\n$body\n```\n\n餐饮最多。")
+        val w = bs[1] as MdBlock.Widget
+        assertTrue(w.done)
+        assertEquals(body, w.source)
+        assertEquals("餐饮最多。", (bs[2] as MdBlock.Paragraph).runs.plain())
+
+        // 还在流、收尾围栏没到：先不跑
+        val half = Markdown.parse("```html\n<div>\n<script>var x =", open = true).single() as MdBlock.Widget
+        assertTrue(!half.done)
+        // html 里光是一张 svg 的还算图；别的语言照旧是代码
+        assertTrue(Markdown.parse("```html\n<svg viewBox=\"0 0 1 1\"></svg>\n```").single() is MdBlock.Svg)
+        assertTrue(Markdown.parse("```js\nvar x = 1\n```").single() is MdBlock.Code)
     }
 
     @Test

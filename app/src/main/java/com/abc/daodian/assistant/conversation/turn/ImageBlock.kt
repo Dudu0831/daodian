@@ -1,4 +1,4 @@
-package com.abc.daodian.assistant.conversation
+package com.abc.daodian.assistant.conversation.turn
 
 import android.util.LruCache
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -144,7 +144,7 @@ internal fun BubbleImages(images: List<String>, tail: Boolean, onOpen: (Int) -> 
 }
 
 /**
- * 全屏看，和点开模型画的图（[SvgBlock]）是同一个样子：两指缩放、拖动，双击放大 / 还原，点一下收起。
+ * 全屏看：两指缩放、拖动，双击放大 / 还原，点一下收起。
  * 一次发了几张的左右滑；放大着的时候横着拖是挪图，不翻页
  */
 @Composable

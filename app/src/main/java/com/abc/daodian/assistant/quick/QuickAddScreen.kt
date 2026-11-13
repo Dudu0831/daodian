@@ -79,11 +79,11 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.abc.daodian.assistant.conversation.AssistantTurnRow
-import com.abc.daodian.assistant.conversation.InkText
-import com.abc.daodian.assistant.conversation.PillButton
-import com.abc.daodian.assistant.conversation.PillStyle
-import com.abc.daodian.assistant.conversation.TurnActions
+import com.abc.daodian.assistant.conversation.turn.AssistantTurnRow
+import com.abc.daodian.assistant.conversation.render.InkText
+import com.abc.daodian.assistant.conversation.turn.PillButton
+import com.abc.daodian.assistant.conversation.turn.PillStyle
+import com.abc.daodian.assistant.conversation.turn.TurnActions
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.theme.Motion

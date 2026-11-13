@@ -15,7 +15,6 @@ coroutines = "1.7.3"
 jackson = "2.18.9"
 navigation = "2.8.4"
 junit = "4.13.2"
-androidsvg = "1.4"
 
 [libraries]
 androidx-core-ktx           = { group = "androidx.core",             name = "core-ktx",                 version.ref = "coreKtx" }
@@ -38,7 +37,6 @@ openai-java                 = { group = "com.openai",                name = "ope
 kotlinx-coroutines-core     = { group = "org.jetbrains.kotlinx",     name = "kotlinx-coroutines-core",  version.ref = "coroutines" }
 jackson-databind            = { group = "com.fasterxml.jackson.core", name = "jackson-databind",        version.ref = "jackson" }
 junit                       = { group = "junit",                     name = "junit",                    version.ref = "junit" }
-androidsvg                  = { group = "com.caverock",            name = "androidsvg-aar",           version.ref = "androidsvg" }
 androidx-navigation-compose = { group = "androidx.navigation",       name = "navigation-compose",       version.ref = "navigation" }
 
 [plugins]

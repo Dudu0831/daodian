@@ -1,4 +1,4 @@
-package com.abc.daodian.assistant.conversation
+package com.abc.daodian.assistant.conversation.input
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade

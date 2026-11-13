@@ -1,4 +1,4 @@
-package com.abc.daodian.assistant.conversation
+package com.abc.daodian.assistant.conversation.render
 
 import com.abc.daodian.shared.theme.DarkPalette
 import com.abc.daodian.shared.theme.LightPalette

@@ -1,5 +1,8 @@
-package com.abc.daodian.runtime.context
+package com.abc.daodian.runtime.context.fold
 
+import com.abc.daodian.runtime.context.ContextPolicy
+import com.abc.daodian.runtime.context.LastTurns
+import com.abc.daodian.runtime.context.Compaction
 import com.abc.daodian.runtime.engine.Item
 import com.abc.daodian.runtime.engine.Turn
 
@@ -25,8 +28,8 @@ class FoldImages(private val inner: ContextPolicy = LastTurns(), private val kee
     }
 
     companion object {
-        /** 最近几轮的图原样带（含当前轮） */
-        const val KEEP = 3
+        /** 最近几轮的图原样带（含当前轮）。和压缩保护的轮数一样（[Compaction.KEEP]）；再早的折掉，压缩时整理员会看到原图 */
+        const val KEEP = Compaction.KEEP
 
         /** 折完剩下的那句以它开头。调试记录靠它数折了几句 */
         const val MARK = "（这里原来有"

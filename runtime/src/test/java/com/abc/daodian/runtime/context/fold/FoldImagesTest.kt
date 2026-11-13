@@ -1,5 +1,6 @@
-package com.abc.daodian.runtime.context
+package com.abc.daodian.runtime.context.fold
 
+import com.abc.daodian.runtime.context.LastTurns
 import com.abc.daodian.runtime.engine.Item
 import com.abc.daodian.runtime.engine.Turn
 import java.time.ZonedDateTime
@@ -21,7 +22,7 @@ class FoldImagesTest {
     @Test
     fun `pictures older than the last three turns fold into a note`() {
         val turns = listOf(turn(1, "按这个提醒我", two), turn(2, "", one), turn(3, "嗯"), turn(4, "这张呢", one), turn(5, "好"))
-        val out = FoldImages(LastTurns(10)).select(turns)
+        val out = FoldImages(LastTurns(10), keep = 3).select(turns)
 
         assertTrue(out[0].input.images.isEmpty())
         assertEquals("按这个提醒我\n${FoldImages.folded(2)}", out[0].input.text)

@@ -1,7 +1,7 @@
 package com.abc.daodian.assistant.memory.tidy
 
 import com.abc.daodian.runtime.ask.AskUserTool
-import com.abc.daodian.runtime.context.FoldDrawings
+import com.abc.daodian.runtime.context.fold.FoldDrawings
 import com.abc.daodian.runtime.engine.Item
 import com.abc.daodian.runtime.engine.Turn
 import com.abc.daodian.runtime.memory.Digest
@@ -21,13 +21,18 @@ object TidyText {
     const val MAX_TURNS = 40
     const val MAX_CHARS = 30_000
 
+    /** 一次最多带这么多张图给整理员（一个请求塞太多图网关不收）；多了的那几轮留给下一次 */
+    const val MAX_IMAGES = 16
+
     /** [turns] 从头取，取到超了 [MAX_TURNS] 或 [MAX_CHARS] 为止（至少一轮） */
     fun take(turns: List<Turn>, stale: Set<String>): List<Turn> {
         var chars = 0
+        var images = 0
         val out = mutableListOf<Turn>()
         for (t in turns) {
             chars += transcript(listOf(t), stale).length
-            if (out.isNotEmpty() && (out.size >= MAX_TURNS || chars > MAX_CHARS)) break
+            images += t.input.images.size
+            if (out.isNotEmpty() && (out.size >= MAX_TURNS || chars > MAX_CHARS || images > MAX_IMAGES)) break
             out += t
         }
         return out
@@ -40,7 +45,9 @@ object TidyText {
         compact: Boolean,
         stale: Set<String>,
         remember: Boolean = true,
-        zone: ZoneId = ZoneId.systemDefault()
+        zone: ZoneId = ZoneId.systemDefault(),
+        /** 他发来的图随这次请求一起附上了：记录里一张张标「图 N」，和附图的先后对得上 */
+        pictured: Boolean = false
     ): String = buildString {
         append("已经记下的（${memories.size}/${MemoryRules.MAX_COUNT} 条）：\n")
         if (memories.isEmpty()) append("还没有\n")
@@ -55,7 +62,8 @@ object TidyText {
         val last = turns.last().input.at
         append("\n这次的对话（${turns.size} 轮，${Format.humanDateTimeShort(first.toInstant().toEpochMilli(), zone)}")
         append(" – ${Format.humanDateTimeShort(last.toInstant().toEpochMilli(), zone)}）：\n")
-        append(transcript(turns, stale, zone))
+        append(transcript(turns, stale, zone, pictured))
+        if (pictured) append("\n记录里标着「图 N」的图片附在这段话后面，按编号的先后。\n")
 
         append("\n这次要做：")
         append(
@@ -70,8 +78,15 @@ object TidyText {
     /**
      * 对话写成记录：`[9月24日 周三 21:03] 他：…`、`助手：…`，工具调用缩成一行。
      * 查询结果（[stale]）不抄 —— 那是当时账上的样子，不是关于他的事；问卡的答案要抄，那是他的原话。
+     * 模型画的组件折成带标题的一句（[FoldDrawings]）。
      */
-    fun transcript(turns: List<Turn>, stale: Set<String>, zone: ZoneId = ZoneId.systemDefault()): String = buildString {
+    fun transcript(
+        turns: List<Turn>,
+        stale: Set<String>,
+        zone: ZoneId = ZoneId.systemDefault(),
+        pictured: Boolean = false
+    ): String = buildString {
+        var picture = 0
         turns.forEach { turn ->
             val names = turn.items.filterIsInstance<Item.ToolCall>().associate { it.callId to it.name }
             turn.items.forEach { item ->
@@ -81,8 +96,11 @@ object TidyText {
                         append("\n[${at.monthValue}月${at.dayOfMonth}日 ${Format.weekday(at.dayOfWeek)} %02d:%02d] ".format(at.hour, at.minute))
                         if (item.trigger) append("（app 自动发起，不是他说的）").append(clip(item.text, 300))
                         else append("他：").append(item.text)
-                        // 整理员看不到图，只知道这里有过
-                        if (item.images.isNotEmpty()) append("（附了 ${item.images.size} 张图片）")
+                        // 图附上了就一张张编号，整理员对着看；没附（只抽记忆、模型看不了图）只知道这里有过
+                        if (item.images.isNotEmpty()) {
+                            if (pictured) append(item.images.joinToString("、", "（附了", "）") { "图 ${++picture}" })
+                            else append("（附了 ${item.images.size} 张图片）")
+                        }
                         append('\n')
                     }
                     is Item.AssistantMessage -> append("助手：").append(clip(FoldDrawings.fold(item.text), 800)).append('\n')

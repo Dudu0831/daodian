@@ -1,4 +1,4 @@
-package com.abc.daodian.assistant.conversation
+package com.abc.daodian.assistant.conversation.turn
 
 import android.content.Context
 import android.media.AudioAttributes

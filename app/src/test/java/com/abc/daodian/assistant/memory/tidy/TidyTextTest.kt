@@ -45,6 +45,19 @@ class TidyTextTest {
     }
 
     @Test
+    fun `pictures are numbered when they ride along and only counted when they do not`() {
+        val a = Turn(7, listOf(Item.UserMessage("按这个提醒我", at, images = listOf("/a.jpg", "/b.jpg")), Item.AssistantMessage("好")))
+        val b = Turn(8, listOf(Item.UserMessage("", at, images = listOf("/c.jpg")), Item.AssistantMessage("好")))
+        val numbered = TidyText.transcript(listOf(a, b), emptySet(), zone, pictured = true)
+        assertTrue(numbered.contains("他：按这个提醒我（附了图 1、图 2）"))
+        assertTrue(numbered.contains("他：（附了图 3）"))
+        assertTrue(TidyText.transcript(listOf(a), emptySet(), zone).contains("（附了 2 张图片）"))
+        // 一次带的图有上限：超了的那几轮留给下一次，至少带一轮
+        val many = (1L..10L).map { Turn(it, listOf(Item.UserMessage("看", at, images = List(4) { "/x.jpg" }), Item.AssistantMessage("好"))) }
+        assertEquals(TidyText.MAX_IMAGES / 4, TidyText.take(many, emptySet()).size)
+    }
+
+    @Test
     fun `input asks for a summary only when compacting`() {
         val digest = Digest("他让记了周五交周报。", 4, at.toInstant().toEpochMilli())
         val compact = TidyText.input(emptyList(), digest, listOf(turn), compact = true, stale = emptySet(), zone = zone)

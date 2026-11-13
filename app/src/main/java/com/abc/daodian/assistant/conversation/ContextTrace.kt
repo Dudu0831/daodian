@@ -5,9 +5,9 @@ import com.abc.daodian.BuildConfig
 import com.abc.daodian.assistant.AssistantAgent
 import com.abc.daodian.runtime.Agent
 import com.abc.daodian.runtime.context.Compaction
-import com.abc.daodian.runtime.context.FoldDrawings
-import com.abc.daodian.runtime.context.FoldImages
-import com.abc.daodian.runtime.context.FoldStale
+import com.abc.daodian.runtime.context.fold.FoldDrawings
+import com.abc.daodian.runtime.context.fold.FoldImages
+import com.abc.daodian.runtime.context.fold.FoldStale
 import com.abc.daodian.runtime.context.Preamble
 import com.abc.daodian.runtime.engine.Item
 import com.abc.daodian.runtime.engine.Turn
@@ -43,7 +43,7 @@ object ContextTrace {
             }
             val range = if (sent.isEmpty()) "-" else "#${sent.first().id}–#${sent.last().id}"
             val staleFolded = request.input.count { it is Item.ToolResult && it.output == FoldStale.FOLDED }
-            val drawingsFolded = request.input.count { it is Item.AssistantMessage && FoldDrawings.FOLDED in it.text }
+            val drawingsFolded = request.input.count { it is Item.AssistantMessage && FoldDrawings.MARK in it.text }
             // 他发来的图片：这次原样带了几张、折成一句的有几句
             val pictures = request.input.sumOf { (it as? Item.UserMessage)?.images?.size ?: 0 }
             val picturesFolded = request.input.count { it is Item.UserMessage && FoldImages.MARK in it.text }

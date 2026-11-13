@@ -1,5 +1,6 @@
 package com.abc.daodian.assistant.memory.tidy
 
+import com.abc.daodian.runtime.context.fold.MergeRedraws
 import android.content.Context
 import com.abc.daodian.assistant.AssistantAgent
 import com.abc.daodian.assistant.conversation.data.ConversationStore
@@ -26,9 +27,10 @@ import kotlinx.coroutines.withContext
  *
  * 两个时机：
  *  - **闲下来**：对话页每说完一轮，把「10 分钟后整理」往后推（[TidyWorker]）。一直在聊就一直不跑，停下来才跑。
+ *    这次不等攒够：最近 [Compaction.KEEP] 轮以前的都压成摘要（不满这么多轮就只抽记忆）。
  *  - **攒够了**：摘要之后原样喂的轮次到了 [Compaction.AT_TURNS]，说完这一轮当场在后台压，不等闲下来。
  *
- * 设置里关了「聊完自己整理」：闲下来那条路不跑；攒够了照样压摘要，但记忆不动。
+ * 设置里关了「聊完自己整理」：两条路照样压摘要，但记忆不动。
  *
  * 失败了什么都不坏：进度不动，下次再来；压缩一直不成，对话照样用最近 [Compaction.HARD_CAP] 轮。
  * 整理和对话不抢锁 —— 只写记忆和 tidy_runs，不碰 `chat_items`。
@@ -56,7 +58,8 @@ object Tidy {
     fun afterTurn(context: Context, turns: List<Turn>) {
         val app = context.applicationContext
         scope.launch {
-            if (MemorySettings.autoTidy(app)) TidyWorker.schedule(app)
+            // 关着「聊完自己整理」也排：闲下来那次还要压摘要，只是不动记忆
+            TidyWorker.schedule(app)
             val log = TidyLog.get(app)
             val after = log.digest()?.through ?: 0
             if (Compaction.cut(turns.filter { it.id > after }) { viewSize(app, it) } == null) return@launch
@@ -77,7 +80,8 @@ object Tidy {
     }
 
     private suspend fun tidy(context: Context, reason: String, given: List<Turn>?): Result {
-        val all = given ?: ConversationStore.get(context).load().let { if (conversationBusy) it.dropLast(1) else it }
+        // 画坏重画过的两轮并成一轮再看，和对话页喂给模型的一致（[MergeRedraws]）
+        val all = MergeRedraws.merge(given ?: ConversationStore.get(context).load().let { if (conversationBusy) it.dropLast(1) else it })
         if (all.isEmpty()) return Result.Idle
         val profile = AgentRuntime.profile()
         if (!profile.isConfigured) return Result.Skipped("还没配置模型")
@@ -88,7 +92,8 @@ object Tidy {
         val digest = log.digest()?.takeIf { it.through < all.last().id }
         val memoryThrough = log.memoryThrough(all.last().id)
 
-        val cut = Compaction.cut(all.filter { it.id > (digest?.through ?: 0) }) { viewSize(context, it) }
+        // 闲下来那次不等攒够：最近 [Compaction.KEEP] 轮以前的都压
+        val cut = Compaction.cut(all.filter { it.id > (digest?.through ?: 0) }, idle = reason == REASON_IDLE) { viewSize(context, it) }
         val compact = cut != null
         // 关着自动整理：只在要压的时候跑，而且只写摘要
         val remember = MemorySettings.autoTidy(context)
@@ -105,8 +110,17 @@ object Tidy {
             )
         )
         try {
-            val input = TidyText.input(book.all(), digest, turns, compact, stale, remember)
-            val result = AgentRuntime.runOnce(TidyAgent.build(book, compact, remember), Input(input, ZonedDateTime.now()))
+            // 要压的那几轮里他发来的图，压缩时一起给整理员看（同一个模型，看得见）：图里要紧的写进摘要，
+            // 以后助手就只有摘要了。只抽记忆的那次不带 —— 那几轮的图对话里还原样在
+            val images = if (compact) turns.flatMap { it.input.images } else emptyList()
+            val agent = TidyAgent.build(book, compact, remember)
+            suspend fun attempt(pictures: List<String>) = AgentRuntime.runOnce(
+                agent,
+                Input(TidyText.input(book.all(), digest, turns, compact, stale, remember, pictured = pictures.isNotEmpty()), ZonedDateTime.now(), images = pictures)
+            )
+            var result = attempt(images)
+            // 带着图被退回来（模型看不了图）、什么都没交上：不带图再来一次，照以前「附了 N 张图片」那样写
+            if (images.isNotEmpty() && result is RunResult.Failed && result.payloads<SaveTidyTool.Saved>().isEmpty()) result = attempt(emptyList())
             val failure = when (result) {
                 is RunResult.Failed -> result.reason
                 RunResult.NotConfigured -> "还没配置模型"

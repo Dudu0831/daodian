@@ -1,4 +1,4 @@
-package com.abc.daodian.assistant.conversation
+package com.abc.daodian.assistant.conversation.render
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -8,7 +8,7 @@ import com.abc.daodian.shared.theme.LightPalette
 
 /**
  * 模型画的图按当前主题上色（DESIGN.md §6.8「颜色」）。提示词让它不画背景、字和线用 currentColor、
- * 数据只用浅色色板里的几种；这里在交给 AndroidSVG 之前改一遍原文。
+ * 数据只用浅色色板里的几种；深色主题下，在交给 WebView 之前把它写死的颜色改一遍（[WidgetBlock]）。
  */
 internal object SvgColors {
 

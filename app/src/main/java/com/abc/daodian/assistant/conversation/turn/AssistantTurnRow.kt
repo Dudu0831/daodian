@@ -1,10 +1,17 @@
-package com.abc.daodian.assistant.conversation
+package com.abc.daodian.assistant.conversation.turn
 
+import com.abc.daodian.assistant.conversation.render.InkWashBars
+import com.abc.daodian.assistant.conversation.ask.sealed
+import com.abc.daodian.assistant.conversation.visibleBlocks
+import com.abc.daodian.assistant.conversation.TurnBlock
+import com.abc.daodian.assistant.conversation.ConversationItem
+import com.abc.daodian.assistant.conversation.render.LocalDrawingBroken
+import com.abc.daodian.assistant.conversation.render.LocalWidgetSay
+import com.abc.daodian.assistant.conversation.render.MarkdownText
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.RepeatMode
@@ -20,8 +27,6 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,16 +36,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -49,9 +50,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -60,64 +58,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.abc.daodian.assistant.plugin.TraceState
-import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import com.abc.daodian.shared.theme.Motion
 
 /** 助手说的话一律缩进这么多，跟上面的「· 到点」标签对齐 */
 private val AssistantIndent = 14.dp
-
-/** 刚发出的气泡从下方升起；列表滚回来重组时不再升。[onOpenImage]：点了第几张图 */
-@Composable
-fun UserBubble(msg: ConversationItem.UserText, onOpenImage: (Int) -> Unit = {}) =
-    UserBubble(msg.text, msg.sentAt, msg.images, onOpenImage, msg.audio)
-
-/**
- * 随话发的图在上、字在下，都靠右，一起升起。只有图的那句没有墨色气泡（DESIGN.md §6.10）
- */
-@Composable
-fun UserBubble(
-    text: String,
-    sentAt: Long,
-    images: List<String> = emptyList(),
-    onOpenImage: (Int) -> Unit = {},
-    /** 语音条的原声：有它就画成语音条，字收着、长按才出来（[VoiceBubble]） */
-    audio: String? = null
-) {
-    val colors = DaodianColors.current
-    val rise = remember { Animatable(if (System.currentTimeMillis() - sentAt < 600) 0f else 1f) }
-    LaunchedEffect(Unit) { rise.animateTo(1f, Motion.settle()) }
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .graphicsLayer {
-                val p = rise.value
-                translationY = (1f - p) * 26.dp.toPx()
-                alpha = 0.15f + 0.85f * p
-                scaleX = 0.97f + 0.03f * p
-                scaleY = scaleX
-                transformOrigin = TransformOrigin(1f, 1f)
-            },
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        if (images.isNotEmpty()) BubbleImages(images, tail = text.isBlank() && audio == null, onOpen = onOpenImage)
-        if (audio != null) {
-            VoiceBubble(audio, text)
-        } else if (text.isNotBlank()) {
-            Text(
-                text,
-                style = DaodianType.body,
-                color = colors.onSolid,
-                modifier = Modifier
-                    .widthIn(max = 264.dp)
-                    .background(colors.solid, RoundedCornerShape(20.dp, 20.dp, 5.dp, 20.dp))
-                    .padding(horizontal = 18.dp, vertical = 12.dp)
-            )
-        }
-    }
-}
 
 /**
  * 朱砂小圆点 + 「到点」。等回复的时候圆点呼吸，告诉你是谁在准备说话；
@@ -189,6 +135,12 @@ private fun BreathingDot(color: Color) {
 /** 回合里能点的东西。对话页全接；桌面速记只接它用得上的几样，其余默认什么都不做 */
 interface TurnActions {
     fun toggleReasoning() {}
+
+    /** 这一回合里的图 / 组件画坏了 */
+    fun drawingBroken(error: String) {}
+
+    /** 这一回合的组件里点了一下，要替他说一句 */
+    fun widgetSay(text: String) {}
     /** 点了痕：去它指向的那条（路由） */
     fun openTrace(route: String) {}
     fun manualAdd() {}
@@ -298,13 +250,15 @@ fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) 
                             key(b.key) {
                                 Appear(animate, visible = true, enter = RevealEnter, gap = gap) {
                                     val streaming = msg.streaming && b.key == msg.blocks.lastOrNull()?.key
-                                    MarkdownText(
-                                        b.text,
-                                        streaming = streaming,
-                                        style = DaodianType.prose,
-                                        color = colors.ink,
-                                        caret = streaming
-                                    )
+                                    CompositionLocalProvider(LocalDrawingBroken provides actions::drawingBroken, LocalWidgetSay provides actions::widgetSay) {
+                                        MarkdownText(
+                                            b.text,
+                                            streaming = streaming,
+                                            style = DaodianType.prose,
+                                            color = colors.ink,
+                                            caret = streaming
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -384,121 +338,5 @@ private fun ColumnScope.Reveal(
 ) {
     AnimatedVisibility(visible, enter = enter, exit = exit) {
         Box(Modifier.padding(top = 10.dp)) { content() }
-    }
-}
-
-/**
- * 思考过程流着的时候：左边一根细线，字压到最轻的一档。
- * 最多露三行，更早的行在顶上渐隐 —— 思考不该把下面的内容越推越远。
- */
-@Composable
-private fun ReasoningStream(text: String) {
-    val colors = DaodianColors.current
-    var overflow by remember { mutableStateOf(false) }
-    Box(
-        Modifier
-            .drawBehind { drawLine(colors.rule, Offset(0f, 0f), Offset(0f, size.height), 1.dp.toPx()) }
-            .padding(start = 12.dp)
-            .heightIn(max = 60.dp)
-            .clipToBounds()
-            .fadeTop(24.dp, overflow)
-    ) {
-        InkText(
-            text,
-            streaming = true,
-            style = DaodianType.thinkingNote.copy(lineHeight = 20.sp),
-            color = colors.muted,
-            caret = true,
-            modifier = Modifier.wrapContentHeight(Alignment.Bottom, unbounded = true),
-            onTextLayout = { overflow = it.lineCount > 3 }
-        )
-    }
-}
-
-/**
- * 流完之后折成一行「想了 3 秒 · 看看」。不直接删：
- * 模型把时间算歪的时候，这段和卡片上的「依据」是仅有的两条线索。
- */
-@Composable
-private fun ReasoningTrace(text: String, seconds: Int, expanded: Boolean, onToggle: () -> Unit) {
-    val colors = DaodianColors.current
-    Column {
-        Row(
-            Modifier.clickable(onClick = onToggle),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            Text(if (seconds > 0) "想了 $seconds 秒" else "想了一下", style = DaodianType.speakerTag, color = colors.hint)
-            Text(if (expanded) "收起" else "看看", style = DaodianType.speakerTag, color = colors.accent)
-        }
-        AnimatedVisibility(
-            visible = expanded,
-            enter = expandVertically(Motion.flow()) + fadeIn(Motion.flow()),
-            exit = shrinkVertically(Motion.flow()) + fadeOut(Motion.exit())
-        ) {
-            Column {
-                Spacer(Modifier.height(10.dp))
-                Box(
-                    Modifier
-                        .drawBehind { drawLine(colors.rule, Offset(0f, 0f), Offset(0f, size.height), 1.dp.toPx()) }
-                        .padding(start = 12.dp)
-                ) {
-                    Text(text, style = DaodianType.thinkingNote, color = colors.muted)
-                }
-            }
-        }
-    }
-}
-
-internal enum class PillStyle { Solid, Outline, OutlineStrong }
-
-@Composable
-internal fun PillButton(text: String, style: PillStyle, onClick: () -> Unit) {
-    val colors = DaodianColors.current
-    val shape = RoundedCornerShape(22.dp)
-    Box(
-        Modifier
-            .defaultMinSize(minHeight = 44.dp)
-            .let { if (style == PillStyle.Solid) it.background(colors.solid, shape) else it }
-            .let {
-                when (style) {
-                    PillStyle.Solid -> it
-                    PillStyle.Outline -> it.border(1.dp, colors.rule2, shape)
-                    PillStyle.OutlineStrong -> it.border(1.dp, colors.ink, shape)
-                }
-            }
-            .clickable(onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 12.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text,
-            style = DaodianType.bodySmall,
-            color = when (style) {
-                PillStyle.Solid -> colors.onSolid
-                PillStyle.OutlineStrong -> colors.ink
-                PillStyle.Outline -> colors.ink2
-            }
-        )
-    }
-}
-
-/** app 自己发起的一轮（每晚对账）：不是用户说的话，画成一条分隔线 */
-@Composable
-fun TriggerDivider(msg: ConversationItem.UserText) {
-    val colors = DaodianColors.current
-    // 开场白都是「每晚对账：……」这样，冒号前一段就是标签
-    val label = msg.text.substringBefore('：').take(12)
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        HorizontalDivider(Modifier.weight(1f), color = colors.rule)
-        Text(
-            (if (msg.sentAt > 0) Format.clock(msg.sentAt) + " · " else "") + label,
-            style = DaodianType.speakerTag, color = colors.hint
-        )
-        HorizontalDivider(Modifier.weight(1f), color = colors.rule)
     }
 }

@@ -1,5 +1,10 @@
-package com.abc.daodian.assistant.conversation
+package com.abc.daodian.assistant.conversation.render
 
+import com.abc.daodian.assistant.conversation.render.InkFrame
+import com.abc.daodian.assistant.conversation.render.appendCaret
+import com.abc.daodian.assistant.conversation.render.appendInk
+import com.abc.daodian.assistant.conversation.render.fadeEnd
+import com.abc.daodian.assistant.conversation.render.rememberInk
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -60,7 +65,7 @@ private val NUMERIC = Regex("^[+\\-−]?[¥￥$]?\\s*[+\\-−]?[\\d,]+(?:\\.\\d+
  * 去掉标记符后的字拿自己的原文下标（[MdRun.src]）去查。流完了就是普通的几段 Text。
  * 样式守墨宋的规矩（DESIGN.md §8.1）：标题靠宋体和字号、不靠加粗；朱砂只给链接；卡片圆角 5dp。
  * 粗体用干净的 [FontWeight.SemiBold] + 墨色；金额、日期、钟点用等宽数字 `tnum`，不在句中突兀切换字体。
- * 模型画的图（```svg）交给 [SvgBlock]，见 §6.8。
+ * 模型画的东西（```html、```svg）交给 [WidgetBlock]，见 §6.8。
  */
 @Composable
 fun MarkdownText(
@@ -195,8 +200,17 @@ private fun MdBlockView(b: MdBlock, modifier: Modifier, look: MdLook, ink: InkFr
         is MdBlock.Table -> TableBlock(b, modifier, look, ink, caret)
 
         // 画不出来就退回代码块，原文不丢
-        is MdBlock.Svg -> SvgBlock(b, modifier, streaming = ink != null) {
-            CodeBlock(MdBlock.Code("svg", b.lines), Modifier, look, null, false)
+        // 图和小组件都放进 WebView 跑：还在流就占位，写完才跑；跑不起来退回代码块，原文不丢
+        is MdBlock.Svg -> if (!b.done && ink != null) {
+            Drafting(ratioGuess(b.source), modifier)
+        } else {
+            WidgetBlock(b.source, modifier) { CodeBlock(MdBlock.Code("svg", b.lines), Modifier, look, null, false) }
+        }
+
+        is MdBlock.Widget -> if (!b.done && ink != null) {
+            Drafting(DRAFT_RATIO, modifier)
+        } else {
+            WidgetBlock(b.source, modifier) { CodeBlock(MdBlock.Code("html", b.lines), Modifier, look, null, false) }
         }
 
         MdBlock.Rule -> Column(modifier) {

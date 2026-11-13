@@ -1,4 +1,4 @@
-package com.abc.daodian.assistant.conversation
+package com.abc.daodian.assistant.conversation.render
 
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat

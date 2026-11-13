@@ -1,5 +1,6 @@
-package com.abc.daodian.assistant.conversation
+package com.abc.daodian.assistant.conversation.input
 
+import com.abc.daodian.assistant.conversation.turn.ConversationImage
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
