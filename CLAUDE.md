@@ -13,7 +13,7 @@
 - 库：`reminder.db` v3、`chat.db` v4（11-05 起，语音条加 `audio` 列）、`ledger.db` v2（10-26 起）。手机上的 release 包 11-13 已经升上来了，线上的 0.2.0 打不开，只能往前走。
 
 **下一版 0.2.1（14）还差的**
-- 删通知管家页「以前设置里勾的」那一组（[docs/cleanup.md](docs/cleanup.md)「0.2.1 删」）。
+- 通知管家页「以前设置里勾的」那一组 11-13 删了（编译、单测过；装在本地 release 包里，用户还没看）。
 - 包 305MB（语音模型 239MB 打在里面），发不发这么大还没定。
 - 新功能弹窗（11-13，`whatsnew/Releases` 里 14 三页：按住说话、说一句就改、让它画给你看）用户看过，三页对应的功能都验过了。动图源在 `promo/whatsnew-14-*.html`（gitignored），`node promo/export-whatsnew.mjs <页面> <输出.webp>` 录，1050×750 无损。
 - 改版本号、跑测试、`publish.sh`。
@@ -22,7 +22,7 @@
 **还开着的事**
 - **通知管家**（DESIGN §12，工程文件根目录 `NOTICE_PLAN.md`）：0.2.0 发了（真短信、真微信没验）。还剩：
   - 第 10 节另外几条（同一件事连发几条、一次性规则谁停、附言给不给整理员、交不出时通知不通知）和 §12.8 没定。
-- **删壳**：0.2.1 删通知管家页「以前设置里勾的」那一组；0.2.2 删派活两个旧路由、`TidyWorker` 空壳、速记的 `activity-alias`。清单在 [docs/cleanup.md](docs/cleanup.md)。
+- **删壳**：0.2.2 删派活两个旧路由、`TidyWorker` 空壳、速记的 `activity-alias`。清单在 [docs/cleanup.md](docs/cleanup.md)。
 
 | 功能 | 还没验 |
 |---|---|
