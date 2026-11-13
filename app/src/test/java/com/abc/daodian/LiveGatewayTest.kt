@@ -27,6 +27,7 @@ import com.abc.daodian.reminder.notice.ReminderNoticeAgent
 import com.abc.daodian.reminder.notice.ReminderNoticePrompt
 import com.abc.daodian.reminder.notice.ReminderNoticeTarget
 import com.abc.daodian.reminder.tools.CreateReminderTool
+import com.abc.daodian.reminder.tools.FakeReminderDesk
 import com.abc.daodian.reminder.tools.ReminderTools
 import com.abc.daodian.runtime.Agent
 import com.abc.daodian.runtime.AgentRuntime
@@ -108,7 +109,7 @@ class LiveGatewayTest {
 
     /** 助手，带着真机上那一套工具（按 `Modules.kt` 的顺序）；建提醒落到 [commit] */
     private fun assistant(book: MemoryBackend, commit: suspend (ReminderPlan, ToolContext) -> Long = { _, _ -> 1001L }): Agent =
-        AssistantAgent.build(AssistantAgent.tools(book, ReminderTools.forAssistant(commit) + LedgerTools.forAssistant(noLedger)))
+        AssistantAgent.build(AssistantAgent.tools(book, ReminderTools.forAssistant(FakeReminderDesk(commit = commit)) + LedgerTools.forAssistant(noLedger)))
 
     @Test
     fun `tool result round trip and replayed history`() = runBlocking {
@@ -175,7 +176,7 @@ class LiveGatewayTest {
     fun `the assistant builds a rule from a clear request`() = runBlocking {
         install()
         val desk = FakeDesk(active = listOf(notice(SMS, "菜鸟驿站", "【菜鸟驿站】您的包裹已到幸福里驿站，凭取件码 3-2-1088 领取", key = "a")))
-        val tools = AssistantAgent.tools(FakeMemoryBook(), ReminderTools.forAssistant { _, _ -> 1L } + LedgerTools.forAssistant(noLedger) + IntakeTools.of(desk))
+        val tools = AssistantAgent.tools(FakeMemoryBook(), ReminderTools.forAssistant(FakeReminderDesk()) + LedgerTools.forAssistant(noLedger) + IntakeTools.of(desk))
         val now = ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).withHour(10).withMinute(0)
         val said = "帮我盯着短信里的快递通知：正文里有取件码或者驿站的就算，验证码不算。到了就当天 18:00 提醒我去取，标题写上取件码，响铃就行。"
         val result = AgentRuntime.runOnce(AssistantAgent.build(tools), Input(said, now))

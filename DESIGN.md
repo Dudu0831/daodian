@@ -478,6 +478,13 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 
 落库只有一个入口 `reminder/application/Reminders.commitPlan()`，对话页和桌面速记共用。整段 `NonCancellable`：插完库、闹钟还没排上的一瞬间被取消（纸被 Home 掉），会留下一条没有闹钟的 `SCHEDULED`。
 
+**查、改、删已有的**（11-13 加的，提示词 `assistant-v7`；`reminder/tools/` 的 `ListRemindersTool`、`UpdateReminderTool`、`DeleteRemindersTool`，背后是 `ReminderDesk` → `Reminders`）：
+
+- `list_reminders`：只读、不留痕，结果过几轮折掉（`outputGoesStale`）。默认只列 `SCHEDULED` 的，`include_finished` 才带上响过的、完成了的。每条一行人话，竖线后面是 `update_reminder` 照抄的原样值（`firstTriggerAt`、`rrule`、`wallClockAnchored`、`allDay`、`gentle`）。稍后着的重复提醒抄的是这一串本来的下一次（`seriesNextAt`）；拖过来的当天事项抄今天，不然闸门当它在过去。
+- `update_reminder`：**整条重写**，参数是 `id` + `create_reminder` 那一套，过同一道闸门。不做「只传改了的字段」：`note`、`rrule` 可空，分不清「不改」和「改成空」，闸门也要整条才查得了。代价是模型可能抄丢字段，提示词点了名 rrule、gentle、note。落库走 `Reminders.updatePlan`：原话、建的时刻不动，状态回 `SCHEDULED`、稍后作废（同手动改），挂着的通知一起收掉（不然点它的「完成」会把改好的这条也完成）。编辑页的「依据」先看最近一次 `update_reminder`，没有再看 `create_reminder`。
+- `delete_reminders`：一次几条，真删（同列表左滑删），对话里没有撤销。只在他明说不要了时用；「做完了」不是删。痕「删了 · 喝水」，几条的「删了 3 条」、细目逐条列，点不进去。
+- 提醒子代理（通知管家交来的）还是只有 `create_reminder`。
+
 ### 6.5 回合的样子与动效
 
 **对话页的文件怎么分**（`assistant/conversation/`，11-13 分的包；都是界面，整包可重画）

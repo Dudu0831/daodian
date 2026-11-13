@@ -12,25 +12,51 @@ import com.abc.daodian.reminder.domain.Rrule
 import com.abc.daodian.shared.format.Format
 
 /**
- * 建提醒在对话里留的痕：「✓ 提醒 9月24日 周四 08:00 · 带伞 ›」，点了去编辑页。见 DESIGN.md §6.6
+ * 提醒在对话里留的痕：建的「✓ 提醒 9月24日 周四 08:00 · 带伞 ›」、改的「✓ 提醒 改成 明天 …」，点了去编辑页；
+ * 删的「✓ 提醒 删了 · 喝水」，点不进去。见 DESIGN.md §6.6
  *
  * 轻提醒的多一截，写在标题前面：「每天 14:00 · 轻提醒 · 喝水」—— 痕只有一行，标题长了被截断时它还在。
  */
 object ReminderTrace {
 
-    fun of(call: ToolTrace): TraceView? {
-        if (call.tool != CreateReminderTool.NAME) return null
+    fun of(call: ToolTrace): TraceView? = when (call.tool) {
+        CreateReminderTool.NAME -> plan(call, working = "在记提醒", failed = "没建成", prefix = "没建。")
+        UpdateReminderTool.NAME -> plan(call, working = "在改提醒", failed = "没改成", prefix = "没改。", verb = "改成")
+        DeleteRemindersTool.NAME -> deleted(call)
+        else -> null
+    }
+
+    /** 建和改：写的都是这一条现在什么时候响。改的多「改成」两个字，点了一样去编辑页 */
+    private fun plan(call: ToolTrace, working: String, failed: String, prefix: String, verb: String? = null): TraceView {
         val plan = if (call.ok) CreateReminderTool.planOf(call.arguments) else null
         return TraceView(
-            working = "在记提醒",
-            settled = if (call.failed) "没建成" else "提醒",
+            working = working,
+            settled = if (call.failed) failed else "提醒",
             text = when {
-                call.failed -> TraceText.reasonOf(call.output, "没建。")
-                plan != null ->
+                call.failed -> TraceText.reasonOf(call.output, prefix)
+                plan != null -> (verb?.let { "$it " } ?: "") +
                     listOfNotNull(whenOf(plan), "轻提醒".takeIf { plan.gentle && !plan.allDay }, plan.title).joinToString(" · ")
                 else -> PartialArgs.text(call.arguments, "title").orEmpty()
             },
             route = call.ref?.takeIf { call.ok }?.let { ReminderRoutes.edit(it) }
+        )
+    }
+
+    /** 删：「删了 · 喝水」；几条的「删了 3 条」，细目逐条列。删掉的点不进去 */
+    private fun deleted(call: ToolTrace): TraceView {
+        // 结果第一行：「删了 2 条：喝水；交房租」
+        val head = call.output?.lineSequence()?.firstOrNull().orEmpty()
+        val titles = head.substringAfter('：', "").split('；').map { it.trim() }.filter { it.isNotEmpty() }
+        return TraceView(
+            working = "在删提醒",
+            settled = if (call.failed && titles.isEmpty()) "没删成" else "提醒",
+            text = when {
+                call.failed && titles.isEmpty() -> TraceText.reasonOf(call.output, "没删。")
+                titles.isEmpty() -> ""
+                titles.size == 1 -> "删了 · ${titles.single()}"
+                else -> "删了 ${titles.size} 条"
+            },
+            lines = if (titles.size > 1) titles.map { "删了 · $it" } else emptyList()
         )
     }
 

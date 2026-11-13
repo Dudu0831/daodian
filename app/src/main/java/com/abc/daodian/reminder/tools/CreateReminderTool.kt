@@ -31,7 +31,45 @@ class CreateReminderTool(private val commit: suspend (ReminderPlan, ToolContext)
 
     override val parameters: Map<String, Any?> = mapOf(
         "type" to "object",
-        "properties" to linkedMapOf(
+        "properties" to PLAN_PROPERTIES,
+        "required" to PLAN_PROPERTIES.keys.toList(),
+        "additionalProperties" to false
+    )
+
+    override suspend fun execute(arguments: String, context: ToolContext): ToolOutcome {
+        val plan = planOf(arguments)
+            ?: return ToolOutcome("没建。参数不是合法的 JSON 或缺字段：${arguments.take(200)}", ok = false)
+
+        return when (val verdict = PlanValidator.validate(plan, context.now)) {
+            is Verdict.Ok -> {
+                val id = commit(verdict.plan, context)
+                val p = verdict.plan
+                ToolOutcome(
+                    output = "已建好（id=$id）：${describe(p)}",
+                    ok = true,
+                    ref = id,
+                    payload = Created(id, p)
+                )
+            }
+            is Verdict.Rejected ->
+                ToolOutcome("没建。${verdict.reason} 照这个意思问用户一句，不要自己换个时间重试。", ok = false)
+        }
+    }
+
+    companion object {
+        const val NAME = "create_reminder"
+
+        private val mapper = ObjectMapper()
+
+        /** 回给模型的那句：「「喝水」，首次 …，重复 FREQ=DAILY。」建和改共用 */
+        fun describe(p: ReminderPlan): String =
+            "「${p.title}」，" +
+                (if (p.allDay) "当天事项，日期 ${p.firstTriggerAt.take(10)}" else "首次 ${p.firstTriggerAt}") +
+                "，" + (p.rrule?.let { "重复 $it" } ?: "不重复") +
+                (if (p.gentle && !p.allDay) "，轻提醒（到点只发一条通知、不响铃）" else "") + "。"
+
+        /** 一整条提醒的参数。`update_reminder` 前面多一个 id、其余照抄这一份 —— 改提醒就是把改完的整条重写一遍、重过闸门 */
+        val PLAN_PROPERTIES: LinkedHashMap<String, Any?> = linkedMapOf(
             "title" to string("简短的动作，去掉「提醒我」这类壳。例如「喝水」「交房租」"),
             "firstTriggerAt" to string(
                 "首次触发时刻，ISO-8601 带时区偏移，如 2026-09-03T19:40:00+08:00。allDay 为 true 时只看日期，钟点填 00:00:00"
@@ -50,38 +88,7 @@ class CreateReminderTool(private val commit: suspend (ReminderPlan, ToolContext)
                 "轻提醒：到点只发一条通知（响一声，不响铃、不弹全屏）填 true。只有用户明说了才填 true（「轻提醒」「不用响铃」「发个通知就行」），" +
                     "没提、拿不准一律 false"
             )
-        ),
-        "required" to listOf("title", "firstTriggerAt", "basis", "note", "rrule", "wallClockAnchored", "allDay", "gentle"),
-        "additionalProperties" to false
-    )
-
-    override suspend fun execute(arguments: String, context: ToolContext): ToolOutcome {
-        val plan = planOf(arguments)
-            ?: return ToolOutcome("没建。参数不是合法的 JSON 或缺字段：${arguments.take(200)}", ok = false)
-
-        return when (val verdict = PlanValidator.validate(plan, context.now)) {
-            is Verdict.Ok -> {
-                val id = commit(verdict.plan, context)
-                val p = verdict.plan
-                ToolOutcome(
-                    output = "已建好（id=$id）：「${p.title}」，" +
-                        (if (p.allDay) "当天事项，日期 ${p.firstTriggerAt.take(10)}" else "首次 ${p.firstTriggerAt}") +
-                        "，" + (p.rrule?.let { "重复 $it" } ?: "不重复") +
-                        (if (p.gentle && !p.allDay) "，轻提醒（到点只发一条通知、不响铃）" else "") + "。",
-                    ok = true,
-                    ref = id,
-                    payload = Created(id, p)
-                )
-            }
-            is Verdict.Rejected ->
-                ToolOutcome("没建。${verdict.reason} 照这个意思问用户一句，不要自己换个时间重试。", ok = false)
-        }
-    }
-
-    companion object {
-        const val NAME = "create_reminder"
-
-        private val mapper = ObjectMapper()
+        )
 
         /** 参数 JSON → [ReminderPlan]，缺必填字段或不是 JSON 就是 null。重建历史卡片也用它 */
         fun planOf(arguments: String): ReminderPlan? = runCatching {

@@ -19,7 +19,7 @@ import com.abc.daodian.runtime.engine.Item
 object AssistantPrompt {
 
     /** 改了措辞就加一。写进 context_trace.txt 和导出诊断 */
-    const val VERSION = "assistant-v6"
+    const val VERSION = "assistant-v7"
 
     /**
      * 这份提示词是照着哪几个工具写的。模块的工具名写的是字（这里不 import 模块），
@@ -27,7 +27,7 @@ object AssistantPrompt {
      */
     val TOOLS = setOf(
         "ask_user", "edit_memory",
-        "create_reminder",
+        "create_reminder", "list_reminders", "update_reminder", "delete_reminders",
         "list_expenses", "add_expense", "update_expenses", "add_category",
         "list_apps", "recent_senders", "preview_rule", "list_rules", "add_rule", "stop_rule"
     )
@@ -48,8 +48,7 @@ object AssistantPrompt {
 3. 信息够了 —— 直接调工具去办，不用等他点头。不要先用文字复述你要做什么。
 
 只是话里带了个时间（「我明天要去上海」「刚开完会」）不算要办事。
-只许诺你手上工具办得到的事。工具里没有的（比如查、改、删已有的提醒），直说你现在做不到，
-告诉他去提醒列表里手动弄 —— 不要说「需要的话我可以帮你删掉」这种你兑现不了的话。
+只许诺你手上工具办得到的事。工具里没有的，直说你现在做不到 —— 不要说「需要的话我可以帮你办」这种你兑现不了的话。
 拿不准就归到 1 或 2：建错的提醒会在他手机上真的响，比少建一条糟得多。
 
 ## 问用户（ask_user）
@@ -107,6 +106,15 @@ object AssistantPrompt {
 - 到点默认响铃：gentle 填 false。只有他明说要轻提醒、不用响铃（「轻提醒」「轻轻提一下」「发个通知就行」「别响铃」），
   或者记忆里他交代过这类事用轻提醒，才填 true。没提、拿不准一律 false —— 该响的没响，比多响一次糟得多。
   当天事项本来就只发通知，gentle 填 false。
+- 查已有的：list_reminders。回答时说人话（「明天有两条：8:00 吃药、15:00 开会」），不要贴原始数据。
+  它默认只列还没响的；他问以前的才带上响过的。
+- 改：update_reminder，不要删了再建。先用 list_reminders 查到 # 编号和它现在的样子，再把改完的整条写出来 ——
+  没改的字段照那一行竖线后面的值原样抄（尤其 rrule、gentle、note，别弄丢）；改时间的规矩和新建一样，从他最新那句话的时刻推算。
+  「推后一小时」「改到明天同一时间」这类相对说法，从这条原来的时间推。
+- 删：delete_reminders，只在他明说不要了（「删了」「取消」「不用提醒了」）时用。
+  他说「那个提醒」对得上的不止一条，用 ask_user 问是哪条，猜测写成「喝水 · 每天 10:00」这样认得出来的样子。
+  「做完了」不是删 —— 说一句他可以在通知或列表里点完成，不用你动它。
+- 他刚让你建的那条紧接着说「不对，改成 4 点」：用 update_reminder 改那一条（建好的结果里有 id），不要再建一条。
 
 ## 记账
 app 会自动把支付通知整理成流水（后台整理员干的），你在对话里帮用户查账、补记、改账。

@@ -12,6 +12,7 @@ import com.abc.daodian.ledger.domain.LedgerBackend
 import com.abc.daodian.ledger.organize.OrganizerAgent
 import com.abc.daodian.ledger.tools.LedgerTools
 import com.abc.daodian.reminder.notice.ReminderNoticeAgent
+import com.abc.daodian.reminder.tools.FakeReminderDesk
 import com.abc.daodian.reminder.tools.ReminderTools
 import com.abc.daodian.runtime.Agent
 import com.abc.daodian.runtime.AgentRuntime
@@ -79,7 +80,7 @@ class AgentsTest {
 
     /** 和真机上一样的一套：助手自己的两样 + 提醒、记账、通知监听层给的 */
     private fun assistantTools() =
-        AssistantAgent.tools(FakeMemoryBook(), ReminderTools.forAssistant { _, _ -> 1L } + LedgerTools.forAssistant(ledger) + IntakeTools.of(FakeDesk()))
+        AssistantAgent.tools(FakeMemoryBook(), ReminderTools.forAssistant(FakeReminderDesk()) + LedgerTools.forAssistant(ledger) + IntakeTools.of(FakeDesk()))
 
     @Test
     fun `the assistant prompt is written for the tools the modules hand over`() {

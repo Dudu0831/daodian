@@ -10,6 +10,7 @@ import com.abc.daodian.reminder.data.ReminderDatabase
 import com.abc.daodian.reminder.scheduling.DayTasks
 import com.abc.daodian.reminder.scheduling.Rescheduler
 import com.abc.daodian.reminder.tools.CreateReminderTool
+import com.abc.daodian.reminder.tools.UpdateReminderTool
 import java.time.LocalDate
 import java.time.LocalTime
 import kotlinx.coroutines.flow.SharingStarted
@@ -62,10 +63,12 @@ class ReminderViewModel(app: Application) : AndroidViewModel(app) {
     fun isArmed(id: Long): Boolean = rescheduler.isScheduled(id)
 
     /**
-     * 这条提醒当初是模型怎么算出来的（create_reminder 的 basis）。模型算歪的时候，这是唯一能看出哪步歪了的线索 ——
+     * 这条提醒当初是模型怎么算出来的（create_reminder / update_reminder 的 basis）。模型算歪的时候，这是唯一能看出哪步歪了的线索 ——
      * 对话里不再有卡片，它挪到编辑页。桌面速记建的（不落盘）、手动建的没有。
      */
     suspend fun basisOf(reminderId: Long): String? =
-        CallHistory.arguments(getApplication(), CreateReminderTool.NAME, reminderId)
+        // 对话里改过（update_reminder）就看最近改的那次，它的时间才是现在这条的
+        (CallHistory.arguments(getApplication(), UpdateReminderTool.NAME, reminderId)
+            ?: CallHistory.arguments(getApplication(), CreateReminderTool.NAME, reminderId))
             ?.let(CreateReminderTool::planOf)?.basis?.takeIf { it.isNotBlank() }
 }

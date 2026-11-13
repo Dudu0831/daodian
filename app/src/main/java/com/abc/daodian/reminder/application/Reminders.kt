@@ -16,10 +16,11 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 /**
- * 提醒的所有写操作，app 里只有这一个入口：模型建的（`create_reminder`）、手动建 / 改、完成、删、撤销、重排。
+ * 提醒的所有写操作，app 里只有这一个入口：模型建 / 改 / 删的（`create_reminder`、`update_reminder`、`delete_reminders`）、手动建 / 改、完成、删、撤销、重排。
  * 响铃、通知按钮、小组件按钮、巡检这些 app 外面的路径在 scheduling / delivery / widget 里，各自已经排好。
  *
  * 只调 Rescheduler 的公开入口，不碰 scheduling / data 的内部。改完一律喊小组件重画一次（[WidgetUpdater]）——
@@ -38,27 +39,77 @@ object Reminders {
         withContext(NonCancellable) {
             val app = context.applicationContext
             val dao = ReminderDatabase.get(app).reminderDao()
-            val now = System.currentTimeMillis()
-            val zone = ZoneId.systemDefault()
-            val reminder = if (plan.allDay) dayTask(app, rawInput, plan, parsedBy, zone, now) else Reminder(
-                title = plan.title,
-                note = plan.note,
-                rawInput = rawInput,
-                nextTriggerAt = PlanValidator.triggerMillis(plan),
-                rrule = plan.rrule,
-                zoneId = zone.id,
-                localTime = if (plan.wallClockAnchored) PlanValidator.localTimeOf(plan, zone) else null,
-                wallClockAnchored = plan.wallClockAnchored,
-                parsedBy = parsedBy,
-                gentle = plan.gentle,
-                createdAt = now,
-                updatedAt = now
-            )
+            val reminder = fromPlan(app, rawInput, plan, parsedBy, ZoneId.systemDefault(), System.currentTimeMillis())
             val id = dao.insert(reminder)
             dao.byId(id)?.let { Rescheduler(app).schedule(it) }
             WidgetUpdater.announce(app, id)
             id
         }
+
+    /**
+     * 模型改了一条（`update_reminder`）：整条换成 [plan]（已经过了闸门），原话、建的时刻不动，重新排期。
+     * 没有这一条是 null。响过了、完成了的改完一律回到 SCHEDULED（时间是这一下重新定的，闸门保证在将来）；
+     * 稍后记下的那一刻作废，同手动改。还挂在通知栏上的那条一起收掉 —— 不然点它的「完成」会把改好的这条也完成了。
+     * NonCancellable 同 [commitPlan]
+     */
+    suspend fun updatePlan(context: Context, id: Long, plan: ReminderPlan, parsedBy: String): Reminder? =
+        withContext(NonCancellable) {
+            val app = context.applicationContext
+            val dao = ReminderDatabase.get(app).reminderDao()
+            val existing = dao.byId(id) ?: return@withContext null
+            val now = System.currentTimeMillis()
+            val zone = ZoneId.systemDefault()
+            val fresh = fromPlan(app, existing.rawInput, plan, parsedBy, zone, now)
+            val updated = existing.copy(
+                title = fresh.title, note = fresh.note, nextTriggerAt = fresh.nextTriggerAt, rrule = fresh.rrule,
+                zoneId = fresh.zoneId, localTime = fresh.localTime, wallClockAnchored = fresh.wallClockAnchored,
+                dueDay = fresh.dueDay, gentle = fresh.gentle, parsedBy = parsedBy,
+                seriesNextAt = null, status = ReminderStatus.SCHEDULED, updatedAt = now
+            )
+            val rescheduler = Rescheduler(app)
+            rescheduler.cancel(id)
+            Notifier.cancel(app, id)
+            dao.update(updated)
+            rescheduler.schedule(updated)
+            WidgetUpdater.refresh(app)
+            updated
+        }
+
+    /** 模型删的（`delete_reminders`），一次几条。返回真删了的（库里没有的跳过）。删法同 [delete] */
+    suspend fun deleteAll(context: Context, ids: List<Long>): List<Reminder> = withContext(NonCancellable) {
+        val app = context.applicationContext
+        val dao = ReminderDatabase.get(app).reminderDao()
+        val rescheduler = Rescheduler(app)
+        val deleted = ids.mapNotNull { dao.byId(it) }.onEach { r ->
+            rescheduler.cancel(r.id)
+            Notifier.cancel(app, r.id)
+            dao.delete(r)
+        }
+        if (deleted.isNotEmpty()) WidgetUpdater.refresh(app)
+        deleted
+    }
+
+    /** 库里全部提醒，不分状态（模型查提醒用） */
+    suspend fun all(context: Context): List<Reminder> =
+        ReminderDatabase.get(context.applicationContext).reminderDao().observeAll().first()
+
+    /** 模型给的一条 → 还没落库的 [Reminder]。当天事项走 [dayTask] */
+    private suspend fun fromPlan(
+        context: Context, rawInput: String, plan: ReminderPlan, parsedBy: String, zone: ZoneId, now: Long
+    ): Reminder = if (plan.allDay) dayTask(context, rawInput, plan, parsedBy, zone, now) else Reminder(
+        title = plan.title,
+        note = plan.note,
+        rawInput = rawInput,
+        nextTriggerAt = PlanValidator.triggerMillis(plan),
+        rrule = plan.rrule,
+        zoneId = zone.id,
+        localTime = if (plan.wallClockAnchored) PlanValidator.localTimeOf(plan, zone) else null,
+        wallClockAnchored = plan.wallClockAnchored,
+        parsedBy = parsedBy,
+        gentle = plan.gentle,
+        createdAt = now,
+        updatedAt = now
+    )
 
     /**
      * 当天事项：日期取模型给的，钟点换成收尾时刻。一律墙钟锚定 —— 「晚上八点提醒」到哪个时区都该是当地八点。
