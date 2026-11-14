@@ -1,6 +1,8 @@
 package com.abc.daodian.shell
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,7 +22,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.abc.daodian.BuildConfig
@@ -42,6 +47,7 @@ import com.abc.daodian.shell.diagnostics.Diagnostics
 import com.abc.daodian.shell.entry.ShellEntries
 import com.abc.daodian.shell.entry.ShellEntry
 import com.abc.daodian.update.Updates
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -177,19 +183,40 @@ private fun DiagnosticsRow() {
     ) { Chevron() }
 }
 
-/** 版本号，内测期间也是检查更新的入口（[Updates]）。有新版本就朱砂字，点了下载、下完交给系统安装 */
+/**
+ * 版本号，内测期间也是检查更新的入口（[Updates]）。有新版本就朱砂字，点了下载、下完交给系统安装。
+ * 没有新版在手上时行尾多一颗「检查更新」：当场去查一次，查不到在底下写一句（自动那几次查不到是不出声的）。
+ */
 @Composable
 private fun VersionRow() {
     val colors = DaodianColors.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val state by Updates.state.collectAsState()
+    var checking by remember { mutableStateOf(false) }
+    var missed by remember { mutableStateOf(false) }
     LifecycleResumeEffect(Unit) {
         Updates.check(context)
         onPauseOrDispose { }
     }
+    val recheck: () -> Unit = {
+        if (!checking) scope.launch {
+            checking = true
+            missed = false
+            val began = System.currentTimeMillis()
+            val found = Updates.refresh(context.applicationContext)
+            // 服务器回得快时「正在检查…」也停一下，不然像没点着
+            delay((600 - (System.currentTimeMillis() - began)).coerceAtLeast(0))
+            missed = found == null
+            checking = false
+        }
+    }
     val current = BuildConfig.VERSION_NAME
+    val shown = if (Updates.enabled) state else null
+    // 没有新版在手上（没查过、已是最新）才有得查
+    val idle = shown == Updates.State.Unknown || shown == Updates.State.Latest
     // 版本号写在右边；底下一句只在有事时出现：有新版、在下、下好了、下失败了
-    val (note, color) = when (val s = if (Updates.enabled) state else null) {
+    val (note, color) = when (val s = shown) {
         is Updates.State.Available ->
             ("有新版本 ${s.release.versionName}，点一下下载安装，数据都在" +
                 s.release.notes.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()) to colors.accent
@@ -197,8 +224,12 @@ private fun VersionRow() {
             "正在下载 ${s.release.versionName}" + (s.fraction?.let { " · ${(it * 100).toInt()}%" } ?: "") to colors.muted
         is Updates.State.Ready -> "${s.release.versionName} 下好了，点一下安装，数据都在" to colors.accent
         is Updates.State.Failed -> "${s.release.versionName} ${s.why}" to colors.red
-        Updates.State.Latest -> "已是最新" to colors.muted
-        else -> null to colors.muted
+        else -> when {
+            s == null || checking -> null to colors.muted
+            missed -> "没查到，过会儿再试" to colors.red
+            s == Updates.State.Latest -> "已是最新" to colors.muted
+            else -> null to colors.muted
+        }
     }
     SettingRow(
         title = "版本",
@@ -211,11 +242,27 @@ private fun VersionRow() {
                     is Updates.State.Failed -> Updates.download(context, s.release)
                     is Updates.State.Ready -> Updates.install(context, s.release)
                     is Updates.State.Downloading -> Unit
-                    else -> Updates.check(context, force = true)
+                    else -> recheck()
                 }
             }
         }
-    ) { Value(current, gap = false) }
+    ) {
+        if (idle) {
+            val shape = RoundedCornerShape(8.dp)
+            Text(
+                if (checking) "正在检查…" else "检查更新",
+                style = DaodianType.caption,
+                color = if (checking) colors.muted else colors.ink,
+                modifier = Modifier
+                    .clip(shape)
+                    .border(1.dp, colors.rule2, shape)
+                    .clickable(enabled = !checking, role = Role.Button, onClick = recheck)
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+        }
+        Value(current, gap = false)
+    }
 }
 
 /** 查得到、又没开的体检项，名字 */
