@@ -3,6 +3,7 @@ package com.abc.daodian.intake.assistant
 import com.abc.daodian.intake.assistant.RuleJson.text
 import com.abc.daodian.intake.core.rule.Rule
 import com.abc.daodian.intake.core.rule.RuleCheck
+import com.abc.daodian.runtime.kit.Kit
 import com.abc.daodian.runtime.tool.Tool
 import com.abc.daodian.runtime.tool.ToolContext
 import com.abc.daodian.runtime.tool.ToolEffect
@@ -10,7 +11,8 @@ import com.abc.daodian.runtime.tool.ToolOutcome
 import kotlinx.coroutines.flow.first
 
 /**
- * 助手建「听通知」规则的六个工具（DESIGN.md §12.2）。用法写在助手的提示词里（`AssistantPrompt` 的「听通知」一段）。
+ * 助手建「听通知」规则的六个工具（DESIGN.md §12.2），收在一个工具包里交出去（[kit]）：用法是 [GUIDE]，跟着工具走，
+ * 改了工具回来改它。助手的提示词里没有这一段了（DESIGN.md §6.11）。
  * 只读的四个不留痕；建、停留痕（[IntakeTrace]）
  */
 object IntakeTools {
@@ -18,6 +20,33 @@ object IntakeTools {
     fun of(desk: RuleDesk): List<Tool> = listOf(
         ListAppsTool(desk), RecentSendersTool(desk), PreviewRuleTool(desk), ListRulesTool(desk), AddRuleTool(desk), StopRuleTool(desk)
     )
+
+    /** 平时收着：模型 `open_kit("notice")` 才带出来。不要 Context，测试里照样建得出 */
+    fun kit(desk: RuleDesk): Kit = Kit(KIT, SUMMARY, GUIDE, of(desk))
+
+    const val KIT = "notice"
+
+    /** 目录上那一句：模型凭它决定开不开，写他会怎么说 */
+    const val SUMMARY = "听通知。他想让你替他盯着手机上的通知（「快递到了下班提醒我取」「招行的通知都记账」" +
+        "「老婆在微信里让我做的事帮我记着」），或者问现在听着哪些、要停掉 / 改某条规则时开"
+
+    /** 打开后回给模型的用法。原来是助手提示词里「听通知」那一段 */
+    val GUIDE = """
+他想让你替他盯着手机通知，就是要建一条规则。规则分两半：
+- 硬条件：哪几个 app、标题是 / 含什么、正文含 / 不含哪些词、开头的暗号。代码照它判哪些通知进来，没进来的一条都不存。
+- 软规则（soft）：进来之后交给谁（记账、提醒）、怎么办。后台的通知管家照它办，管家问不了他，所以要写到不用猜。
+
+怎么建：
+- 包名用 list_apps 查，不要猜。按人听的（「老婆发的」），先用 recent_senders 看那个 app 最近的标题，标题照抄、一字不差。
+- 软规则写清：几点（写成钟点；「下班」按记忆里的钟点，记忆里没有就问）、建成什么（提醒、当天事项）、交给谁。
+  轻提醒只在他明说时写进软规则；别人发来的话建的提醒，软规则没写轻提醒就一律响铃。
+- 他说暗号才填 starts_with；没说就不填，这个人发的每一句都会进来。
+- 听短信这类什么都有的 app，问他要不要加「不含 验证码」。
+- 哪几个 app、哪类消息算、几点、交给谁 —— 有一样拿不准就用 ask_user 问，都清楚了再建，不要猜。
+- 建之前用 preview_rule 对一遍，把对得上几条告诉他；条件太宽（整个微信都进来）提醒他每条都要花钱，建议加条件。
+- 建好用一句话说：听哪些、什么样的进来、进来怎么办。
+- 改规则 = stop_rule 停掉旧的、add_rule 建新的。他问现在听着什么，用 list_rules。
+""".trimIndent()
 
     const val LIST_APPS = "list_apps"
     const val RECENT_SENDERS = "recent_senders"

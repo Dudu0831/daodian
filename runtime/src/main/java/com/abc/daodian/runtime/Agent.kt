@@ -5,6 +5,7 @@ import com.abc.daodian.runtime.context.LastTurns
 import com.abc.daodian.runtime.engine.Item
 import com.abc.daodian.runtime.engine.StopReason
 import com.abc.daodian.runtime.engine.Turn
+import com.abc.daodian.runtime.kit.Kit
 import com.abc.daodian.runtime.tool.Tool
 import com.abc.daodian.runtime.tool.ToolOutcome
 import java.time.ZonedDateTime
@@ -46,11 +47,17 @@ class Prompt(val text: String, val version: String, val tools: Set<String>)
 data class Agent(
     val info: AgentInfo,
     val prompt: Prompt,
+    /** 常驻的工具：每一步都带给模型 */
     val tools: List<Tool>,
     /** 每步喂哪些轮。后台的一次性 agent 只有当前这一轮 */
     val context: ContextPolicy = LastTurns(1),
     /** 一轮最多调几次模型（调工具 → 拿结果 → 再调算一次） */
-    val maxSteps: Int = DEFAULT_MAX_STEPS
+    val maxSteps: Int = DEFAULT_MAX_STEPS,
+    /**
+     * 平时收着的工具包，模型用 `open_kit` 打开才带出来（[Kit]）。给了它，runtime 自己加上 `open_kit`、
+     * 门（`kit/KitGate`）和折叠（`context/fold/FoldKits`），提示词的 [Prompt.tools] 里要写上 `open_kit`
+     */
+    val kits: List<Kit> = emptyList()
 ) {
     companion object {
         const val DEFAULT_MAX_STEPS = 6

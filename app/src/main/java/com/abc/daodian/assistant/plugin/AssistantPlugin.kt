@@ -3,6 +3,7 @@ package com.abc.daodian.assistant.plugin
 import android.content.Context
 import androidx.compose.runtime.Composable
 import com.abc.daodian.runtime.ask.AskNote
+import com.abc.daodian.runtime.kit.Kit
 import com.abc.daodian.runtime.tool.Tool
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -11,8 +12,9 @@ import kotlinx.coroutines.flow.flowOf
  * 一个模块给助手的那一份（模块接头 `module/Module` 的 `assistant`）。助手只认识它，不知道提醒、账是什么。
  * 见 DESIGN.md §2.2「接头」
  *
- * 给的是能力和数据：工具、垫在历史前面的现状、痕、例句、app 自己发起的一轮、问卡上挂的一块。
- * **不给提示词**：怎么用这些工具，助手在自己的提示词里写全（`assistant/AssistantPrompt`），模块加了、改了工具要回去跟着改。
+ * 给的是能力和数据：工具、工具包、垫在历史前面的现状、痕、例句、app 自己发起的一轮、问卡上挂的一块。
+ * **不往助手的提示词里加段落**：常驻的工具（[tools]）怎么用，助手在自己的提示词里写全（`assistant/AssistantPrompt`），
+ * 模块加了、改了工具要回去跟着改。平时收着的（[kits]）不一样：说明跟着工具包走，由交它的模块写（DESIGN.md §6.11）。
  * 页面、抽屉卡、设置行、体检、诊断给的是壳（`shell/entry/ShellEntry`），冷启动要做的事在模块接头上。
  */
 interface AssistantPlugin {
@@ -26,8 +28,17 @@ interface AssistantPlugin {
      */
     suspend fun background(context: Context): String? = null
 
-    /** 助手的工具（桌面速记同一套）。写操作（[com.abc.daodian.runtime.tool.ToolEffect.WRITE]）会在对话里留痕 */
+    /**
+     * 助手常驻的工具（桌面速记同一套）：每句话都带着，几乎天天用得上的才放这里。
+     * 写操作（[com.abc.daodian.runtime.tool.ToolEffect.WRITE]）会在对话里留痕
+     */
     fun tools(context: Context): List<Tool>
+
+    /**
+     * 平时收着的工具包：偶尔才用的一组工具连同它的用法，模型用 `open_kit` 打开才带出来（[Kit]）。
+     * 留不留痕和常驻的一样看读写
+     */
+    fun kits(context: Context): List<Kit> = emptyList()
 
     /** 它的写操作留什么痕。不是它的工具就返回 null */
     fun trace(call: ToolTrace): TraceView? = null

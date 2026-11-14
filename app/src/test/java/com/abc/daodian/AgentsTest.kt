@@ -78,18 +78,25 @@ class AgentsTest {
         }
     }
 
-    /** 和真机上一样的一套：助手自己的两样 + 提醒、记账、通知监听层给的 */
+    /** 和真机上一样的一套：助手自己的两样 + 提醒、记账给的常驻工具 */
     private fun assistantTools() =
-        AssistantAgent.tools(FakeMemoryBook(), ReminderTools.forAssistant(FakeReminderDesk()) + LedgerTools.forAssistant(ledger) + IntakeTools.of(FakeDesk()))
+        AssistantAgent.tools(FakeMemoryBook(), ReminderTools.forAssistant(FakeReminderDesk()) + LedgerTools.forAssistant(ledger))
+
+    /** 收着的工具包：通知监听层给的那一个 */
+    private fun assistantKits() = listOf(IntakeTools.kit(FakeDesk()))
 
     @Test
     fun `the assistant prompt is written for the tools the modules hand over`() {
-        assertEquals(AssistantPrompt.TOOLS, assistantTools().map { it.name }.toSet())
+        assertEquals(AssistantPrompt.TOOLS, assistantTools().map { it.name }.toSet() + "open_kit")
+        // 包里的工具不在常驻的里面，也不写进提示词：它们的用法跟着包走
+        val packed = assistantKits().flatMap { it.tools }.map { it.name }.toSet()
+        assertEquals(IntakeTools.NAMES, packed)
+        assertTrue(packed.none { it in AssistantPrompt.TOOLS || it in AssistantPrompt.SYSTEM })
     }
 
     @Test
     fun `the assistant passes the strict checks`() {
-        val result = strictRun(AssistantAgent.build(assistantTools()))
+        val result = strictRun(AssistantAgent.build(assistantTools(), assistantKits()))
         assertTrue("助手没过检查：$result", result is RunResult.Done)
     }
 

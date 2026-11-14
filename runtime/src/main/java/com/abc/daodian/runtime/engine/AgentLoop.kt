@@ -14,6 +14,7 @@ import com.abc.daodian.runtime.model.StepOutput
 import com.abc.daodian.runtime.tool.ToolContext
 import com.abc.daodian.runtime.tool.ToolOutcome
 import com.abc.daodian.runtime.tool.ToolRegistry
+import com.abc.daodian.runtime.tool.ToolSelector
 import java.time.ZonedDateTime
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -39,6 +40,8 @@ internal class AgentLoop(
     private val system: String,
     private val context: ContextPolicy = LastTurns(),
     private val maxSteps: Int = Agent.DEFAULT_MAX_STEPS,
+    /** 每一步把哪些工具带给模型。默认全带；有工具包的 agent 是 `kit/KitGate` */
+    private val selector: ToolSelector = ToolSelector.ALL,
     /** 每次真要发请求前看一眼发的是什么（垫了什么、原样带了哪几轮）。只给调试记录用，见 ContextTrace */
     private val onRequest: (preamble: Preamble?, sent: List<Turn>, request: LlmRequest) -> Unit = { _, _, _ -> }
 ) {
@@ -69,8 +72,10 @@ internal class AgentLoop(
         val toolContext = ToolContext(now, said, asker, model = llm.model)
         try {
             for (step in 0 until maxSteps) {
+                // 这一步带给模型的是哪些工具：它调了没带的，下面不执行
+                val offered = HashSet<String>()
                 val output = try {
-                    callModel(step, session, background)
+                    callModel(step, session, background, offered)
                 } catch (c: CancellationException) {
                     throw c
                 } catch (t: Throwable) {
@@ -85,7 +90,7 @@ internal class AgentLoop(
                 }
                 // 先把这一步的调用全部记上，再逐个执行 —— 中途被停，没轮到的由 finally 统一补结果
                 output.toolCalls.forEach(session::append)
-                output.toolCalls.forEach { call -> session.append(invoke(call, toolContext)) }
+                output.toolCalls.forEach { call -> session.append(invoke(call, toolContext, offered)) }
             }
             emit(AgentEvent.Finished(session.current, StopReason.STEP_LIMIT))
         } finally {
@@ -120,15 +125,18 @@ internal class AgentLoop(
         val request = LlmRequest(
             system = system,
             input = sent.flatMap { it.items },
-            tools = tools.all,
+            tools = selector.select(tools.all, sent),
             background = preamble?.text
         )
         return Fed(preamble, sent, request)
     }
 
     /** 调一次模型，把过程事件转发出去，返回这一步的产出 */
-    private suspend fun FlowCollector<AgentEvent>.callModel(step: Int, session: Session, background: Background): StepOutput {
+    private suspend fun FlowCollector<AgentEvent>.callModel(
+        step: Int, session: Session, background: Background, offered: MutableSet<String>
+    ): StepOutput {
         val fed = request(session, background)
+        fed.request.tools.mapTo(offered) { it.name }
         onRequest(fed.preamble, fed.sent, fed.request)
         var output: StepOutput? = null
         llm.step(fed.request).collect { event ->
@@ -138,9 +146,11 @@ internal class AgentLoop(
         return output ?: throw LlmException("模型调用结束了，但没有给出结果")
     }
 
-    private suspend fun FlowCollector<AgentEvent>.invoke(call: Item.ToolCall, context: ToolContext): Item.ToolResult {
+    private suspend fun FlowCollector<AgentEvent>.invoke(call: Item.ToolCall, context: ToolContext, offered: Set<String>): Item.ToolResult {
         val tool = tools[call.name]
             ?: return Item.ToolResult(call.callId, "没有叫 ${call.name} 的工具。", ok = false)
+        // 手上有、但这一步没带给它（收在没开的工具包里）：不执行，告诉它怎么办
+        if (call.name !in offered) return Item.ToolResult(call.callId, selector.whyHidden(call.name), ok = false)
 
         emit(AgentEvent.ToolStarting(call))
         val outcome = try {

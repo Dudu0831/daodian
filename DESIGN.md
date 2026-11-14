@@ -103,10 +103,10 @@ shared                地基：没有状态
 
 | 插口 | 模块给什么 | 现在有的 |
 |---|---|---|
-| `assistant/plugin/AssistantPlugin`（放在模块的 `assistant/`） | 工具、垫在历史前面的现状（`background`，如记账的类别表和标签，§6.9）、写操作留什么痕（`trace`）、空状态例句、连不上模型时「手动填一条」去哪、app 自己发起的一轮（`trigger`，如每晚对账）、问过你还等你点的那一轮（`pendingTrigger`，对话末尾画成虚线段）、问卡上一题顺手办了什么（`askNote`，如挂上的标签，§6.6）和那一块怎么画（`AskAddon`）。**不给提示词**（§6.3 第 6 条） | `ReminderPlugin`、`LedgerPlugin` |
+| `assistant/plugin/AssistantPlugin`（放在模块的 `assistant/`） | 工具、垫在历史前面的现状（`background`，如记账的类别表和标签，§6.9）、写操作留什么痕（`trace`）、空状态例句、连不上模型时「手动填一条」去哪、app 自己发起的一轮（`trigger`，如每晚对账）、问过你还等你点的那一轮（`pendingTrigger`，对话末尾画成虚线段）、问卡上一题顺手办了什么（`askNote`，如挂上的标签，§6.6）和那一块怎么画（`AskAddon`）、平时收着的工具包（`kits`，§6.11）。**不往助手的提示词里加段落**（§6.3 第 6 条；工具包的说明跟着包走） | `ReminderPlugin`、`LedgerPlugin` |
 | `shell/entry/ShellEntry`（放在模块的 `presentation/`） | 名字（`label`：「权限」页上写「提醒要的」，导出诊断里那一段的标题）、自己的页面（路由以模块 id 开头）、抽屉里的一张纸、设置首页「功能」组的行（`settingsEntries`：一个模块一行，只有标题，点进自己的设置页；要写现状的给 `settingsStatus`：底下一句 + 右边一个数）、「权限」页里的一组（`PermissionSection`）、盖在整个 app 上面的一层（`Overlay`，画在导航上面）、体检项、导出诊断里的一段 | `ReminderShell`、`LedgerShell`、`IntakeShell`、`WhatsNewShell` |
 
-给助手的那个**叫 plugin，不叫 skill**（10-16 从 `AssistantSkill` 改的名）：agent 那边说 skill，一般指按需读进上下文的一段说明，核心是提示词；这个插口偏偏不给提示词，给的是工具、数据和界面上的几块。以后真要按需加载某个模块的规矩，那才叫 skill，名字留着。
+给助手的那个**叫 plugin，不叫 skill**（10-16 从 `AssistantSkill` 改的名）：agent 那边说 skill，一般指按需读进上下文的一段说明，核心是提示词；这个插口偏偏不给提示词，给的是工具、数据和界面上的几块。11-14 真做按需加载时也没用 skill 这个词，自己定了「工具包」（§6.11）。
 
 加模块 = 新目录 + `XxxModule`（要的话再加 `XxxPlugin`、`XxxShell`）+ `Modules.kt` 里一行；它给助手的工具要在助手的提示词里写上用法。助手的工具顺序、抽屉里的纸、设置首页的行都按 `Modules.kt` 的顺序。要接通知的模块在 `Module.notice` 交一个 `NoticeTarget`（§12.5）；要在后台自己跑一个 agent，写 `XxxAgent` + `XxxPrompt`、`Agents.kt` 里加一行（§6.1）。
 
@@ -482,6 +482,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 6. **每个 agent 的提示词写全在自己目录下，不拼别处的段落**（用户 10-15 定的）：助手 `assistant/AssistantPrompt`、记账整理员 `ledger/organize/OrganizerPrompt`、通知管家 `intake/steward/StewardPrompt`、提醒子代理 `reminder/notice/ReminderNoticePrompt`、记忆整理员 `assistant/memory/tidy/TidyPrompt`。
    模块只给工具（工具自己的说明跟着工具走）和数据（类别表这类垫在历史前面），怎么用这些工具的规矩由用它的 agent 写 —— 以前助手的 system 是基础提示词 + 各模块那一段按 `Modules.kt` 顺序拼的，看全文得跑起来；派活又拼了一份提醒规则，里面的轻提醒那条和它自己的「gentle 一律 false」打架。
    代价：模块加了、删了、改了名工具，要回用它的 agent 的提示词里跟着改。每一轮会变的输入怎么拼（`input(...)`）和 system 放在同一个文件，system 说「每次给你什么」，拼的代码就在下面。
+   例外：平时收着的工具包，说明跟着包走、由交它的模块写（§6.11，用户 11-14 定的）。
    runtime 造的标记（垫的背景、app 自动发起的一轮）在提示词里插常量（`Preamble.MARK`、`Item.TRIGGER_MARK`），不手抄。
 
 ### 6.4 建提醒：`create_reminder` 与校验闸门
@@ -743,6 +744,31 @@ system（逐字节不变）
 - **隐私**：图原样发给网关，和对话、流水一样不脱敏（§10 同一个取舍）。官网数据安全那段要跟着写。
 - 图只增不减：没有清对话的入口，`chat_images/` 跟着 `chat.db` 一直长。以后做清对话、导出、备份要记得它。
 - 桌面速记、通知管家、提醒子代理、整理员都不带图，它们调循环用的是默认参数。
+
+### 6.11 工具包：平时收着的工具
+
+助手的工具和提示词每句话都整份带着（11-14 量的：16 个工具的说明 1.37 万字 + system 0.61 万字）。偶尔才用的那些 —— 建听通知的规则一组就 6 个工具、连用法 3,300 字 —— 平时收起来，用到时模型自己打开。
+
+**工具包（`runtime/kit/Kit`）= 一组工具 + 这一组怎么用**，绑在一个对象上：名字、目录上那一句（什么时候该开）、说明、工具（可以为空，只有说明）。不用业界的 skill（文件夹 + `SKILL.md`）：那个只管说明、不带工具，工具还得另想办法收，两样靠名字对（用户 11-14 定的：自己定一个概念，加载一次两样一起来）。
+
+| 件 | 在哪 | 干什么 |
+|---|---|---|
+| `open_kit(name)` | `runtime/kit/OpenKitTool` | 唯一多出来的常驻工具。回的是那个包的说明；**目录写在它自己的工具说明里**，由各包的 `summary` 拼，加一个包不用改提示词 |
+| 门 | `runtime/kit/KitGate`（`tool/ToolSelector` 的一个实现） | 每步请求前定带哪些工具：常驻的 + 开着的包里的。循环只认 `ToolSelector`，不知道工具包 |
+| 折叠 | `runtime/context/fold/FoldKits` | 更早的那次打开，说明折成一句「收起来了，还要用就再开」 |
+
+规矩：
+
+1. **开着不另存状态，从发出去的历史里看**：最近 6 轮（`KitGate.KEEP`，和压缩的保护区一样长）里成功调过 `open_kit` 的包开着。门和折叠用同一个数，所以模型手上有工具时用法一定还在眼前。杀进程重开、被摘要盖掉都不用另外处理。
+2. **没开就调**：循环不执行，回一句「收在哪个包里，先 open_kit」（`ToolSelector.whyHidden`），模型自己改。
+3. **说明由交工具包的模块写**，放在模块自己的目录里（`IntakeTools.GUIDE`）。这是 §6.3 第 6 条的例外，理由和「工具自己的说明跟着工具走」一样：它是一组工具共用的说明。常驻工具的规矩照旧写在助手的提示词里。
+4. **只收偶尔才用的**：打开要多走一步、让前缀缓存失效一次（收起时再一次）。提醒、记账的建查改删不收。
+5. **agent 只要把包交给 `Agent.kits`**：`AgentRuntime` 自己加 `open_kit`、门和折叠；没有包的 agent 和以前一模一样。strict 检查对的是「提示词写的 = 常驻的 + `open_kit`」，包里的工具不写进提示词（`AgentsTest` 查）。
+6. 助手的步数上限从 6 提到 8（`AssistantAgent.MAX_STEPS`）：打开占一步。
+
+模块怎么交：`AssistantPlugin.kits(context)`（默认空）。现在只有听通知一个（`notice`）。以后要收的：每晚对账那一段（只有说明，由那一轮的开场带上）、画图那一段、桌面卡片。
+
+没做的：从文件 / 网上装的包（现在是代码里的对象）；包里带脚本。
 
 ---
 
@@ -1303,7 +1329,7 @@ MagicOS 各版本菜单名有出入，按关键词找：
 
 ### 12.2 建规则：只在对话里
 
-助手多一组工具，由 intake 的插口 `IntakePlugin` 交出去（`IntakeModule.assistant`，现在是 null），用法写在 `AssistantPrompt`（§6.3 第 6 条）：
+助手多一组工具，由 intake 的插口 `IntakePlugin` 交出去。11-14 起它们收在工具包 `notice` 里（§6.11）：平时不带，模型 `open_kit` 打开才出现，用法是 `IntakeTools.GUIDE`，不在 `AssistantPrompt` 里了：
 
 | 工具 | 干什么 |
 |---|---|

@@ -176,10 +176,10 @@ class LiveGatewayTest {
     fun `the assistant builds a rule from a clear request`() = runBlocking {
         install()
         val desk = FakeDesk(active = listOf(notice(SMS, "菜鸟驿站", "【菜鸟驿站】您的包裹已到幸福里驿站，凭取件码 3-2-1088 领取", key = "a")))
-        val tools = AssistantAgent.tools(FakeMemoryBook(), ReminderTools.forAssistant(FakeReminderDesk()) + LedgerTools.forAssistant(noLedger) + IntakeTools.of(desk))
+        val tools = AssistantAgent.tools(FakeMemoryBook(), ReminderTools.forAssistant(FakeReminderDesk()) + LedgerTools.forAssistant(noLedger))
         val now = ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).withHour(10).withMinute(0)
         val said = "帮我盯着短信里的快递通知：正文里有取件码或者驿站的就算，验证码不算。到了就当天 18:00 提醒我去取，标题写上取件码，响铃就行。"
-        val result = AgentRuntime.runOnce(AssistantAgent.build(tools), Input(said, now))
+        val result = AgentRuntime.runOnce(AssistantAgent.build(tools, listOf(IntakeTools.kit(desk))), Input(said, now))
         val calls = (result as? RunResult.Done)?.turn?.items?.filterIsInstance<Item.ToolCall>().orEmpty()
         println("助手：${result.reply}\n调了：${calls.map { it.name + " " + it.arguments }}")
         assertTrue("助手没正常结束：$result", result is RunResult.Done)
@@ -188,6 +188,8 @@ class LiveGatewayTest {
         assertEquals(setOf(SMS), rule!!.apps)
         assertTrue("软规则要写钟点：${rule.soft}", rule.soft.contains("18:00") || rule.soft.contains("18点"))
         assertTrue("先查过包名：${calls.map { it.name }}", calls.any { it.name == "list_apps" })
+        // 这六个工具平时收着（§6.11）：得先自己打开那个包
+        assertEquals("先打开工具包：${calls.map { it.name }}", "open_kit", calls.first().name)
     }
 
     /**

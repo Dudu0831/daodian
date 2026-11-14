@@ -2,6 +2,7 @@ package com.abc.daodian.assistant.plugin
 
 import android.content.Context
 import com.abc.daodian.runtime.ask.AskNote
+import com.abc.daodian.runtime.kit.Kit
 import com.abc.daodian.runtime.tool.Tool
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -25,6 +26,9 @@ object AssistantPlugins {
 
     /** 各模块的工具，按模块顺序（顺序变了 = 发给模型的工具列表变了，前缀缓存失效一次） */
     fun tools(context: Context): List<Tool> = plugins.flatMap { it.tools(context.applicationContext) }
+
+    /** 各模块收着的工具包，按模块顺序（目录写在 `open_kit` 的说明里，顺序变了同样让缓存失效一次） */
+    fun kits(context: Context): List<Kit> = plugins.flatMap { it.kits(context.applicationContext) }
 
     fun trace(call: ToolTrace): TraceView? = plugins.firstNotNullOfOrNull { it.trace(call) }
 

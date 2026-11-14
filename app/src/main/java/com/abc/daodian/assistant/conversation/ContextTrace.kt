@@ -11,6 +11,8 @@ import com.abc.daodian.runtime.context.fold.FoldStale
 import com.abc.daodian.runtime.context.Preamble
 import com.abc.daodian.runtime.engine.Item
 import com.abc.daodian.runtime.engine.Turn
+import com.abc.daodian.runtime.kit.KitGate
+import com.abc.daodian.runtime.kit.OpenKitTool
 import com.abc.daodian.runtime.model.LlmRequest
 import java.io.File
 import java.time.LocalTime
@@ -49,7 +51,11 @@ object ContextTrace {
             val picturesFolded = request.input.count { it is Item.UserMessage && FoldImages.MARK in it.text }
             val chars = Compaction.chars(sent) + (request.background?.length ?: 0)
             val line = "${LocalTime.now().format(clock)} ${agent.prompt.version} 背景 $bg · 原样 ${sent.size} 轮 $range · " +
-                "折掉查询 $staleFolded、图 $drawingsFolded · 带图片 $pictures 张、折掉 $picturesFolded 句 · 约 $chars 字"
+                "折掉查询 $staleFolded、图 $drawingsFolded · 带图片 $pictures 张、折掉 $picturesFolded 句 · 约 $chars 字" +
+                // 这一步带给模型几个工具、开着哪几个工具包（§6.11）
+                " · 工具 ${request.tools.size} 个" + (if (agent.kits.isEmpty()) "" else "（开着：${
+                    OpenKitTool.opened(sent.takeLast(KitGate.KEEP)).joinToString("、").ifEmpty { "无" }
+                }）")
             val name = if (agent.info.id == AssistantAgent.id) FILE else "trace_${agent.info.id}.txt"
             val file = File(context.applicationContext.filesDir, name)
             if (file.length() > MAX_BYTES) file.delete()

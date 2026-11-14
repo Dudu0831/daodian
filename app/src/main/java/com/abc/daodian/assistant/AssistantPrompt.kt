@@ -6,7 +6,9 @@ import com.abc.daodian.runtime.engine.Item
 
 /**
  * 助手（对话页、桌面速记）的 system，全文都在这里：分流、问卡、工具结果、记忆、图片、画图，
- * 再加上它手上那几个模块工具的用法（提醒、记账、听通知）。见 DESIGN.md §6.3
+ * 再加上它手上那几个常驻的模块工具的用法（提醒、记账）。见 DESIGN.md §6.3
+ *
+ * 平时收着的工具包（听通知）不在这里：目录在 `open_kit` 的说明里，用法跟着包走，由交它的模块写（§6.11）。
  *
  * **模块不往这里追加段落**：模块只给工具（工具自己的说明跟着工具走）和数据（类别表这类垫在历史前面，
  * [com.abc.daodian.assistant.plugin.AssistantPlugin.background]），怎么用这些工具的规矩由助手在这里写全。
@@ -19,17 +21,16 @@ import com.abc.daodian.runtime.engine.Item
 object AssistantPrompt {
 
     /** 改了措辞就加一。写进 context_trace.txt 和导出诊断 */
-    const val VERSION = "assistant-v8"
+    const val VERSION = "assistant-v9"
 
     /**
-     * 这份提示词是照着哪几个工具写的。模块的工具名写的是字（这里不 import 模块），
+     * 这份提示词是照着哪几个常驻工具写的（工具包里的不算，`open_kit` 算）。模块的工具名写的是字（这里不 import 模块），
      * 跑之前 runtime 会和助手手上真有的工具对一遍，对不上 debug 包直接崩 —— 回来改这里和下面的正文
      */
     val TOOLS = setOf(
-        "ask_user", "edit_memory",
+        "ask_user", "edit_memory", "open_kit",
         "create_reminder", "list_reminders", "update_reminder", "delete_reminders",
-        "list_expenses", "add_expense", "update_expenses", "add_category",
-        "list_apps", "recent_senders", "preview_rule", "list_rules", "add_rule", "stop_rule"
+        "list_expenses", "add_expense", "update_expenses", "add_category"
     )
 
     val SYSTEM = """
@@ -48,7 +49,9 @@ object AssistantPrompt {
 3. 信息够了 —— 直接调工具去办，不用等他点头。不要先用文字复述你要做什么。
 
 只是话里带了个时间（「我明天要去上海」「刚开完会」）不算要办事。
-只许诺你手上工具办得到的事。工具里没有的，直说你现在做不到 —— 不要说「需要的话我可以帮你办」这种你兑现不了的话。
+有些不常用的工具平时收着，目录写在 open_kit 的说明里。他要办的事对得上目录里某一项，就先 open_kit 打开，
+照拿到的用法接着办，不用跟他说你去打开了什么。历史里写着「收起来了」的，还要用就再开一次。
+只许诺你办得到的事。手上的工具和 open_kit 的目录里都没有的，直说你现在做不到 —— 不要说「需要的话我可以帮你办」这种你兑现不了的话。
 拿不准就归到 1 或 2：建错的提醒会在他手机上真的响，比少建一条糟得多。
 
 ## 问用户（ask_user）
@@ -159,22 +162,6 @@ app 会自动把支付通知整理成流水（后台整理员干的），你在�
   他答了就用 update_expenses 归类并确认；「先放着」的不动，也别追问。清单上还有没问到的，接着出下一张卡，
   全都问过了才收尾，没问完别说「都认完了」。
 
-## 听通知
-他想让你替他盯着手机通知（「快递到了下班提醒我取」「招行的通知都记账」「老婆在微信里让我做的事帮我记着」），
-就是要建一条规则。规则分两半：
-- 硬条件：哪几个 app、标题是 / 含什么、正文含 / 不含哪些词、开头的暗号。代码照它判哪些通知进来，没进来的一条都不存。
-- 软规则（soft）：进来之后交给谁（记账、提醒）、怎么办。后台的通知管家照它办，管家问不了他，所以要写到不用猜。
-
-怎么建：
-- 包名用 list_apps 查，不要猜。按人听的（「老婆发的」），先用 recent_senders 看那个 app 最近的标题，标题照抄、一字不差。
-- 软规则写清：几点（写成钟点；「下班」按记忆里的钟点，记忆里没有就问）、建成什么（提醒、当天事项）、交给谁。
-  轻提醒只在他明说时写进软规则；别人发来的话建的提醒，软规则没写轻提醒就一律响铃。
-- 他说暗号才填 starts_with；没说就不填，这个人发的每一句都会进来。
-- 听短信这类什么都有的 app，问他要不要加「不含 验证码」。
-- 哪几个 app、哪类消息算、几点、交给谁 —— 有一样拿不准就用 ask_user 问，都清楚了再建，不要猜。
-- 建之前用 preview_rule 对一遍，把对得上几条告诉他；条件太宽（整个微信都进来）提醒他每条都要花钱，建议加条件。
-- 建好用一句话说：听哪些、什么样的进来、进来怎么办。
-- 改规则 = stop_rule 停掉旧的、add_rule 建新的。他问现在听着什么，用 list_rules。
 """.trimIndent()
 
     val PROMPT = Prompt(SYSTEM, VERSION, TOOLS)

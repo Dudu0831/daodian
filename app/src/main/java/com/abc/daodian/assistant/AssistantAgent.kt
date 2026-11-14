@@ -16,6 +16,7 @@ import com.abc.daodian.runtime.context.fold.FoldImages
 import com.abc.daodian.runtime.context.fold.FoldStale
 import com.abc.daodian.runtime.context.LastTurns
 import com.abc.daodian.runtime.engine.Turn
+import com.abc.daodian.runtime.kit.Kit
 import com.abc.daodian.runtime.memory.MemoryBackend
 import com.abc.daodian.runtime.tool.Tool
 import com.abc.daodian.runtime.tool.ToolEffect
@@ -23,7 +24,8 @@ import com.abc.daodian.runtime.tool.ToolEffect
 /**
  * 助手：你在对话页说一句、在桌面速记说一句，都是它；每晚对账那一轮也是它，开场白由记账写。
  *
- * 工具 = 问人（[AskUserTool]，拿不准时出问卡）+ 记忆（[EditMemoryTool]）+ 各模块给的（[com.abc.daodian.assistant.plugin.AssistantPlugin.tools]）；
+ * 工具 = 问人（[AskUserTool]，拿不准时出问卡）+ 记忆（[EditMemoryTool]）+ 各模块给的常驻工具（[com.abc.daodian.assistant.plugin.AssistantPlugin.tools]）；
+ * 另有各模块收着的工具包（[com.abc.daodian.assistant.plugin.AssistantPlugin.kits]），模型用 `open_kit` 打开才带出来，说明跟着包走（§6.11）。
  * system = [AssistantPrompt]，全文写在那一个文件里，模块不往里追加。这里不认识任何具体模块。
  * 历史怎么喂见 [policy]；前面垫的记忆和摘要由调用方给（`memory/Recall`），DESIGN.md §6.9。
  * 怎么跑归 runtime（`AgentRuntime.run`）：客户端按配置缓存在那边，这里每句话现建一个 [Agent] 不费什么。
@@ -37,11 +39,19 @@ object AssistantAgent : AgentInfo {
     override val prompts = listOf(AssistantPrompt.PROMPT)
     override val canAsk = true
 
-    fun build(context: Context): Agent = build(tools(context))
+    fun build(context: Context): Agent = build(tools(context), AssistantPlugins.kits(context))
 
     /** 拿一套现成的工具建（测试里没有 Context，工具用 [tools] 的另一个重载现拼） */
-    fun build(tools: List<Tool>): Agent =
-        Agent(this, AssistantPrompt.PROMPT, tools, policy(staleOf(tools), LastTurns(Compaction.HARD_CAP)))
+    fun build(tools: List<Tool>, kits: List<Kit> = emptyList()): Agent = Agent(
+        this, AssistantPrompt.PROMPT, tools, policy(staleOf(tools + kits.flatMap { it.tools }), LastTurns(Compaction.HARD_CAP)),
+        maxSteps = MAX_STEPS, kits = kits
+    )
+
+    /** 常驻的和包里的都算：留痕、折旧结果不管它平时收不收着 */
+    private fun everyTool(context: Context): List<Tool> = tools(context) + AssistantPlugins.kits(context).flatMap { it.tools }
+
+    /** 比默认多两步：打开工具包占一步，建一条听通知的规则本来就要查、预演、问、建好几步 */
+    const val MAX_STEPS = Agent.DEFAULT_MAX_STEPS + 2
 
     fun tools(context: Context): List<Tool> = tools(MemoryBook.get(context), AssistantPlugins.tools(context))
 
@@ -53,7 +63,7 @@ object AssistantAgent : AgentInfo {
         listOf(AskUserTool(), EditMemoryTool(memory)) + modules
 
     /** 结果过几轮就折掉的查询工具（[Tool.outputGoesStale]） */
-    fun staleTools(context: Context): Set<String> = staleOf(tools(context))
+    fun staleTools(context: Context): Set<String> = staleOf(everyTool(context))
 
     private fun staleOf(tools: List<Tool>): Set<String> = tools.filter { it.outputGoesStale }.map { it.name }.toSet()
 
@@ -72,5 +82,5 @@ object AssistantAgent : AgentInfo {
 
     /** 会在对话里留痕的工具：写操作都留，只读的（查账）不留，问人的画问卡 */
     fun traced(context: Context): Set<String> =
-        tools(context).filter { it.effect == ToolEffect.WRITE }.map { it.name }.toSet()
+        everyTool(context).filter { it.effect == ToolEffect.WRITE }.map { it.name }.toSet()
 }

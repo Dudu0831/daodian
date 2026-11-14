@@ -7,7 +7,10 @@ import com.abc.daodian.runtime.context.Preamble
 import com.abc.daodian.runtime.engine.AgentEvent
 import com.abc.daodian.runtime.engine.AgentLoop
 import com.abc.daodian.runtime.engine.Session
+import com.abc.daodian.runtime.context.fold.FoldKits
 import com.abc.daodian.runtime.engine.Turn
+import com.abc.daodian.runtime.kit.KitGate
+import com.abc.daodian.runtime.kit.OpenKitTool
 import com.abc.daodian.runtime.memory.Memory
 import com.abc.daodian.runtime.memory.MemoryBackend
 import com.abc.daodian.runtime.memory.MemoryPreamble
@@ -164,7 +167,7 @@ object AgentRuntime {
         if (!profile.isConfigured) return PingResult.Failed("三格还没填全", profile.redacted())
         val s = setup()
         if (s.strict) check(s, agent)
-        val loop = AgentLoop(s.clientOf(profile), ToolRegistry(agent.tools), agent.prompt.text, agent.context, agent.maxSteps)
+        val loop = loopOf(agent, s.clientOf(profile))
         val started = System.currentTimeMillis()
         return try {
             loop.probe(session, "你好", ZonedDateTime.now(), background)
@@ -186,12 +189,27 @@ object AgentRuntime {
     ): Flow<AgentEvent> {
         val s = setup()
         if (s.strict) check(s, agent)
-        val loop = AgentLoop(
-            client(s, profile), ToolRegistry(agent.tools), agent.prompt.text, agent.context, agent.maxSteps,
-            onRequest = { preamble, sent, request -> s.tracer.request(agent, preamble, sent, request) }
-        )
+        val loop = loopOf(agent, client(s, profile)) { preamble, sent, request -> s.tracer.request(agent, preamble, sent, request) }
         return loop.run(session, input.text, input.at, asker, input.trigger, background, input.images, input.audio)
             .onEach { if (it is AgentEvent.Finished || it is AgentEvent.Failed) ApiHealth.record(it) }
+    }
+
+    /**
+     * 照 [agent] 建循环。手上有工具包（[Agent.kits]）的多三样：`open_kit`、只带开着的包的门、把更早的打开折成一句；
+     * 没有的和以前一样，全部工具每步都带
+     */
+    private fun loopOf(
+        agent: Agent,
+        llm: LlmClient,
+        onRequest: (Preamble?, List<Turn>, LlmRequest) -> Unit = { _, _, _ -> }
+    ): AgentLoop {
+        if (agent.kits.isEmpty()) {
+            return AgentLoop(llm, ToolRegistry(agent.tools), agent.prompt.text, agent.context, agent.maxSteps, onRequest = onRequest)
+        }
+        val all = agent.tools + OpenKitTool(agent.kits) + agent.kits.flatMap { it.tools }
+        return AgentLoop(
+            llm, ToolRegistry(all), agent.prompt.text, FoldKits(agent.context), agent.maxSteps, KitGate(agent.kits), onRequest
+        )
     }
 
     /** debug 包里跑之前查一遍；对不上先交给 onMisconfigured，再抛出去（这一轮不跑） */
@@ -205,7 +223,8 @@ object AgentRuntime {
     /** 在花名册上、提示词是它自己的、工具对得上、问不了人的没带 ask_user。都对是 null */
     private fun problemOf(s: Setup, agent: Agent): String? {
         val info = agent.info
-        val have = agent.tools.map { it.name }.toSet()
+        // 提示词照着写的是常驻的那几个（有工具包就多一个 open_kit）；包里的工具跟着包自己的说明走
+        val have = agent.tools.map { it.name }.toSet() + if (agent.kits.isEmpty()) emptySet() else setOf(OpenKitTool.NAME)
         val written = agent.prompt.tools
         return when {
             s.agents.none { it === info } -> "「${info.label}」（${info.id}）不在花名册上：根目录 Agents.kt 加一行"
