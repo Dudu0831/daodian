@@ -132,7 +132,7 @@ private fun drawerAskText(ask: TurnBlock.Ask, req: AskRequest, colors: DaodianPa
         else -> {
             req.questions.forEachIndexed { i, q ->
                 if (i > 0) withStyle(SpanStyle(color = colors.rule2)) { append("  ·  ") }
-                val ans = answerLabelOf(q, ask.picks.getOrNull(i), req.single)
+                val ans = answerLabelOf(q, ask.picks.getOrNull(i))
                 val note = ask.notes.getOrNull(i)?.short
                 val amount = q.amount
                 if (amount != null) {

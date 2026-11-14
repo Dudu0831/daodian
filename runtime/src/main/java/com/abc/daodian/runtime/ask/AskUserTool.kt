@@ -37,10 +37,9 @@ class AskUserTool : Tool {
                 "items" to mapOf(
                     "type" to "object",
                     "properties" to linkedMapOf(
-                        "context" to nullable("出处，一行：「9月22日 11:02 · 建行 · 没有商户」。没有就 null"),
+                        "context" to nullable("出处，一行，界面只显示一行：「9月22日 11:02 · 建行 · 没有商户」。没有就 null"),
                         "amount" to nullable("问的是一笔钱就写金额「¥36.50」，否则 null"),
-                        "question" to nullable("问句：「什么时候提醒？」。问账、有金额的可以 null"),
-                        "hint" to nullable("第一个猜测的依据，一行：「前两天 11 点多也各有一笔三十来块，你都说是午饭」。没有像样的依据就 null"),
+                        "question" to nullable("问句，30 个字以内，界面最多显示两行：「什么时候提醒？」。问账、有金额的可以 null"),
                         "ref" to nullable("问的是哪一条记录就写它的编号（一笔账写「#12」），问卡上会多出对它能顺手办的事。不是就 null"),
                         "options" to mapOf(
                             "type" to "array",
@@ -48,15 +47,14 @@ class AskUserTool : Tool {
                             "items" to mapOf(
                                 "type" to "object",
                                 "properties" to linkedMapOf(
-                                    "label" to mapOf("type" to "string", "description" to "猜测本身，越短越好：「午饭」「每个月最后一天」"),
-                                    "detail" to nullable("补一句：归到哪类「餐饮 · 堂食」，或时间「20:00 · 每月」。没有就 null")
+                                    "label" to mapOf("type" to "string", "description" to "猜测本身，8 个字以内：「午饭」「每月最后一天 20:00」")
                                 ),
-                                "required" to listOf("label", "detail"),
+                                "required" to listOf("label"),
                                 "additionalProperties" to false
                             )
                         )
                     ),
-                    "required" to listOf("context", "amount", "question", "hint", "ref", "options"),
+                    "required" to listOf("context", "amount", "question", "ref", "options"),
                     "additionalProperties" to false
                 )
             )
@@ -159,7 +157,6 @@ class AskUserTool : Tool {
                                     arr.addObject().put("option", pick.index)
                                     val o = q?.options?.getOrNull(pick.index)
                                     append("选了「").append(o?.label ?: "第 ${pick.index + 1} 个").append("」")
-                                    o?.detail?.let { append("（").append(it).append("）") }
                                 }
                                 is Pick.Typed -> { arr.addObject().put("typed", pick.text); append("自己写了「").append(pick.text).append("」") }
                             }
@@ -220,9 +217,9 @@ class AskUserTool : Tool {
         private fun questionOf(n: JsonNode): AskQuestion? {
             if (!n.isObject) return null
             val options = n.path("options").mapNotNull { o ->
-                o.text("label")?.let { AskOption(it, o.text("detail")) }
+                o.text("label")?.let(::AskOption)
             }
-            return AskQuestion(n.text("context"), n.text("amount"), n.text("question"), n.text("hint"), options, n.text("ref"))
+            return AskQuestion(n.text("context"), n.text("amount"), n.text("question"), options, n.text("ref"))
         }
 
         private fun JsonNode.text(field: String): String? =

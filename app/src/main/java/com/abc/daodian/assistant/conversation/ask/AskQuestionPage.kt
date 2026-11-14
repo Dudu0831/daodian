@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,6 +35,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -50,17 +52,50 @@ import com.abc.daodian.shared.ui.InkChip
 /** 问句的字：宋体 17 */
 private val HeadPrompt = DaodianType.cardTitle.copy(fontSize = 17.sp, lineHeight = 25.sp)
 
-private val HintText = DaodianType.caption.copy(fontSize = 12.sp, lineHeight = 17.sp)
-
 private val AmountText = DaodianType.rowTitle.copy(fontSize = 22.sp, lineHeight = 28.sp)
 
+/** 问账时金额底下那句问句：14 */
+private val SubPrompt = DaodianType.bodySmall.copy(fontSize = 14.sp, lineHeight = 20.sp)
+
+/*
+ * 固定槽位（11-14）：一题从上到下是几行，每行一个固定的高（问句两行，别的一行，长了截断），
+ * 哪一行这一题没有也照样空着。哪几行要留按整张卡定（[AskSlots]）：几页一样高、翻页时同一样东西在同一个位置，
+ * 字长字短、有没有出处都挪不动别的。以前问句折行、依据时有时无、猜测为空就不占位，一题一个样子。
+ */
+private val META_LINE = 18.dp
+private val AMOUNT_LINE = 30.dp
+/** 问句给两行（11-14 用户要的）：短的也占两行高，长的第三行起截断 */
+private const val PROMPT_LINES = 2
+private val SUB_PROMPT_LINE = 20.dp * PROMPT_LINES
+private val PROMPT_LINE = 25.dp * PROMPT_LINES
+private val CHIPS_TOP = 11.dp
+
+/** 模块挂件那一行（记账：「＋ 打标签」收着时，挂了标签的那样最高）。点开以后长高是你点的，不算 */
+private val ADDON_LINE = 38.dp
+
 /**
- * 卡里的一题：问账的金额打头（宋体 22）、后面是出处；别的是出处 + 问句。底下依据、猜测、模块挂的那一块。
- * [glyphRoom]：右上角盖着「问」印，字给它让出一截
+ * 整张卡每题留哪几行：有一题用到，每页都留。
+ * 问账的卡（有一题带金额）：金额 + 出处一行，有问句再一行小的；别的卡：出处一行小字，问句一行宋体
+ */
+internal data class AskSlots(val amount: Boolean, val context: Boolean, val prompt: Boolean, val addon: Boolean) {
+    companion object {
+        fun of(questions: List<AskQuestion>) = AskSlots(
+            amount = questions.any { it.amount != null },
+            context = questions.any { it.context != null },
+            prompt = questions.any { it.prompt != null },
+            addon = questions.any { it.ref != null }
+        )
+    }
+}
+
+/**
+ * 卡里的一题，槽位见 [AskSlots]：问账的是「金额 · 出处」一行、问句一行小的；别的是出处一行、问句一行。
+ * 底下猜测一行（没有猜测也留着），模块挂的那一块一行
  */
 @Composable
 internal fun Question(
     q: AskQuestion,
+    slots: AskSlots,
     pick: Pick?,
     live: Boolean,
     glyphRoom: Boolean = false,
@@ -70,32 +105,33 @@ internal fun Question(
     val colors = DaodianColors.current
     // 问卡的类在 :runtime 里，跨模块的属性不能 smart cast，先取出来
     val amount = q.amount
-    val origin = q.context
-    val prompt = q.prompt
-    val hint = q.hint
     val ref = q.ref
     Column {
         Column(Modifier.padding(end = if (glyphRoom) 28.dp else 0.dp)) {
-            if (amount != null) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(amount, style = AmountText, color = colors.ink, modifier = Modifier.alignByBaseline())
-                    Text(
-                        origin.orEmpty(), style = DaodianType.caption, color = colors.muted,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f).alignByBaseline()
-                    )
+            if (slots.amount) {
+                Row(Modifier.height(AMOUNT_LINE), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (amount != null) Text(amount, style = AmountText, color = colors.ink, maxLines = 1, modifier = Modifier.alignByBaseline())
+                    OneLine(q.context, DaodianType.caption, colors.muted, Modifier.weight(1f).alignByBaseline())
                 }
-                if (prompt != null) Text(prompt, style = DaodianType.bodySmall.copy(fontSize = 14.sp), color = colors.ink2, modifier = Modifier.padding(top = 2.dp))
+                if (slots.prompt) Lines(q.prompt, SubPrompt, colors.ink2, PROMPT_LINES, Modifier.height(SUB_PROMPT_LINE))
             } else {
-                if (origin != null) Text(origin, style = DaodianType.caption, color = colors.muted)
-                if (prompt != null) Text(prompt, style = HeadPrompt, color = colors.ink)
+                if (slots.context) OneLine(q.context, DaodianType.caption, colors.muted, Modifier.height(META_LINE))
+                Lines(q.prompt, HeadPrompt, colors.ink, PROMPT_LINES, Modifier.height(PROMPT_LINE))
             }
-            if (hint != null) Text(hint, style = HintText, color = colors.muted, modifier = Modifier.padding(top = 3.dp))
         }
-        Guesses(q, pick, live, onPick, onRetype)
-        if (live && ref != null) Addon(ref)
+        Box(Modifier.padding(top = CHIPS_TOP).height(CHIP_HEIGHT)) { Guesses(q, pick, live, onPick, onRetype) }
+        if (slots.addon) Box(Modifier.heightIn(min = ADDON_LINE)) { if (live && ref != null) Addon(ref) }
     }
 }
+
+/** 槽位里的字：最多 [lines] 行，长了截断；没有就空着，行还占着 */
+@Composable
+private fun Lines(text: String?, style: TextStyle, color: Color, lines: Int, modifier: Modifier) {
+    Text(text.orEmpty(), style = style, color = color, maxLines = lines, overflow = TextOverflow.Ellipsis, modifier = modifier)
+}
+
+@Composable
+private fun OneLine(text: String?, style: TextStyle, color: Color, modifier: Modifier) = Lines(text, style, color, 1, modifier)
 
 /**
  * 一题的猜测。都不是的话在底下输入条里写（或按住说），发出去落成排在最前的一颗实心胶囊（11-12，
@@ -108,13 +144,13 @@ private fun Guesses(q: AskQuestion, pick: Pick?, live: Boolean, onPick: (Int) ->
     val selected = (pick as? Pick.Option)?.index
     val typed = (pick as? Pick.Typed)?.text
     if (q.options.isEmpty() && typed == null) return
-    Box(Modifier.padding(top = 11.dp).graphicsLayer { alpha = ready }) {
+    Box(Modifier.graphicsLayer { alpha = ready }) {
         ChipRows {
             // 自己写的排最前：猜测多到要横滑时，排在最后就在屏幕外了
             if (typed != null) ChipLabel(typed, selected = true, dimmed = false, enabled = live) { onRetype(typed) }
             q.options.forEachIndexed { j, o ->
                 ChipLabel(
-                    o.label, detail = o.detail,
+                    o.label,
                     selected = selected == j, dimmed = pick != null && selected != j, enabled = live
                 ) { onPick(j) }
             }
@@ -203,7 +239,6 @@ private fun ChipLabel(
     selected: Boolean,
     dimmed: Boolean,
     enabled: Boolean,
-    detail: String? = null,
     onClick: () -> Unit
 ) {
     InkChip(
@@ -212,20 +247,13 @@ private fun ChipLabel(
         modifier = Modifier.height(CHIP_HEIGHT),
         onClick = onClick
     ) { onInk ->
-        Row(
-            Modifier.padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                text,
-                style = DaodianType.bodySmall.copy(fontSize = 14.sp),
-                color = onInk.fg,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false)
-            )
-            if (detail != null) Text(detail, style = DaodianType.caption, color = onInk.sub, maxLines = 1)
-        }
+        Text(
+            text,
+            style = DaodianType.bodySmall.copy(fontSize = 14.sp),
+            color = onInk.fg,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 14.dp)
+        )
     }
 }

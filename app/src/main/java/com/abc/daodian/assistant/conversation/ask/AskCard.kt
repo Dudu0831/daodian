@@ -72,12 +72,10 @@ import kotlinx.coroutines.launch
  */
 
 /** 问卡的一题答成了什么，收起后细目里写它；null = 先放着 */
-fun answerLabelOf(q: AskQuestion, pick: Pick?, single: Boolean): String? = when (pick) {
+fun answerLabelOf(q: AskQuestion, pick: Pick?): String? = when (pick) {
     null -> null
     is Pick.Typed -> pick.text
-    is Pick.Option -> q.options.getOrNull(pick.index)?.let { o ->
-        if (single && o.detail != null) "${o.label} · ${o.detail}" else o.label
-    }
+    is Pick.Option -> q.options.getOrNull(pick.index)?.label
 }
 
 /** 点完了、直接说了、没答：卡片从正文收起，化进抬头伴随印 */
@@ -170,6 +168,8 @@ private fun Asking(
             onSubmit = onSubmit
         )
     }
+    // 每一题占哪几行按整张卡定：哪一行有一题用到，每页都留着这一行（§6.6 固定槽位）
+    val slots = AskSlots.of(request.questions)
     Box {
         // 几页一直都在（beyondViewportPageCount）：翻页器的高取最高的那页，翻的时候卡不动；
         // 「＋ 打标签」那行也早就读好了，不会翻过去才晚一帧冒出来
@@ -185,6 +185,7 @@ private fun Asking(
         ) { i ->
             Question(
                 q = request.questions[i],
+                slots = slots,
                 pick = block.picks.getOrNull(i),
                 live = live,
                 // 一题：右上角要盖「问」印，字给它让出一截

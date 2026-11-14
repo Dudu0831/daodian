@@ -8,6 +8,7 @@ import org.junit.Test
 /** 问卡的参数怎么读、答案怎么写回去又怎么读回来 */
 class AskUserToolTest {
 
+    /** 11-14 之前的参数还带 `hint`、`detail`：旧对话读回来照样认，多的字段不管 */
     private val full = """{"label":"4 笔","questions":[
         |{"context":"9月22日 11:02 · 建行","amount":"¥36.50","question":null,"hint":"前两天也是","options":[{"label":"午饭","detail":"餐饮 · 堂食"},{"label":"买菜","detail":null}]},
         |{"context":"9月21日 20:53 · 招行","amount":"¥3.00","question":null,"hint":null,"options":[{"label":"话费充值","detail":null}]}
@@ -61,7 +62,7 @@ class AskUserToolTest {
         val note = AskNote("约会", "这笔挂着标签「约会」，已经挂好了，别再打")
         val answer = AskAnswer.Picked(listOf(Pick.Option(0), null), listOf(note, null))
         val out = AskUserTool.outputOf(r, answer)
-        assertTrue(out, out.contains("选了「午饭」（餐饮 · 堂食）；这笔挂着标签「约会」"))
+        assertTrue(out, out.contains("选了「午饭」；这笔挂着标签「约会」"))
         assertEquals(answer, AskUserTool.answerOf(out))
 
         val said = AskAnswer.Said("午饭", listOf(note, null))

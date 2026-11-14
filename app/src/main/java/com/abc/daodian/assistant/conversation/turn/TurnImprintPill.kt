@@ -217,7 +217,7 @@ private fun askPillSummary(asks: List<TurnBlock.Ask>, hasTraces: Boolean): Strin
             when {
                 total == 1 && !hasTraces -> {
                     val q = req.questions.first()
-                    val ans = answerLabelOf(q, last.picks.firstOrNull(), req.single) ?: "先放着"
+                    val ans = answerLabelOf(q, last.picks.firstOrNull()) ?: "先放着"
                     if (q.amount != null) "${q.amount} $ans" else ans
                 }
                 total == 1 -> if (pickedCount == 0) "先放着" else "答 1"

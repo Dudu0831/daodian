@@ -23,8 +23,6 @@ data class AskQuestion(
     val amount: String?,
     /** 问句：「什么时候提醒？」。问账时有金额就可以没有 */
     val prompt: String?,
-    /** 第一个猜测的依据：「前两天 11 点多也各有一笔三十来块，你都说是午饭」 */
-    val hint: String?,
     /** 猜测，最可能的在前 */
     val options: List<AskOption>,
     /**
@@ -34,11 +32,10 @@ data class AskQuestion(
     val ref: String? = null
 )
 
+/** 一个猜测。11-14 起只有一行字：以前的 `detail`（归到哪类、几点）挤掉了答案本身，删了 */
 data class AskOption(
     /** 猜测本身：「午饭」「每个月最后一天」 */
-    val label: String,
-    /** 补一句：归到哪类、几点、只这一次还是每月 */
-    val detail: String?
+    val label: String
 )
 
 /** 用户怎么答的 */
