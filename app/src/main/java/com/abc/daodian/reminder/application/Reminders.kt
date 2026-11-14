@@ -4,6 +4,7 @@ import android.content.Context
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase
 import com.abc.daodian.reminder.data.ReminderStatus
+import com.abc.daodian.reminder.data.nudgesColumn
 import com.abc.daodian.reminder.delivery.Notifier
 import com.abc.daodian.reminder.domain.PlanValidator
 import com.abc.daodian.reminder.domain.ReminderPlan
@@ -63,7 +64,8 @@ object Reminders {
             val updated = existing.copy(
                 title = fresh.title, note = fresh.note, nextTriggerAt = fresh.nextTriggerAt, rrule = fresh.rrule,
                 zoneId = fresh.zoneId, localTime = fresh.localTime, wallClockAnchored = fresh.wallClockAnchored,
-                dueDay = fresh.dueDay, gentle = fresh.gentle, parsedBy = parsedBy,
+                dueDay = fresh.dueDay, gentle = fresh.gentle, nudges = fresh.nudges, endsOnDay = fresh.endsOnDay,
+                parsedBy = parsedBy,
                 seriesNextAt = null, status = ReminderStatus.SCHEDULED, updatedAt = now
             )
             val rescheduler = Rescheduler(app)
@@ -120,17 +122,22 @@ object Reminders {
     ): Reminder {
         val check = DayTasks.checkTime(context)
         val due = PlanValidator.dueDayOf(plan)
+        // 提前提醒、到了那天就结束：只有不重复的才有（闸门已经拦过，这里再守一道）
+        val once = plan.rrule == null
+        val nudges = if (once) plan.remindOn.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() } else emptyList()
         return Reminder(
             title = plan.title,
             note = plan.note,
             rawInput = rawInput,
-            nextTriggerAt = DayTasks.triggerFor(due, check, zone, now),
+            nextTriggerAt = DayTasks.nextTrigger(due, nudges, check, zone, now),
             rrule = plan.rrule,
             zoneId = zone.id,
             localTime = check.toString(),
             wallClockAnchored = true,
             parsedBy = parsedBy,
             dueDay = due.toString(),
+            nudges = nudgesColumn(nudges),
+            endsOnDay = once && !plan.carryOver,
             createdAt = now,
             updatedAt = now
         )
@@ -140,6 +147,7 @@ object Reminders {
      * 手动建 / 改一条提醒 —— 逃生舱，必须能完全脱离 AI 用。见 DESIGN.md §2.1
      *
      * [dueDay] 不为 null 就是当天事项：[triggerAt] 不看，换成那天的收尾时刻，一律墙钟锚定；[gentle] 也不看（它本来就只发通知）。
+     * [nudges]（提前提醒的那几天）、[endsOnDay]（到了那天就结束）只有不重复的当天事项看，见 DESIGN.md §4.4
      */
     suspend fun upsertManual(
         context: Context,
@@ -150,24 +158,32 @@ object Reminders {
         rrule: String?,
         wallClockAnchored: Boolean,
         dueDay: LocalDate? = null,
-        gentle: Boolean = false
+        gentle: Boolean = false,
+        nudges: List<LocalDate> = emptyList(),
+        endsOnDay: Boolean = false
     ) {
         val app = context.applicationContext
         val now = System.currentTimeMillis()
         val zone = ZoneId.systemDefault()
         if (dueDay != null) {
             val check = DayTasks.checkTime(app)
+            val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+            val kept = if (rrule == null) nudges.filter { !it.isBefore(today) && it.isBefore(dueDay) } else emptyList()
             upsert(
                 app, id, title, note, rrule,
-                triggerAt = DayTasks.triggerFor(dueDay, check, zone, now),
-                localTime = check.toString(), wallClockAnchored = true, dueDay = dueDay.toString(), gentle = false, now = now
+                triggerAt = DayTasks.nextTrigger(dueDay, kept, check, zone, now),
+                localTime = check.toString(), wallClockAnchored = true, dueDay = dueDay.toString(), gentle = false,
+                nudges = nudgesColumn(kept), endsOnDay = rrule == null && endsOnDay, now = now
             )
         } else {
             val localTime = if (wallClockAnchored) {
                 Instant.ofEpochMilli(triggerAt).atZone(zone).toLocalTime()
                     .withSecond(0).withNano(0).toString()
             } else null
-            upsert(app, id, title, note, rrule, triggerAt, localTime, wallClockAnchored, dueDay = null, gentle = gentle, now = now)
+            upsert(
+                app, id, title, note, rrule, triggerAt, localTime, wallClockAnchored, dueDay = null, gentle = gentle,
+                nudges = null, endsOnDay = false, now = now
+            )
         }
         WidgetUpdater.refresh(app)
     }
@@ -183,6 +199,8 @@ object Reminders {
         wallClockAnchored: Boolean,
         dueDay: String?,
         gentle: Boolean,
+        nudges: String?,
+        endsOnDay: Boolean,
         now: Long
     ) {
         val dao = ReminderDatabase.get(context).reminderDao()
@@ -194,6 +212,7 @@ object Reminders {
                 title = title, note = note, rawInput = title,
                 nextTriggerAt = triggerAt, rrule = rrule, zoneId = zone.id,
                 localTime = localTime, wallClockAnchored = wallClockAnchored, dueDay = dueDay, gentle = gentle,
+                nudges = nudges, endsOnDay = endsOnDay,
                 createdAt = now, updatedAt = now
             )
             val newId = dao.insert(reminder)
@@ -205,6 +224,7 @@ object Reminders {
             val updated = existing.copy(
                 title = title, note = note, nextTriggerAt = triggerAt, rrule = rrule,
                 localTime = localTime, wallClockAnchored = wallClockAnchored, dueDay = dueDay, gentle = gentle,
+                nudges = nudges, endsOnDay = endsOnDay,
                 seriesNextAt = null, status = ReminderStatus.SCHEDULED, updatedAt = now
             )
             dao.update(updated)

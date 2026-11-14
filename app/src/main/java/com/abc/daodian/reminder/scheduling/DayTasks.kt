@@ -10,6 +10,7 @@ import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderStatus
 import com.abc.daodian.reminder.data.dueDate
 import com.abc.daodian.reminder.data.isAllDay
+import com.abc.daodian.reminder.data.nudgeDates
 import com.abc.daodian.reminder.delivery.Notifier
 import com.abc.daodian.reminder.domain.Rrule
 import java.time.Instant
@@ -31,6 +32,8 @@ private val Context.dayTaskStore by preferencesDataStore("day_tasks")
  *  1. 触发时刻 = 那一天的收尾时刻（[triggerFor]）
  *  2. 响了没做完 → 顺延到下一天的收尾时刻，不收尾（[carryOver]，FireHandler 调）
  *  3. 重复的当天事项点「完成」= 这一次做完了，翻到下一次，不是停掉整条（[complete]）
+ *  4. 日子还远、带提前提醒的（§4.4）：那天之前先响几次，响完翻到下一次、不顺延（[nextTrigger]、[advanceNudge]）；
+ *     到了那天，[Reminder.endsOnDay] 的响过就结束，别的照第 2 条顺延
  */
 object DayTasks {
 
@@ -58,6 +61,54 @@ object DayTasks {
             day = day.plusDays(1)
         }
     }
+
+    /**
+     * 带提前提醒的（[Reminder.nudges]）下一次该响的时刻：[nudges] 里最近一个收尾时刻还没过的；
+     * 都过了就是 [dueDay] 那天的（[triggerFor]）。没有提前提醒时就是 [triggerFor]。
+     */
+    fun nextTrigger(dueDay: LocalDate, nudges: List<LocalDate>, check: LocalTime, zone: ZoneId, now: Long): Long {
+        nudges.sorted().forEach { day ->
+            if (day.isBefore(dueDay)) {
+                val at = ZonedDateTime.of(day, check, zone).toInstant().toEpochMilli()
+                if (at > now) return at
+            }
+        }
+        return triggerFor(dueDay, check, zone, now)
+    }
+
+    /** 这条眼下排着的这一次是不是提前提醒：响的那天还没到 [Reminder.dueDay]。重复的没有提前提醒 */
+    fun isNudge(reminder: Reminder, zone: ZoneId = zoneOf(reminder)): Boolean {
+        val due = reminder.dueDate() ?: return false
+        return reminder.rrule == null && Instant.ofEpochMilli(reminder.nextTriggerAt).atZone(zone).toLocalDate().isBefore(due)
+    }
+
+    /**
+     * 刚响的这一次是提前提醒时，下一次排在哪：后面还有提前提醒就是它，没有了就是 [Reminder.dueDay] 那天，钟点沿用这一次的。
+     * null = 这一次不是提前提醒，或者补发得太晚、连那天的钟点都过了 —— 调用方照「那天响过了」处理（顺延或结束）。
+     */
+    fun afterNudgeAt(reminder: Reminder, firedAt: Long, zone: ZoneId = zoneOf(reminder)): Long? {
+        val due = reminder.dueDate() ?: return null
+        if (!isNudge(reminder, zone)) return null
+        val fired = Instant.ofEpochMilli(reminder.nextTriggerAt).atZone(zone)
+        val clock = fired.toLocalTime()
+        val later = reminder.nudgeDates().filter { it.isAfter(fired.toLocalDate()) }
+        val dueAt = ZonedDateTime.of(due, clock, zone).toInstant().toEpochMilli()
+        if (dueAt <= firedAt) return null
+        return nextTrigger(due, later, clock, zone, firedAt)
+    }
+
+    /** 提前提醒响完了：翻到下一次，[Reminder.dueDay] 不动、不算没做完。返回 false = 不归这里管（见 [afterNudgeAt]） */
+    suspend fun advanceNudge(context: Context, reminder: Reminder, firedAt: Long): Boolean {
+        val at = afterNudgeAt(reminder, firedAt) ?: return false
+        val dao = ReminderDatabase.get(context).reminderDao()
+        dao.setNextTrigger(reminder.id, at, firedAt)
+        dao.byId(reminder.id)?.let { Rescheduler(context).schedule(it) }
+        Log.i(TAG, "提前提醒响过了，下一次: id=${reminder.id}「${reminder.title}」→ ${Instant.ofEpochMilli(at)}（那天是 ${reminder.dueDay}）")
+        return true
+    }
+
+    private fun zoneOf(reminder: Reminder): ZoneId =
+        runCatching { ZoneId.of(reminder.zoneId) }.getOrDefault(ZoneId.systemDefault())
 
     /**
      * 一次性的当天事项响完了还没做：挪到后面第一个还没过的收尾时刻，保持 SCHEDULED。
@@ -144,7 +195,8 @@ object DayTasks {
                 // 一次性的：从它算哪天的（拖过来的就是今天）起，第一个还没过的新钟点。
                 // 所以今晚已经提醒过、又把钟点往后改，今晚会按新钟点再提醒一次 —— 改设置的人要的就是这个
                 ZonedDateTime.ofInstant(
-                    Instant.ofEpochMilli(triggerFor(r.dueDate() ?: LocalDate.now(zone), time, zone, now)), zone
+                    // 带提前提醒的：最近一个还没过的提前提醒，没有了才是它那天
+                    Instant.ofEpochMilli(nextTrigger(r.dueDate() ?: LocalDate.now(zone), r.nudgeDates(), time, zone, now)), zone
                 )
             } else {
                 // 重复的：这一次挂在哪天就在哪天换钟点；已经过了就翻到下一次（每周三的不能挪到周四）

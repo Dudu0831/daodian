@@ -253,11 +253,19 @@ object Notifier {
             return false
         }
 
+        val due = reminder.dueDate()
+        val today = LocalDate.now()
+        // 提前提醒（§4.4）：那天还没到，只是提一下 —— 不说「还没做」，也不挂「完成」
+        val nudge = due != null && due.isAfter(today)
         val body = buildString {
-            val due = reminder.dueDate()
-            val today = LocalDate.now()
             val carried = due?.let { ChronoUnit.DAYS.between(it, today) } ?: 0
-            append(if (carried > 0) "从 ${due!!.monthValue}月${due.dayOfMonth}日 拖过来的，第 ${carried + 1} 天" else "今天的事，还没做")
+            append(
+                when {
+                    nudge -> (if (due!!.year != today.year) "${due.year}年" else "") + "${due.monthValue}月${due.dayOfMonth}日的事，提一下"
+                    carried > 0 -> "从 ${due!!.monthValue}月${due.dayOfMonth}日 拖过来的，第 ${carried + 1} 天"
+                    else -> "今天的事，还没做"
+                }
+            )
             reminder.note?.let { append(" · ").append(it) }
             if (lateBy > 60_000) append(" · 补发，迟了 ${lateBy / 60_000} 分钟")
         }
@@ -266,16 +274,16 @@ object Notifier {
             .setContentTitle(reminder.title)
             .setContentText(body)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setGroup(DAY_GROUP)
-            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+            // 提前提醒不进「还有 N 件当天的事没做」那一组：它不是今天没做的事，自己单独响一下
+            .apply { if (!nudge) setGroup(DAY_GROUP).setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY) }
             .setAutoCancel(true)
             .setContentIntent(openList(context))
-            .addAction(0, "完成", actionIntent(context, reminder.id, NotificationActionReceiver.ACTION_DONE))
+            .apply { if (!nudge) addAction(0, "完成", actionIntent(context, reminder.id, NotificationActionReceiver.ACTION_DONE)) }
             .build()
 
         val sent = try {
             NotificationManagerCompat.from(context).notify(reminder.id.toInt(), child)
-            refreshDaySummary(context, alert = true)
+            if (!nudge) refreshDaySummary(context, alert = true)
             true
         } catch (e: SecurityException) {
             Log.e(TAG, "发通知被系统拒绝，当天事项 id=${reminder.id}", e)

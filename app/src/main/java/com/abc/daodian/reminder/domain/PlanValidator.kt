@@ -11,8 +11,11 @@ sealed interface Verdict {
     /** 放行。rrule 超出支持子集时已经降级成一次性 */
     data class Ok(val plan: ReminderPlan) : Verdict
 
-    /** 拦下。[reason] 写给模型看，由它转述给用户 */
-    data class Rejected(val reason: String) : Verdict
+    /**
+     * 拦下。[reason] 写给模型看，由它转述给用户。
+     * [selfFix] = 是它自己填错了、用户的话没有歧义（提前提醒排到了那天以后）：让它改好再调一次，不要拿去问用户
+     */
+    data class Rejected(val reason: String, val selfFix: Boolean = false) : Verdict
 }
 
 /**
@@ -58,8 +61,38 @@ object PlanValidator {
             plan.copy(rrule = null)
         } else plan
 
-        return Verdict.Ok(cleaned)
+        return nudges(cleaned, now.toLocalDate())
     }
+
+    /**
+     * 提前提醒那几天（§4.4）。今天以前的、那天当天的悄悄去掉（当晚本来就会提醒；模型抄旧值时会带着已经过去的）；
+     * 写不成日期的、排在那天以后的、太多的拦下 —— 那是算错了。
+     */
+    private fun nudges(plan: ReminderPlan, today: LocalDate): Verdict {
+        if (plan.remindOn.isEmpty()) return Verdict.Ok(plan)
+        if (!plan.allDay || plan.rrule != null) {
+            return Verdict.Rejected(
+                "remindOn（提前提醒）只能加在不重复的当天事项上：allDay 要是 true、rrule 要是 null。别的提醒把 remindOn 填成 []。", selfFix = true
+            )
+        }
+        val due = dueDayOf(plan)
+        val days = plan.remindOn.map {
+            runCatching { LocalDate.parse(it.trim()) }.getOrElse { _ -> return Verdict.Rejected("remindOn 里的「$it」不是 YYYY-MM-DD。", selfFix = true) }
+        }
+        days.firstOrNull { it.isAfter(due) }?.let {
+            return Verdict.Rejected(
+                "remindOn 里的 $it 排在 firstTriggerAt 那天（$due）以后了。firstTriggerAt 要填事情本身的那一天" +
+                    "（过期的那天、演出的那天），不是第一次提醒的日子；remindOn 是那天之前的几天。", selfFix = true
+            )
+        }
+        val kept = days.filter { !it.isBefore(today) && it.isBefore(due) }.distinct().sorted()
+        if (kept.size > MAX_NUDGES) {
+            return Verdict.Rejected("提前提醒排了 ${kept.size} 次，太多了（最多 $MAX_NUDGES 次）。问用户要不要稀一点。")
+        }
+        return Verdict.Ok(plan.copy(remindOn = kept.map { it.toString() }))
+    }
+
+    private const val MAX_NUDGES = 60
 
     /** 校验通过后，把 plan 转成本地时区下的触发时刻 */
     fun triggerMillis(plan: ReminderPlan): Long =

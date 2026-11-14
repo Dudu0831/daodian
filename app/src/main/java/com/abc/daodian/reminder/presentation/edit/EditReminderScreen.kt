@@ -1,5 +1,6 @@
 package com.abc.daodian.reminder.presentation.edit
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,6 +45,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -119,6 +121,16 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
         mutableStateOf(existing?.wallClockAnchored ?: false)
     }
     var gentle by rememberSaveable(existing) { mutableStateOf(existing?.gentle ?: false) }
+    // 提前提醒的那几天、过了那天要不要接着提醒（§4.4）。存成库里那一列的写法，省得另写 Saver
+    var nudgeText by rememberSaveable(existing) { mutableStateOf(existing?.nudges.orEmpty()) }
+    var endsOnDay by rememberSaveable(existing) { mutableStateOf(existing?.endsOnDay ?: false) }
+    val today = remember { LocalDate.now() }
+    // 只留排得上的：今天以后、那天以前。改了日期，排在新日期后面的那几天自己掉出去
+    val nudges = remember(nudgeText, date) {
+        nudgeText.split(',').mapNotNull { runCatching { LocalDate.parse(it.trim()) }.getOrNull() }
+            .filter { it.isAfter(today) && it.isBefore(date) }.distinct().sorted()
+    }
+    var showNudgeSheet by remember { mutableStateOf(false) }
 
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimeSheet by remember { mutableStateOf(false) }
@@ -144,7 +156,9 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
             rrule = buildRrule(),
             wallClockAnchored = wallClockAnchored,
             dueDay = if (allDay) date else null,
-            gentle = gentle && !allDay
+            gentle = gentle && !allDay,
+            nudges = if (allDay && repeat == RepeatChoice.NONE) nudges else emptyList(),
+            endsOnDay = allDay && repeat == RepeatChoice.NONE && endsOnDay
         )
         onBack()
     }
@@ -203,10 +217,26 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
                     ) { Value("${relativeDay(date)?.let { "$it · " } ?: ""}${Format.humanDay(date)}") }
                     GroupRule()
                     if (allDay) {
+                        // 日子还远的（倒数，§4.4）才有下面两行：那天之前提醒哪几次、过了那天还催不催。
+                        // 已经设过的，日子近了也还摆着，不然改不了
+                        val once = repeat == RepeatChoice.NONE
+                        val far = once && (date.isAfter(today.plusDays(6)) || nudges.isNotEmpty() || endsOnDay)
                         FormRow(
                             title = "几点",
-                            note = "不定钟点。那天晚上 ${checkTime.toString().take(5)} 提醒一次，没做完顺延到第二天。"
+                            note = "不定钟点。那天晚上 ${checkTime.toString().take(5)} 提醒一次" +
+                                if (once && endsOnDay) "。" else "，没做完顺延到第二天。"
                         ) {}
+                        if (far) {
+                            GroupRule()
+                            FormRow(title = "提前提醒", onClick = { showNudgeSheet = true }) {
+                                Value(if (nudges.isEmpty()) "不提前" else "${nudges.size} 次")
+                            }
+                            if (nudges.isNotEmpty()) NudgeStrip(today, date, nudges)
+                            GroupRule()
+                            FormRow(title = "过了那天", onClick = { endsOnDay = !endsOnDay }) {
+                                Value(if (endsOnDay) "就结束" else "接着提醒")
+                            }
+                        }
                     } else {
                         FormRow(title = "几点", onClick = { showTimeSheet = true }) {
                             Text(time.toString().take(5), style = DaodianType.settingValue, color = colors.ink)
@@ -323,6 +353,14 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
         )
     }
 
+    if (showNudgeSheet) {
+        NudgeSheet(
+            today = today, due = date, current = nudges,
+            onChange = { nudgeText = it.joinToString(",") },
+            onDismiss = { showNudgeSheet = false }
+        )
+    }
+
     if (showRepeatSheet) {
         RepeatSheet(
             options = repeatOptions,
@@ -390,6 +428,35 @@ private fun Summary(date: LocalDate, time: LocalTime, allDay: Boolean, checkTime
         Text(whenText, style = DaodianType.axisTime, color = colors.ink2)
         if (repeatLabel != null) RepeatBadge(repeatLabel)
         else Text("· $tail", style = DaodianType.caption, color = colors.muted)
+    }
+}
+
+/**
+ * 提前提醒落在哪几天：一根从今天到那天的线，每次提醒一道墨色的刻度，朱砂那根是那天。
+ * 设计稿「编辑页」：https://claude.ai/artifact/9DoWbyCPStsXswbFn8GkbG
+ */
+@Composable
+private fun NudgeStrip(today: LocalDate, due: LocalDate, nudges: List<LocalDate>) {
+    val colors = DaodianColors.current
+    val span = (due.toEpochDay() - today.toEpochDay()).coerceAtLeast(1).toFloat()
+    Column(Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, bottom = 14.dp)) {
+        Canvas(Modifier.fillMaxWidth().height(20.dp)) {
+            val y = size.height / 2
+            val hair = 1.dp.toPx()
+            drawLine(colors.rule2, Offset(0f, y), Offset(size.width, y), strokeWidth = hair)
+            drawLine(colors.rule2, Offset(hair / 2, y - 4.dp.toPx()), Offset(hair / 2, y + 4.dp.toPx()), strokeWidth = hair)
+            nudges.forEach { day ->
+                val x = size.width * (day.toEpochDay() - today.toEpochDay()) / span
+                drawLine(colors.ink, Offset(x, y - 4.5.dp.toPx()), Offset(x, y + 4.5.dp.toPx()), strokeWidth = hair)
+            }
+            val end = size.width - 0.75.dp.toPx()
+            drawLine(colors.accent, Offset(end, y - 7.5.dp.toPx()), Offset(end, y + 7.5.dp.toPx()), strokeWidth = 1.5.dp.toPx())
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("今天", style = DaodianType.settingNote, color = colors.muted)
+            Text("下次 ${nudges.first().monthValue}月${nudges.first().dayOfMonth}日", style = DaodianType.settingNote, color = colors.muted)
+            Text("${due.monthValue}月${due.dayOfMonth}日", style = DaodianType.settingNote, color = colors.muted)
+        }
     }
 }
 

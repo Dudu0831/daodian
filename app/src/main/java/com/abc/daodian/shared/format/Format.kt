@@ -23,9 +23,10 @@ object Format {
         return "%d月%d日 %s %02d:%02d".format(z.monthValue, z.dayOfMonth, wd, z.hour, z.minute)
     }
 
-    /** 当天事项的「哪天」：「9月18日 周五」，不带钟点 */
-    fun humanDay(date: LocalDate): String =
-        "%d月%d日 %s".format(date.monthValue, date.dayOfMonth, weekday(date.dayOfWeek))
+    /** 当天事项的「哪天」：「9月18日 周五」，不带钟点；不是今年的带上年份：「2027年2月13日 周六」（倒数的日子常在明年） */
+    fun humanDay(date: LocalDate, today: LocalDate = LocalDate.now()): String =
+        (if (date.year != today.year) "${date.year}年" else "") +
+            "%d月%d日 %s".format(date.monthValue, date.dayOfMonth, weekday(date.dayOfWeek))
 
     /** 收起态、列表这类地方用的短写法：「9月2日 15:00」，不带星期 */
     fun humanDateTimeShort(epochMillis: Long, zone: ZoneId = ZoneId.systemDefault()): String {

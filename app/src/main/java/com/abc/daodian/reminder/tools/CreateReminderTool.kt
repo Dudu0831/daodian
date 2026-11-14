@@ -51,8 +51,11 @@ class CreateReminderTool(private val commit: suspend (ReminderPlan, ToolContext)
                     payload = Created(id, p)
                 )
             }
-            is Verdict.Rejected ->
-                ToolOutcome("没建。${verdict.reason} 照这个意思问用户一句，不要自己换个时间重试。", ok = false)
+            is Verdict.Rejected -> ToolOutcome(
+                "没建。${verdict.reason} " +
+                    if (verdict.selfFix) "这是参数填错了，改好再调一次，不用问用户。" else "照这个意思问用户一句，不要自己换个时间重试。",
+                ok = false
+            )
         }
     }
 
@@ -66,13 +69,16 @@ class CreateReminderTool(private val commit: suspend (ReminderPlan, ToolContext)
             "「${p.title}」，" +
                 (if (p.allDay) "当天事项，日期 ${p.firstTriggerAt.take(10)}" else "首次 ${p.firstTriggerAt}") +
                 "，" + (p.rrule?.let { "重复 $it" } ?: "不重复") +
-                (if (p.gentle && !p.allDay) "，轻提醒（到点只发一条通知、不响铃）" else "") + "。"
+                (if (p.gentle && !p.allDay) "，轻提醒（到点只发一条通知、不响铃）" else "") +
+                (if (p.remindOn.isNotEmpty()) "，那天之前还提醒 ${p.remindOn.size} 次（${p.remindOn.joinToString("、")}）" else "") +
+                (if (p.allDay && p.rrule == null) (if (p.carryOver) "，那天没点完成就每晚接着提醒" else "，那天提醒过就结束") else "") + "。"
 
         /** 一整条提醒的参数。`update_reminder` 前面多一个 id、其余照抄这一份 —— 改提醒就是把改完的整条重写一遍、重过闸门 */
         val PLAN_PROPERTIES: LinkedHashMap<String, Any?> = linkedMapOf(
             "title" to string("简短的动作，去掉「提醒我」这类壳。例如「喝水」「交房租」"),
             "firstTriggerAt" to string(
-                "首次触发时刻，ISO-8601 带时区偏移，如 2026-09-03T19:40:00+08:00。allDay 为 true 时只看日期，钟点填 00:00:00"
+                "首次触发时刻，ISO-8601 带时区偏移，如 2026-09-03T19:40:00+08:00。allDay 为 true 时只看日期，钟点填 00:00:00；" +
+                    "日期填事情本身的那一天（过期的那天、截止的那天、演出的那天），哪怕还有几个月 —— 不是第一次提醒的日子，提前提醒写在 remindOn 里"
             ),
             "basis" to string("你的推算依据，如「用户时刻 09-18 周五 + 1 天，15:00」。必须填，出错时靠它看你哪步算歪了"),
             "note" to nullableString(
@@ -87,6 +93,17 @@ class CreateReminderTool(private val commit: suspend (ReminderPlan, ToolContext)
             "gentle" to boolean(
                 "轻提醒：到点只发一条通知（响一声，不响铃、不弹全屏）填 true。只有用户明说了才填 true（「轻提醒」「不用响铃」「发个通知就行」），" +
                     "没提、拿不准一律 false"
+            ),
+            "remindOn" to mapOf(
+                "type" to "array",
+                "items" to mapOf("type" to "string"),
+                "description" to "提前提醒：日子还远的当天事项，在那天之前还要哪几天提醒，一组 YYYY-MM-DD。他说「每个月提醒一下，最后一周每天提醒」，" +
+                    "就把这些日子一天一天算出来列上（那天当晚本来就会提醒，不用列）。只有 allDay=true 且 rrule=null 能填；" +
+                    "别的提醒、他没说要提前提醒的，填 []"
+            ),
+            "carryOver" to boolean(
+                "到了那天没点完成，要不要每晚接着提醒，直到他点完成。要办的事（要交、要买、要处理掉）填 true；" +
+                    "只是个日子（节日、生日、演出、纪念日）填 false，那天提醒过就结束。只有 allDay=true 且 rrule=null 看它，别的填 true"
             )
         )
 
@@ -102,7 +119,10 @@ class CreateReminderTool(private val commit: suspend (ReminderPlan, ToolContext)
                 wallClockAnchored = o.path("wallClockAnchored").asBoolean(true),
                 allDay = o.path("allDay").asBoolean(false),
                 // 加这个参数之前的历史里没有它：当响铃
-                gentle = o.path("gentle").asBoolean(false)
+                gentle = o.path("gentle").asBoolean(false),
+                // 加这两个参数之前的历史里没有：没有提前提醒、照旧顺延
+                remindOn = o.path("remindOn").takeIf { it.isArray }?.mapNotNull { it.asText()?.trim()?.takeIf(String::isNotEmpty) }.orEmpty(),
+                carryOver = o.path("carryOver").asBoolean(true)
             )
         }.getOrNull()
 

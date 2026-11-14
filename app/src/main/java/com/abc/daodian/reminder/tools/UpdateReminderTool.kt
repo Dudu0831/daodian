@@ -54,8 +54,11 @@ class UpdateReminderTool(private val desk: ReminderDesk) : Tool {
                     payload = Updated(id, verdict.plan)
                 )
             }
-            is Verdict.Rejected ->
-                ToolOutcome("没改。${verdict.reason} 照这个意思问用户一句，不要自己换个时间重试。", ok = false)
+            is Verdict.Rejected -> ToolOutcome(
+                "没改。${verdict.reason} " +
+                    if (verdict.selfFix) "这是参数填错了，改好再调一次，不用问用户。" else "照这个意思问用户一句，不要自己换个时间重试。",
+                ok = false
+            )
         }
     }
 

@@ -3,6 +3,7 @@ package com.abc.daodian.reminder.tools
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderStatus
 import com.abc.daodian.reminder.data.dueDate
+import com.abc.daodian.reminder.data.nudgeDates
 import com.abc.daodian.reminder.domain.ReminderText
 import com.abc.daodian.reminder.domain.Rrule
 import com.abc.daodian.runtime.tool.Tool
@@ -97,8 +98,14 @@ class ListRemindersTool(
             val due = r.dueDate()
             // 稍后着的重复提醒：这一串本来的下一次才是它的样子，稍后那一刻只是这一回
             val anchor = if (r.rrule != null) r.seriesNextAt ?: r.nextTriggerAt else r.nextTriggerAt
+            // 提前提醒里还没过的那几天（今天的算，抄回去今晚还会提）
+            val nudges = if (due != null && r.rrule == null) r.nudgeDates().filter { !it.isBefore(today) && it.isBefore(due) } else emptyList()
             val whenText = if (due != null) {
-                listOfNotNull(repeat, "当天事项", Format.humanDay(due), ReminderText.dayTaskWhen(due, today)).joinToString(" · ")
+                listOfNotNull(
+                    repeat, "当天事项", Format.humanDay(due), ReminderText.dayTaskWhen(due, today),
+                    nudges.takeIf { it.isNotEmpty() }?.let { "那天之前还提醒 ${it.size} 次，下次 ${Format.humanDay(it.first())}" },
+                    "那天提醒过就结束".takeIf { r.endsOnDay && r.rrule == null }
+                ).joinToString(" · ")
             } else {
                 listOfNotNull(repeat?.let { "$it ${Format.clock(anchor, zone)}" }, Format.humanDateTime(r.nextTriggerAt, zone)).joinToString(" · 下次 ")
             }
@@ -115,7 +122,8 @@ class ListRemindersTool(
             // 拖过来的当天事项：日期抄过去会被闸门当成过去，抄今天
             val first = if (due != null) maxOf(due, today).atStartOfDay(zone) else Instant.ofEpochMilli(anchor).atZone(zone)
             return "$human | firstTriggerAt=${ISO.format(first)} rrule=${r.rrule ?: "null"} " +
-                "wallClockAnchored=${r.wallClockAnchored} allDay=${due != null} gentle=${r.gentle && due == null}"
+                "wallClockAnchored=${r.wallClockAnchored} allDay=${due != null} gentle=${r.gentle && due == null} " +
+                "remindOn=[${nudges.joinToString(",")}] carryOver=${!(r.endsOnDay && due != null && r.rrule == null)}"
         }
 
         /** 筛日期用的那一天：当天事项是它的日子，别的是下一次响的那天 */

@@ -46,9 +46,13 @@ class ReminderViewModel(app: Application) : AndroidViewModel(app) {
         rrule: String?,
         wallClockAnchored: Boolean,
         dueDay: LocalDate? = null,
-        gentle: Boolean = false
+        gentle: Boolean = false,
+        nudges: List<LocalDate> = emptyList(),
+        endsOnDay: Boolean = false
     ) = viewModelScope.launch {
-        Reminders.upsertManual(getApplication(), id, title, note, triggerAt, rrule, wallClockAnchored, dueDay, gentle)
+        Reminders.upsertManual(
+            getApplication(), id, title, note, triggerAt, rrule, wallClockAnchored, dueDay, gentle, nudges, endsOnDay
+        )
     }
 
     fun markDone(r: Reminder) = viewModelScope.launch { Reminders.markDone(getApplication(), r) }

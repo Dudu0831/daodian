@@ -35,7 +35,10 @@ object ReminderTrace {
             text = when {
                 call.failed -> TraceText.reasonOf(call.output, prefix)
                 plan != null -> (verb?.let { "$it " } ?: "") +
-                    listOfNotNull(whenOf(plan), "轻提醒".takeIf { plan.gentle && !plan.allDay }, plan.title).joinToString(" · ")
+                    listOfNotNull(
+                        whenOf(plan), "轻提醒".takeIf { plan.gentle && !plan.allDay },
+                        "提前提醒 ${plan.remindOn.size} 次".takeIf { plan.allDay && plan.remindOn.isNotEmpty() }, plan.title
+                    ).joinToString(" · ")
                 else -> PartialArgs.text(call.arguments, "title").orEmpty()
             },
             route = call.ref?.takeIf { call.ok }?.let { ReminderRoutes.edit(it) }

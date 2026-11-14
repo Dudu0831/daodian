@@ -66,8 +66,13 @@ object FireHandler {
         }
 
         // 一次性的当天事项：响过不算完，没点「完成」就顺延到明天的收尾时刻。见 DayTasks
+        // 带提前提醒的（§4.4）：那天之前的几次响完只是翻到下一次；到了那天，只是个日子的响过就结束
         if (reminder.isAllDay) {
-            DayTasks.carryOver(context, reminder, firedAt)
+            when {
+                DayTasks.advanceNudge(context, reminder, firedAt) -> Unit
+                reminder.endsOnDay -> db.reminderDao().setStatus(reminder.id, ReminderStatus.DONE, firedAt)
+                else -> DayTasks.carryOver(context, reminder, firedAt)
+            }
             WidgetUpdater.refresh(context)
             return
         }

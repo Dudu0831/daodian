@@ -71,6 +71,23 @@ data class Reminder(
      */
     val seriesNextAt: Long? = null,
 
+    /**
+     * 提前提醒：日子还远的当天事项（「牛奶 2 月 13 日过期，每个月提醒一下，最后一周每天提醒」），在 [dueDay] 之前还要提醒的那几天。
+     * 逗号分开的日期，从早到晚：`"2026-12-13,2027-01-13,2027-02-07"`；null = 没有。只有不重复的当天事项用它。
+     *
+     * 还是一条记录、一个闹钟：[nextTriggerAt] 是最近一次还没过的提前提醒（那天的收尾时刻），响完翻到下一个，
+     * 都响完了就是 [dueDay] 那天 —— 从那以后和普通的当天事项一样。提前那几次响完不顺延、[dueDay] 不动。
+     * 调度层照旧只看 [nextTriggerAt]。见 [com.abc.daodian.reminder.scheduling.DayTasks]、DESIGN.md §4.4
+     */
+    val nudges: String? = null,
+
+    /**
+     * 到了 [dueDay] 那天响过就结束，不顺延（春节、演出这种只是个日子的）。false = 没点完成就每晚接着提醒，
+     * 当天事项一直以来的样子。只有不重复的当天事项看它。见 DESIGN.md §4.4
+     */
+    @ColumnInfo(defaultValue = "0")
+    val endsOnDay: Boolean = false,
+
     val createdAt: Long,
     val updatedAt: Long
 )
@@ -79,6 +96,14 @@ data class Reminder(
 val Reminder.isAllDay: Boolean get() = dueDay != null
 
 fun Reminder.dueDate(): LocalDate? = dueDay?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+
+/** 提前提醒的那几天，从早到晚；写坏的跳过。见 [Reminder.nudges] */
+fun Reminder.nudgeDates(): List<LocalDate> =
+    nudges?.split(',')?.mapNotNull { runCatching { LocalDate.parse(it.trim()) }.getOrNull() }?.sorted().orEmpty()
+
+/** [Reminder.nudges] 那一列怎么存：去重、从早到晚，一个都没有就是 null */
+fun nudgesColumn(days: List<LocalDate>): String? =
+    days.distinct().sorted().takeIf { it.isNotEmpty() }?.joinToString(",")
 
 /**
  * 投递日志。这张表是 M1 的验收依据 —— 没有它，「准不准」就只是感觉。

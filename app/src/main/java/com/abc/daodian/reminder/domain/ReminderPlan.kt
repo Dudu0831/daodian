@@ -16,5 +16,12 @@ data class ReminderPlan(
      */
     val allDay: Boolean = false,
     /** 轻提醒：到点只发一条通知，响一声，不响铃、不弹全屏。只有他明说了才是 true；当天事项不看它。见 DESIGN.md §5.6 */
-    val gentle: Boolean = false
+    val gentle: Boolean = false,
+    /**
+     * 提前提醒：那天之前还要提醒的几天，`YYYY-MM-DD`。只有不重复的当天事项能有；过了闸门的已经去重、排好、
+     * 去掉了今天以前的和那天当天的。见 DESIGN.md §4.4
+     */
+    val remindOn: List<String> = emptyList(),
+    /** 到了那天没点完成，要不要每晚接着提醒。false = 响过那一晚就结束（只是个日子的）。只有不重复的当天事项看它 */
+    val carryOver: Boolean = true
 )

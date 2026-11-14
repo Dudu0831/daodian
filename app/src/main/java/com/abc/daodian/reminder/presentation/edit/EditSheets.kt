@@ -42,6 +42,7 @@ import com.abc.daodian.shared.ui.CheckIcon
 import com.abc.daodian.shared.ui.GroupRule
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
+import java.time.LocalDate
 import java.time.LocalTime
 import kotlin.math.abs
 
@@ -201,6 +202,72 @@ fun RepeatSheet(options: List<RepeatOption>, current: RepeatChoice, onPick: (Rep
             }
             Text(
                 "更复杂的规则（每两周、工作日）直接跟到点说一句。",
+                style = DaodianType.settingNote, color = colors.muted,
+                modifier = Modifier.padding(start = 4.dp, top = 14.dp)
+            )
+        }
+    }
+}
+
+/** 「提前提醒」的一种排法：名字 + 照那天算出来的几天 */
+private class NudgeOption(val label: String, val days: List<LocalDate>)
+
+/** 这页排得出来的几种。只留今天以后、那天以前的；一天都排不出来的（日子太近）不列 */
+private fun nudgeOptions(today: LocalDate, due: LocalDate): List<NudgeOption> {
+    fun keep(days: List<LocalDate>) = days.filter { it.isAfter(today) && it.isBefore(due) }.sorted()
+    return listOf(
+        NudgeOption("提前一天", keep(listOf(due.minusDays(1)))),
+        NudgeOption("提前三天", keep(listOf(due.minusDays(3)))),
+        NudgeOption("提前一周", keep(listOf(due.minusDays(7)))),
+        NudgeOption("最后一周每天", keep((1L..6L).map { due.minusDays(it) })),
+        NudgeOption("每周一次", keep(generateSequence(1L) { it + 1 }.map { due.minusWeeks(it) }.takeWhile { it.isAfter(today) }.toList())),
+        NudgeOption("每月一次", keep(generateSequence(1L) { it + 1 }.map { due.minusMonths(it) }.takeWhile { it.isAfter(today) }.toList()))
+    ).filter { it.days.isNotEmpty() }
+}
+
+/**
+ * 「提前提醒」：那天之前还要哪几天提醒（DESIGN §4.4）。几种排法可以叠着勾，勾一下当场生效，不用点确定。
+ * 模型排的、这里画不出来的那几天（「每十天一次」）原样留着，只有点「不提前」才清掉。
+ */
+@Composable
+fun NudgeSheet(
+    today: LocalDate, due: LocalDate, current: List<LocalDate>,
+    onChange: (List<LocalDate>) -> Unit, onDismiss: () -> Unit
+) {
+    val colors = DaodianColors.current
+    val options = remember(today, due) { nudgeOptions(today, due) }
+    PaperSheet(onDismiss) {
+        Column(Modifier.padding(horizontal = 20.dp)) {
+            Text(
+                "提前提醒", style = DaodianType.sectionLabel, color = colors.muted,
+                modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
+            )
+            @Composable
+            fun Line(label: String, value: String?, on: Boolean, onClick: () -> Unit) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onClick)
+                        .padding(start = 18.dp, end = 16.dp, top = 15.dp, bottom = 15.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(label, style = DaodianType.body, color = colors.ink, modifier = Modifier.weight(1f))
+                    if (value != null) Text(value, style = DaodianType.settingNote, color = colors.muted)
+                    Box(Modifier.width(28.dp), contentAlignment = Alignment.CenterEnd) {
+                        if (on) CheckIcon(size = 13.dp, tint = colors.accent)
+                    }
+                }
+            }
+            Line("不提前", null, on = current.isEmpty()) { onChange(emptyList()) }
+            options.forEach { o ->
+                GroupRule()
+                val on = current.containsAll(o.days)
+                Line(o.label, "${o.days.size} 次", on) {
+                    onChange(if (on) current - o.days.toSet() else (current + o.days).distinct().sorted())
+                }
+            }
+            Text(
+                if (current.isEmpty()) "那天晚上照常提醒一次。" else "一共 ${current.size} 次，那天晚上另外再提醒一次。",
                 style = DaodianType.settingNote, color = colors.muted,
                 modifier = Modifier.padding(start = 4.dp, top = 14.dp)
             )
