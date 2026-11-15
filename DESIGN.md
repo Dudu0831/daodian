@@ -99,7 +99,7 @@ runtime               跑 agent 的：助手和模块都用，它自己谁也不
 shared                地基：没有状态
 ```
 
-**接头**：一个模块一个 `XxxModule`（实现 `module/Module`：id、名字、给助手的、给壳的、冷启动要做的事），在根目录 `Modules.kt` 里列一行就接上了。给助手的、给壳的是两个插口，各是一个 object：
+**接头**：一个模块一个 `XxxModule`（实现 `module/Module`：id、名字、给助手的、给壳的、冷启动要做的事），在根目录 `Modules.kt` 里列一行就接上了。给助手的、给壳的是两个插口，各是一个 object（另外两个窄的：接通知管家交来的活 `intake/plugin/NoticeTarget`，§12.5；能钉到桌面卡片上的东西 `card/plugin/CardSource`，§8.5）：
 
 | 插口 | 模块给什么 | 现在有的 |
 |---|---|---|
@@ -108,7 +108,7 @@ shared                地基：没有状态
 
 给助手的那个**叫 plugin，不叫 skill**（10-16 从 `AssistantSkill` 改的名）：agent 那边说 skill，一般指按需读进上下文的一段说明，核心是提示词；这个插口偏偏不给提示词，给的是工具、数据和界面上的几块。11-14 真做按需加载时也没用 skill 这个词，自己定了「工具包」（§6.11）。
 
-加模块 = 新目录 + `XxxModule`（要的话再加 `XxxPlugin`、`XxxShell`）+ `Modules.kt` 里一行；它给助手的工具要在助手的提示词里写上用法。助手的工具顺序、抽屉里的纸、设置首页的行都按 `Modules.kt` 的顺序。要接通知的模块在 `Module.notice` 交一个 `NoticeTarget`（§12.5）；要在后台自己跑一个 agent，写 `XxxAgent` + `XxxPrompt`、`Agents.kt` 里加一行（§6.1）。
+加模块 = 新目录 + `XxxModule`（要的话再加 `XxxPlugin`、`XxxShell`）+ `Modules.kt` 里一行；它给助手的工具要在助手的提示词里写上用法。助手的工具顺序、抽屉里的纸、设置首页的行都按 `Modules.kt` 的顺序。要接通知的模块在 `Module.notice` 交一个 `NoticeTarget`（§12.5）；有东西能钉到桌面的在 `Module.cards` 交一个 `CardSource`（§8.5）；要在后台自己跑一个 agent，写 `XxxAgent` + `XxxPrompt`、`Agents.kt` 里加一行（§6.1）。
 
 **依赖规则**（单元测试 `ArchitectureTest` 照这张表扫 import）
 
@@ -117,9 +117,10 @@ shared                地基：没有状态
 | `runtime` | 只有自己 —— 单独的 Gradle 模块，编译器管，测试不查。要用 app 里的东西（模型配置存在哪、记忆库、trace 写到哪），由 app 实现它的接口装进去（`DaodianApp`）。反过来，app 跑 agent 只能走 `AgentRuntime`：循环（`AgentLoop`）、调模型的客户端（`ResponsesClient`）、工具注册表是 `internal`，app 碰不到（10-16） |
 | `assistant` | 自己、`runtime`、`shared` |
 | `shell` | 自己、`assistant`、`runtime`、`shared`、`update` |
-| `module` | 三个插口包 `assistant/plugin`、`shell/entry`、`intake/plugin` |
+| `module` | 四个插口包 `assistant/plugin`、`shell/entry`、`intake/plugin`、`card/plugin` |
 | 模块的核心层（提醒的 `domain / data / application / scheduling / delivery`，记账的 `domain / data / capture`） | 自己、`shared`、通知监听层的核心、`intake/plugin` |
-| 模块的其余部分 | 再加上 `runtime`、三个插口包、`module`。别的模块不碰 |
+| 模块的其余部分 | 再加上 `runtime`、给助手的、给壳的、给桌面卡片的（`card/plugin`）插口包、`module`。别的模块不碰 |
+| `card`（桌面卡片，§8.5） | 自己、`shared`、`runtime`、`assistant/plugin`、`module`。钉的是什么由别的模块经 `card/plugin` 交 |
 | `intake` 的 `core/`（规则、收件箱、管家的纯逻辑） | 自己、`intake.Notice`；也不碰 Android、Room |
 | `intake` 的其余部分（监听、库、管家、插口、给助手的） | 自己、`shared`、`runtime`（管家要跑 agent）、`assistant/plugin` |
 | `intake` 的接头（`IntakeModule.kt`）和 `presentation/` | 再加上 `shell/entry`、`module` |
@@ -276,10 +277,10 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 - **模型**：`create_reminder` / `update_reminder` 多两个参数 —— `remindOn`（一组 `YYYY-MM-DD`，**模型把「每月一次、最后一周每天」一天一天展开**，不扩 RRULE）、`carryOver`。闸门（`PlanValidator.nudges`）：今天以前的、那天当天的悄悄去掉，排在那天以后的、写不成日期的、超过 60 次的拦下。**排在那天以后的多半是 `firstTriggerAt` 填错了**：11-14 真机上头一回，模型把它填成今天（当成第一次响的日子），提前提醒全排在「那天」后面。参数说明和提示词里写明了它是事情本身的那一天；这类自己填错的拦下时带 `Verdict.Rejected.selfFix`，工具回给模型的是「改好再调一次，不用问用户」，不再拿去出问卡。`list_reminders` 那一行带 `remindOn=[…] carryOver=…` 给它抄。提示词 `assistant-v8`：日子还远的事是一条当天事项，不要拆成好几条；没说要提前提醒就 `[]`，不替他加、不追问。
 - **通知**：提前那几次写「2027年2月13日的事，提一下」，**不挂「完成」、不进「还有 N 件当天的事没做」那一组** —— 它不是今天没做的事。
 - **列表**（§08）：那件事挂在它自己那天（远处）；提前提醒的那天，「今天」底下多一行淡的、没有圈的，过了当天就没了。
-- **界面上只写具体日期**，不写「还剩 N 天」（用户 11-13 定的）。桌面卡片（还没做）例外，那是另一块。
+- **界面上只写具体日期**，不写「还剩 N 天」（用户 11-13 定的）。桌面卡片（§8.5）例外，那是另一块。
 - 测试：`NudgeTest`（排期怎么走、补发、闸门）。设计稿：<https://claude.ai/artifact/9DoWbyCPStsXswbFn8GkbG>
 
-**还没做**：桌面卡片（把一个倒数钉到桌面，单独一个小组件；设计稿里有，方案是「模板 + 数据来源」，不让模型画桌面）。
+桌面卡片（把一个倒数钉到桌面）见 §8.5。
 
 ---
 
@@ -768,7 +769,7 @@ system（逐字节不变）
 5. **agent 只要把包交给 `Agent.kits`**：`AgentRuntime` 自己加 `open_kit`、门和折叠；没有包的 agent 和以前一模一样。strict 检查对的是「提示词写的 = 常驻的 + `open_kit`」，包里的工具不写进提示词（`AgentsTest` 查）。
 6. 助手的步数上限从 6 提到 8（`AssistantAgent.MAX_STEPS`）：打开占一步。
 
-模块怎么交：`AssistantPlugin.kits(context)`（默认空）。现在只有听通知一个（`notice`）。以后要收的：每晚对账那一段（只有说明，由那一轮的开场带上）、画图那一段、桌面卡片。
+模块怎么交：`AssistantPlugin.kits(context)`（默认空）。现在两个：听通知（`notice`）、桌面卡片（`card`，§8.5）。以后要收的：每晚对账那一段（只有说明，由那一轮的开场带上）、画图那一段。
 
 没做的：从文件 / 网上装的包（现在是代码里的对象）；包里带脚本。
 
@@ -999,6 +1000,34 @@ AudioRecord ─┬─ Level → 波形
 - **客户端按配置缓存**（`AgentRuntime`）：不能每句话新建一个 —— 每个 `ResponsesClient` 自带一个 OkHttp 连接池。对话页、速记、后台的几个 agent 共用这份缓存；每次跑之前现读一次配置，改完下一句就换。
 - **「测一下」走真路**（`ProviderTest`）：同一个 `ResponsesClient`、同一份 system、挂着整套工具，只换成一句最短的话、只调一步。不拿 `/models` 试探 —— 第三方网关不一定实现，测通了也不代表正式调用能通。测的是框里**正在填**的值；**测没过也能保存**（有的网关对测试话挑刺、正式调用反而通）。
 - 配置页：key 默认遮住，输入法关掉联想和自动大写（免得 key 进词库）；有未保存改动时返回会拦一下。
+
+### 8.5 桌面卡片
+
+把一件事钉在桌面上，卡片自己每天数还剩几天。和提醒小组件（§8.2）是两样：那块是「下一条是什么 + 说一句」，这块是一张卡片钉一件事，可以放好几块。设计稿：<https://claude.ai/artifact/9DoWbyCPStsXswbFn8GkbG>「桌面上的卡片」。
+
+**卡片上的字是代码算的，模型只说钉什么**（用户 11-13 定的：不让模型画桌面）。模型调 `pin_card(source, ref, template)`，剩几天由 `CardFace` 每次重画时现算，所以跨了零点它自己变。
+
+**单独一个模块 `card/`**（11-14 从提醒模块里挪出来的：卡片是通用的，记账以后也要钉）：
+
+| 件 | 在哪 | 干什么 |
+|---|---|---|
+| 插口 | `card/plugin/CardSource`（`Module.cards`） | 模块说「我有东西能钉」：给 `ref` 答一句「叫什么、哪一天、办完没有」（`CardSubject`）、点卡片去哪、给助手的一段（`ref` 是什么、怎么查到）。`CardBoard.changed` 让模块喊卡片重画 |
+| 模板 | `CardTemplate` + `CardFace` | 现在两种：`BIG` 2×2 大数字、`BAR` 4×1 墨条。`CardFace` 纯算，不碰 Android |
+| 桌面组件 | `CardWidget`（`BigCardWidget`、`BarCardWidget`） | 一种模板一个，桌面的小组件列表里各占一格。**全类名记在桌面上，发出去之后不挪** |
+| 登记 | `card.db`（`CardDatabase`） | 哪一块画哪个模块的哪件事、哪种模板、墨条的起点。自己一个库，不进 `reminder.db`：全丢了提醒照响 |
+| 对话里 | `card/assistant/CardPlugin` | 工具包 `card`（§6.11）：`pin_card`、`list_cards`、`change_card`。说明里拼着各来源自己写的那一段，加一种来源不改卡片的说明 |
+
+现在交来源的只有提醒（`reminder/card/ReminderCards`）：当天事项是它的日子（顺延、提前提醒都不改它），带钟点的是下一次响的那天，`DONE` / `CANCELLED` 算办完。提醒每个改动点本来就喊 `WidgetUpdater.refresh`，它顺手喊 `CardBoard.changed`，卡片不用另外接线。
+
+**写什么**（设计稿「大数字在各个时候」）：平时「92 天」，脚上写日期（不是今年的带年份）；最后 7 天数字变朱砂、脚上写星期几；那天写「今天」；过了写「过 2 天」、数字褪灰；办完写「办完了」。**这里写「还剩 N 天」**，是 §4.4「界面上只写具体日期」的例外。
+
+**怎么放上桌面**：`pin_card` 先在库里备一张（`widgetId` 空着），再 `requestPinAppWidget` 请桌面加一块 —— 桌面弹框，他点「添加」才出现；桌面回话（`ACTION_PINNED` 带回那一块的 id）就登记上。桌面不支持、或者他自己从小组件列表里加的，那一块头一次重画时认领最新一张备好了没放的。同一种模板没放的只留最新一张。
+
+**拿掉**：模型拿不掉，他长按卡片移除（`onDeleted` 跟着删登记）。钉的那件事被删了，卡片写「这件事不在了」，在对话里说换一件或者长按移除。
+
+**刷新**同 §8.2 那三条：推的不是拉的（`CardBoard.changed`），30 分钟兜底，跨零点 / 改时间 / 换时区由 `DATE_CHANGED` 那几条补；颜色一律 `@color` 交给桌面解析；墨条是 `ProgressBar`（RemoteViews 白名单里有它），颜色在 `card_ink.xml`。
+
+没做的：设计稿里「以后可以加的模板」（走秒、桌面上直接勾、七根柱子、一叠手滑着翻）；记账的来源。
 
 ---
 

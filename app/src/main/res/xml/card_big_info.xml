@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  桌面卡片 · 大数字的登记表。见 DESIGN.md §8.5
+  updatePeriodMillis 30 分钟只是兜底：剩几天只在跨零点时变，那一下由 DATE_CHANGED 补；提醒有改动由 Cards.refresh 推。
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="100dp"
+    android:maxResizeWidth="250dp"
+    android:maxResizeHeight="250dp"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/card_big"
+    android:previewLayout="@layout/card_big"
+    android:description="@string/card_big_description" />

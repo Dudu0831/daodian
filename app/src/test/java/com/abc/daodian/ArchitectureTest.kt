@@ -12,9 +12,10 @@ import org.junit.Test
  * |---|---|
  * | `assistant` | 自己、`runtime`、`shared` |
  * | `shell` | 自己、`assistant`、`runtime`、`shared`、`update` |
- * | `module` | 三个插口包 `assistant/plugin`、`shell/entry`、`intake/plugin` |
+ * | `module` | 四个插口包 `assistant/plugin`、`shell/entry`、`intake/plugin`、`card/plugin` |
  * | 模块的核心层（提醒的 domain/data/application/scheduling/delivery，记账的 domain/data/capture） | 自己、`shared`、通知监听层的核心、`intake/plugin` |
- * | 模块的其余部分 | 再加上 `runtime`、三个插口包、`module`。别的模块不碰 |
+ * | 模块的其余部分 | 再加上 `runtime`、三个插口包（给助手的、给壳的、给桌面卡片的 `card/plugin`）、`module`。别的模块不碰 |
+ * | `card`（桌面卡片） | 自己、`shared`、`runtime`、`assistant/plugin`、`module`。不碰别的模块：钉的是什么由它们经 `card/plugin` 交 |
  * | 通知监听层的其余部分（监听、库、管家、插口、给助手的） | 自己、`shared`、`runtime`（管家要跑 agent）、`assistant/plugin`（`IntakePlugin`） |
  * | 通知监听层的 `core/`（规则、收件箱、管家的纯逻辑） | 自己、`intake.Notice`；也不碰 Android、Room（JVM 单测） |
  * | 通知监听层的接头和 `presentation/` | 再加上 `shell/entry`、`module` |
@@ -39,7 +40,8 @@ class ArchitectureTest {
             !p.contains('/') -> null // 根目录：装配
             p.startsWith("assistant/") -> Rule(listOf("assistant", "runtime", "shared") + ALWAYS)
             p.startsWith("shell/") -> Rule(listOf("shell", "assistant", "runtime", "shared", "update") + ALWAYS)
-            p.startsWith("module/") -> Rule(listOf("module", "intake.plugin") + PLUGS + ALWAYS)
+            p.startsWith("module/") -> Rule(listOf("module", "intake.plugin", CARD_PLUG) + PLUGS + ALWAYS)
+            p.startsWith("card/") -> Rule(listOf("card", "shared", "runtime", "assistant.plugin", "module") + ALWAYS)
             p.startsWith("agent/") -> Rule(listOf("assistant") + ALWAYS)
             p.startsWith("whatsnew/") -> Rule(listOf("whatsnew", "shared", "module", "shell.entry") + ALWAYS)
             p.startsWith("update/") -> Rule(listOf("update", "shared") + ALWAYS)
@@ -54,7 +56,7 @@ class ArchitectureTest {
                 val module = p.substringBefore('/')
                 val layer = p.substringAfter('/').substringBefore('/')
                 if (layer in CORE.getValue(module)) Rule(listOf(module, "shared") + INTAKE_CORE + ALWAYS)
-                else Rule(listOf(module, "shared", "runtime", "module") + PLUGS + INTAKE_CORE + ALWAYS)
+                else Rule(listOf(module, "shared", "runtime", "module", CARD_PLUG) + PLUGS + INTAKE_CORE + ALWAYS)
             }
             else -> Rule(ALWAYS)
         }
@@ -97,6 +99,9 @@ class ArchitectureTest {
 
         /** 模块能碰的两个插口包 */
         private val PLUGS = listOf("assistant.plugin", "shell.entry")
+
+        /** 桌面卡片的插口：模块交「能钉什么」、喊卡片重画（DESIGN.md §8.5） */
+        private const val CARD_PLUG = "card.plugin"
 
         /** 通知监听层的核心里，模块能碰的那几样（DESIGN.md §2.2 第 8 条） */
         private val INTAKE_CORE = listOf("intake.Notice", "intake.Intake", "intake.IntakeRoutes", "intake.plugin")

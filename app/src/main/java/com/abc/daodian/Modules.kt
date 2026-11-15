@@ -1,5 +1,6 @@
 package com.abc.daodian
 
+import com.abc.daodian.card.CardModule
 import com.abc.daodian.intake.IntakeModule
 import com.abc.daodian.ledger.LedgerModule
 import com.abc.daodian.module.Module
@@ -12,7 +13,8 @@ import com.abc.daodian.whatsnew.WhatsNewModule
  * （`assistant/AssistantPrompt`，模块不往里追加段落）。见 DESIGN.md §2.2、§6.3
  *
  * 通知监听层排在业务模块后面：它给助手建规则的几个工具，在「权限」页里占一组，放在各模块的体检项后面。
+ * 桌面卡片接着：只给助手一个收着的工具包，钉什么由别的模块交（`Module.cards`）。
  * 新功能弹窗最后：只有盖在上面的那一层，不给助手、不占设置行。
  */
-val MODULES: List<Module> = listOf(ReminderModule, LedgerModule, IntakeModule, WhatsNewModule)
+val MODULES: List<Module> = listOf(ReminderModule, LedgerModule, IntakeModule, CardModule, WhatsNewModule)
 

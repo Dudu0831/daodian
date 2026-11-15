@@ -4,6 +4,7 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.util.Log
+import com.abc.daodian.card.plugin.CardBoard
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,6 +29,8 @@ object WidgetUpdater {
 
     suspend fun refresh(context: Context) {
         val app = context.applicationContext
+        // 钉在桌面卡片上的也是提醒：改了标题、改了日子、点了完成，它跟着变（§8.5）。喊这里的地方不用另外喊它
+        runCatching { CardBoard.changed(app) }.onFailure { Log.e("Daodian/Widget", "刷新桌面卡片失败", it) }
         val manager = AppWidgetManager.getInstance(app)
         val ids = manager.getAppWidgetIds(ComponentName(app, DaodianWidget::class.java))
         if (ids.isEmpty()) return    // 桌面上一个都没放，省掉一次查库

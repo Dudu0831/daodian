@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.abc.daodian.module.Module
 import com.abc.daodian.reminder.assistant.ReminderPlugin
+import com.abc.daodian.reminder.card.ReminderCards
 import com.abc.daodian.reminder.delivery.Notifier
 import com.abc.daodian.reminder.notice.ReminderNoticeTarget
 import com.abc.daodian.reminder.presentation.ReminderShell
@@ -29,6 +30,7 @@ object ReminderModule : Module {
     override val assistant get() = ReminderPlugin
     override val shell get() = ReminderShell
     override val notice get() = ReminderNoticeTarget
+    override val cards get() = ReminderCards
 
     override fun onAppStart(context: Context) {
         val app = context.applicationContext

@@ -12,6 +12,7 @@ import com.abc.daodian.intake.NoticeHub
 import com.abc.daodian.runtime.AgentRuntime
 import com.abc.daodian.shared.navigation.Launch
 import com.abc.daodian.shell.diagnostics.CrashLog
+import com.abc.daodian.card.CardHub
 import com.abc.daodian.shell.entry.ShellEntries
 import com.abc.daodian.update.DailyCheck
 
@@ -27,6 +28,8 @@ class DaodianApp : Application() {
         CrashLog.install(this)
         // 系统来绑监听之前去处清单就得在：监听一连上就开始收通知。各模块交出来的那一项，照模块顺序
         NoticeHub.install(MODULES.mapNotNull { it.notice })
+        // 桌面来要卡片时进程可能是刚拉起的：能钉什么（各模块交的）也得先在
+        CardHub.install(MODULES.mapNotNull { it.cards })
         // debug 包里花名册、工具、问人三样对不上就崩，当场发现。后台的几个 agent 都有兜底的 catch，
         // 光抛会被吃掉、只落成一条失败记录，所以扔到主线程上再抛一次 —— 前台、后台一样崩
         AgentRuntime.install(

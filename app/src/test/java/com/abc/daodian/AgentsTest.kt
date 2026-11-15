@@ -4,6 +4,8 @@ import com.abc.daodian.assistant.AssistantAgent
 import com.abc.daodian.assistant.AssistantPrompt
 import com.abc.daodian.assistant.memory.FakeMemoryBook
 import com.abc.daodian.assistant.memory.tidy.TidyAgent
+import com.abc.daodian.card.FakeCardDesk
+import com.abc.daodian.card.assistant.CardTools
 import com.abc.daodian.intake.assistant.IntakeTools
 import com.abc.daodian.intake.assistant.FakeDesk
 import com.abc.daodian.intake.core.steward.DecisionBuffer
@@ -82,15 +84,15 @@ class AgentsTest {
     private fun assistantTools() =
         AssistantAgent.tools(FakeMemoryBook(), ReminderTools.forAssistant(FakeReminderDesk()) + LedgerTools.forAssistant(ledger))
 
-    /** 收着的工具包：通知监听层给的那一个 */
-    private fun assistantKits() = listOf(IntakeTools.kit(FakeDesk()))
+    /** 收着的工具包，照 `Modules.kt` 的顺序：通知监听层的、桌面卡片的 */
+    private fun assistantKits() = listOf(IntakeTools.kit(FakeDesk()), CardTools.kit(FakeCardDesk()))
 
     @Test
     fun `the assistant prompt is written for the tools the modules hand over`() {
         assertEquals(AssistantPrompt.TOOLS, assistantTools().map { it.name }.toSet() + "open_kit")
         // 包里的工具不在常驻的里面，也不写进提示词：它们的用法跟着包走
         val packed = assistantKits().flatMap { it.tools }.map { it.name }.toSet()
-        assertEquals(IntakeTools.NAMES, packed)
+        assertEquals(IntakeTools.NAMES + CardTools.NAMES, packed)
         assertTrue(packed.none { it in AssistantPrompt.TOOLS || it in AssistantPrompt.SYSTEM })
     }
 

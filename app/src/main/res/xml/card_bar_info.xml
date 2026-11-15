@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面卡片 · 墨条的登记表。见 DESIGN.md §8.5；刷新的规矩同 card_big_info.xml -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="40dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="1"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="40dp"
+    android:maxResizeWidth="400dp"
+    android:maxResizeHeight="110dp"
+    android:resizeMode="horizontal"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/card_bar"
+    android:previewLayout="@layout/card_bar"
+    android:description="@string/card_bar_description" />

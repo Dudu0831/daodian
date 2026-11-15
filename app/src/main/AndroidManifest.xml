@@ -125,6 +125,38 @@
                 android:resource="@xml/widget_info" />
         </receiver>
 
+        <!--
+            桌面卡片：一张钉一件事，一种模板一个组件。全类名记在桌面上，发出去之后不能挪。见 DESIGN.md §8.5
+        -->
+        <receiver
+            android:name=".card.BigCardWidget"
+            android:exported="true"
+            android:label="@string/card_big_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/card_big_info" />
+        </receiver>
+        <receiver
+            android:name=".card.BarCardWidget"
+            android:exported="true"
+            android:label="@string/card_bar_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/card_bar_info" />
+        </receiver>
+
         <!-- 小组件上那个 ✓。只接自己发的 PendingIntent -->
         <receiver
             android:name=".reminder.widget.WidgetActionReceiver"

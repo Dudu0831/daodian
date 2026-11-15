@@ -2,6 +2,7 @@ package com.abc.daodian.module
 
 import android.content.Context
 import com.abc.daodian.assistant.plugin.AssistantPlugin
+import com.abc.daodian.card.plugin.CardSource
 import com.abc.daodian.intake.plugin.NoticeTarget
 import com.abc.daodian.shell.entry.ShellEntry
 
@@ -30,6 +31,9 @@ interface Module {
 
     /** 接通知管家交来的活（DESIGN.md §12.5）：管家去处清单上的一项。不接的是 null */
     val notice: NoticeTarget? get() = null
+
+    /** 给桌面卡片的（DESIGN.md §8.5）：它这里有什么可以钉到桌面上。没有的是 null */
+    val cards: CardSource? get() = null
 
     /** 冷启动（包括被闹钟、广播拉起的进程）要做的事。在主线程上调，耗时的自己开协程 */
     fun onAppStart(context: Context) {}
