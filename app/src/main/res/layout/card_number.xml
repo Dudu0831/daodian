@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 大数字：前后各一个小字（「过」「天」）。字号由 CardViews 按说明的 size 设 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:baselineAligned="true"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
+
+    <TextView
+        android:id="@+id/card_before"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="4dp"
+        android:textSize="12sp"
+        android:visibility="gone"
+        android:textColor="@color/widget_muted" />
+
+    <TextView
+        android:id="@+id/card_value"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:fontFamily="serif"
+        android:textSize="44sp"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:textColor="@color/widget_ink" />
+
+    <TextView
+        android:id="@+id/card_after"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="4dp"
+        android:textSize="12sp"
+        android:maxLines="1"
+        android:textColor="@color/widget_muted" />
+</LinearLayout>

@@ -10,33 +10,30 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
- * 钉在桌面上的一张卡片：哪个模块的哪件事、画成哪种模板、在桌面上是哪一块。见 DESIGN.md §8.5
+ * 一张卡片：模型拼的说明（[spec]，`card/spec/CardSpec` 的 JSON）+ 卡片自己记的数（[own]）+ 在桌面上是哪一块。见 DESIGN.md §8.5
  *
- * 只存「画什么」，不存画出来的字 —— 剩几天每次重画时由代码现算（`CardFace`）。
- * 它是展示面的登记，自己一个库（`card.db`），不进 `reminder.db`：这张表全丢了，提醒照响。
+ * 不存画出来的字：数每次重画时按绑定现取。它是展示面的登记，自己一个库（`card.db`），不进 `reminder.db`：全丢了提醒照响。
+ * 从桌面上拿掉的卡片不删（[widgetId] 回到 null），说明还在，能再钉。
  */
 @Entity(tableName = "cards", indices = [Index("widgetId")])
 data class Card(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-
-    /** 哪个模块的（`CardSource.id`：「reminder」） */
-    val source: String,
-
-    /** 那个模块里的哪一件（提醒的 id）。那件被删了，卡片上写「这件事不在了」 */
-    val ref: Long,
-
-    /** 模板的名字（`CardTemplate` 的 name）。存字：以后加模板不用改表 */
-    val template: String,
-
-    /** 桌面上那一块的 appWidgetId。null = 备好了、还没放上桌面（等桌面回话，或者等他手动加一块） */
+    /** 说明里的 name（「喝水」），列表里认它 */
+    val name: String,
+    /** 说明里的 size（「2x2」）：决定钉到哪个桌面组件上 */
+    val size: String,
+    val spec: String,
+    val own: String = "{}",
+    /** 桌面上那一块的 appWidgetId。null = 还没放上去 */
     val widgetId: Int? = null,
-
-    /** 从哪天算起（ISO 日期）。墨条两头的那个起点；大数字用不上 */
-    val startDay: String,
-
-    val createdAt: Long
+    /** 最近一次请桌面加它是什么时候。桌面没回话时，新加的那一块认领请得最晚的这张 */
+    val pinAskedAt: Long? = null,
+    val createdAt: Long,
+    val updatedAt: Long
 )
 
 @Dao
@@ -52,35 +49,58 @@ interface CardDao {
     @Query("SELECT * FROM cards WHERE widgetId = :widgetId LIMIT 1")
     suspend fun byWidget(widgetId: Int): Card?
 
-    /** 备好了还没放上桌面的，最新的那张：桌面上新加一块时先认领它 */
-    @Query("SELECT * FROM cards WHERE widgetId IS NULL AND template = :template ORDER BY createdAt DESC LIMIT 1")
-    suspend fun latestUnplaced(template: String): Card?
+    /** 桌面上新加了一块 [size] 的、没回话：先认请桌面加过的里最晚的，没有就认最新画的那张没放的 */
+    @Query(
+        "SELECT * FROM cards WHERE widgetId IS NULL AND size = :size " +
+            "ORDER BY pinAskedAt IS NULL, pinAskedAt DESC, createdAt DESC LIMIT 1"
+    )
+    suspend fun claimable(size: String): Card?
+
+    @Query("UPDATE cards SET name = :name, size = :size, spec = :spec, updatedAt = :now WHERE id = :id")
+    suspend fun redraw(id: Long, name: String, size: String, spec: String, now: Long)
+
+    @Query("UPDATE cards SET own = :own, updatedAt = :now WHERE id = :id")
+    suspend fun setOwn(id: Long, own: String, now: Long)
+
+    @Query("UPDATE cards SET pinAskedAt = :at WHERE id = :id")
+    suspend fun askedPin(id: Long, at: Long)
 
     @Query("UPDATE cards SET widgetId = :widgetId WHERE id = :id")
     suspend fun place(id: Long, widgetId: Int)
 
-    @Query("UPDATE cards SET source = :source, ref = :ref, startDay = :startDay WHERE id = :id")
-    suspend fun retarget(id: Long, source: String, ref: Long, startDay: String)
-
-    @Query("DELETE FROM cards WHERE widgetId = :widgetId")
-    suspend fun deleteByWidget(widgetId: Int)
-
-    /** 没放上桌面的旧卡片：同一种模板只留最新的一张等着被认领，别越攒越多 */
-    @Query("DELETE FROM cards WHERE widgetId IS NULL AND template = :template")
-    suspend fun clearUnplaced(template: String)
+    /** 他把那一块从桌面上拿掉了：说明留着，能再钉 */
+    @Query("UPDATE cards SET widgetId = NULL WHERE widgetId = :widgetId")
+    suspend fun unplace(widgetId: Int)
 }
 
-/** 改表照 `ReminderDatabase` 的规矩：加一条 AutoMigration，不许 destructive（桌面上已经钉着的卡片会变空） */
-@Database(entities = [Card::class], version = 1, exportSchema = true)
+/**
+ * v1 是「一张卡片钉一条提醒、两种写死的模板」（11-14），只在 debug 包上出现过；v2 换成模型拼的说明，
+ * 两样对不上，迁移时整张表重建（debug 包桌面上那两块会变成「还没钉东西」）。往后改表照 `ReminderDatabase` 的规矩：
+ * 加一条 AutoMigration，不许 destructive。
+ */
+@Database(entities = [Card::class], version = 2, exportSchema = true)
 abstract class CardDatabase : RoomDatabase() {
     abstract fun cardDao(): CardDao
 
     companion object {
         @Volatile private var instance: CardDatabase? = null
 
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `cards`")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `cards` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, " +
+                        "`size` TEXT NOT NULL, `spec` TEXT NOT NULL, `own` TEXT NOT NULL, `widgetId` INTEGER, `pinAskedAt` INTEGER, " +
+                        "`createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cards_widgetId` ON `cards` (`widgetId`)")
+            }
+        }
+
         fun get(context: Context): CardDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(context.applicationContext, CardDatabase::class.java, "card.db")
+                    .addMigrations(MIGRATION_1_2)
                     .build().also { instance = it }
             }
     }

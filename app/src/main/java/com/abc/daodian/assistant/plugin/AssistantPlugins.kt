@@ -32,6 +32,9 @@ object AssistantPlugins {
 
     fun trace(call: ToolTrace): TraceView? = plugins.firstNotNullOfOrNull { it.trace(call) }
 
+    /** 这次调用在正文里挂一块的那个模块；没有就是 null */
+    fun traceBodyOf(call: ToolTrace): AssistantPlugin? = plugins.firstOrNull { it.hasTraceBody(call) }
+
     val examples: List<String> get() = plugins.flatMap { it.examples }
 
     val manualEntry: String? get() = plugins.firstNotNullOfOrNull { it.manualEntry }

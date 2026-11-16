@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  桌面卡片的外壳。见 DESIGN.md §8.5
+  零件由 CardViews 照模型的说明一块块 addView 进来（最外面那层 column 的几块直接排在这里）。
+  根 id 用 @android:id/background：桌面按它裁系统圆角。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:clipToOutline="true"
+    android:background="@drawable/widget_bg"
+    android:paddingStart="16dp"
+    android:paddingTop="13dp"
+    android:paddingEnd="14dp"
+    android:paddingBottom="12dp" />

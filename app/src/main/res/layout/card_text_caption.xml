@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 文字 · 小字 -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/card_text"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:textSize="10.5sp"
+    android:letterSpacing="0.06"
+    android:maxLines="2"
+    android:ellipsize="end"
+    android:textColor="@color/widget_muted" />

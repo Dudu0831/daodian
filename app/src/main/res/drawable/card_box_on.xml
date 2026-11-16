@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 清单勾上的：墨色方块里一个纸色的勾 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/widget_ink" />
+            <corners android:radius="3dp" />
+        </shape>
+    </item>
+    <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
+        <vector android:width="9dp" android:height="9dp" android:viewportWidth="12" android:viewportHeight="12">
+            <path android:pathData="M2.5,6.2l2.3,2.3 4.7,-5" android:strokeColor="@color/widget_paper" android:strokeWidth="1.8"
+                android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />
+        </vector>
+    </item>
+</layer-list>

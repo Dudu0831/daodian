@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 文字 · 标题：宋体 13.5 -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/card_text"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:fontFamily="serif"
+    android:textSize="13.5sp"
+    android:letterSpacing="0.04"
+    android:maxLines="1"
+    android:ellipsize="end"
+    android:textColor="@color/widget_ink" />

@@ -126,12 +126,12 @@
         </receiver>
 
         <!--
-            桌面卡片：一张钉一件事，一种模板一个组件。全类名记在桌面上，发出去之后不能挪。见 DESIGN.md §8.5
+            桌面卡片：一种大小一个组件，画什么由模型的说明定。全类名记在桌面上，发出去之后不能挪。见 DESIGN.md §8.5
         -->
         <receiver
-            android:name=".card.BigCardWidget"
+            android:name=".card.Card2x2Widget"
             android:exported="true"
-            android:label="@string/card_big_label">
+            android:label="@string/card_label_2x2">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="android.intent.action.DATE_CHANGED" />
@@ -140,12 +140,12 @@
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/card_big_info" />
+                android:resource="@xml/card_2x2_info" />
         </receiver>
         <receiver
-            android:name=".card.BarCardWidget"
+            android:name=".card.Card4x1Widget"
             android:exported="true"
-            android:label="@string/card_bar_label">
+            android:label="@string/card_label_4x1">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="android.intent.action.DATE_CHANGED" />
@@ -154,8 +154,40 @@
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/card_bar_info" />
+                android:resource="@xml/card_4x1_info" />
         </receiver>
+        <receiver
+            android:name=".card.Card4x2Widget"
+            android:exported="true"
+            android:label="@string/card_label_4x2">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/card_4x2_info" />
+        </receiver>
+        <receiver
+            android:name=".card.Card4x4Widget"
+            android:exported="true"
+            android:label="@string/card_label_4x4">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/card_4x4_info" />
+        </receiver>
+        <!-- 卡片上的按钮、清单的勾。只接自己发的 PendingIntent -->
+        <receiver
+            android:name=".card.CardActionReceiver"
+            android:exported="false" />
 
         <!-- 小组件上那个 ✓。只接自己发的 PendingIntent -->
         <receiver

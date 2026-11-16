@@ -1,7 +1,10 @@
 package com.abc.daodian.ledger
 
 import android.content.Context
+import com.abc.daodian.card.plugin.CardBoard
 import com.abc.daodian.ledger.assistant.LedgerPlugin
+import com.abc.daodian.ledger.card.LedgerCards
+import com.abc.daodian.ledger.data.LedgerStore
 import com.abc.daodian.ledger.capture.LedgerNoticeTarget
 import com.abc.daodian.ledger.organize.OrganizeWorker
 import com.abc.daodian.ledger.presentation.LedgerShell
@@ -9,7 +12,10 @@ import com.abc.daodian.ledger.reconciliation.LedgerCheck
 import com.abc.daodian.module.Module
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 /**
@@ -26,13 +32,21 @@ object LedgerModule : Module {
     override val assistant get() = LedgerPlugin
     override val shell get() = LedgerShell
     override val notice get() = LedgerNoticeTarget
+    override val cards get() = LedgerCards
 
+    @OptIn(FlowPreview::class)
     override fun onAppStart(context: Context) {
         val app = context.applicationContext
         // 排上定期整理、排上每晚对账
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             runCatching { OrganizeWorker.schedule(app) }
             runCatching { LedgerCheck.arm(app) }
+        }
+        // 桌面卡片上绑了账的（这周花了多少）：账一变就喊它重画（§8.5）。盯的是流水表，整理员一批记十几笔也只重画一次
+        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+            LedgerStore.get(app).dao.observePendingTxns().drop(1).debounce(1_500).collect {
+                runCatching { CardBoard.changed(app) }
+            }
         }
     }
 }

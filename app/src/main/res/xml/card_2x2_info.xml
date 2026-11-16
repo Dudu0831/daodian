@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  桌面卡片 · 2x2 的登记表。见 DESIGN.md §8.5
+  画什么由模型的说明定（card/render/CardViews），这里的 initialLayout 只是头一次重画之前那一下。
+  updatePeriodMillis 30 分钟只是兜底：数据变了由 CardBoard.changed 推，跨零点由 DATE_CHANGED 补。
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="100dp"
+    android:maxResizeWidth="400dp"
+    android:maxResizeHeight="400dp"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/card_root"
+    android:previewLayout="@layout/card_preview_2x2"
+    android:description="@string/card_description" />

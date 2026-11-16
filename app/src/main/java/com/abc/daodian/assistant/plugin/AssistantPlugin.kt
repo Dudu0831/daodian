@@ -43,6 +43,16 @@ interface AssistantPlugin {
     /** 它的写操作留什么痕。不是它的工具就返回 null */
     fun trace(call: ToolTrace): TraceView? = null
 
+    /**
+     * 这次调用在正文里挂不挂一块（桌面卡片：画好的卡片的预览）。痕本身收在抬头的伴随印里，这一块排在正文里、
+     * 和它那一步的话挨着。不是它的、没东西挂就 false —— 正文里不留空
+     */
+    fun hasTraceBody(call: ToolTrace): Boolean = false
+
+    /** [hasTraceBody] 是 true 时画的那一块。重建历史时也画：参数和结果都随对话存着 */
+    @Composable
+    fun TraceBody(call: ToolTrace) {}
+
     /** 对话空状态的例句，点一下直接发出去 */
     val examples: List<String> get() = emptyList()
 

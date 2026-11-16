@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 列表的一行：点 · 左一句 · 右一句 · 行尾的圈（有动作才有）。行高 26dp 同提醒小组件 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="26dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical">
+
+    <ImageView
+        android:layout_width="5dp"
+        android:layout_height="5dp"
+        android:layout_marginEnd="8dp"
+        android:src="@drawable/widget_dot_muted"
+        android:importantForAccessibility="no" />
+
+    <TextView
+        android:id="@+id/card_row_title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="13.5sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textColor="@color/widget_ink" />
+
+    <TextView
+        android:id="@+id/card_row_note"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:textSize="11sp"
+        android:maxLines="1"
+        android:textColor="@color/widget_muted" />
+
+    <FrameLayout
+        android:id="@+id/card_row_check"
+        android:layout_width="30dp"
+        android:layout_height="26dp"
+        android:visibility="gone"
+        android:contentDescription="@string/widget_done">
+
+        <ImageView
+            android:id="@+id/card_row_ring"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_gravity="center"
+            android:src="@drawable/widget_done_ring"
+            android:importantForAccessibility="no" />
+    </FrameLayout>
+</LinearLayout>

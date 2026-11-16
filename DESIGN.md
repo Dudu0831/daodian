@@ -99,7 +99,7 @@ runtime               跑 agent 的：助手和模块都用，它自己谁也不
 shared                地基：没有状态
 ```
 
-**接头**：一个模块一个 `XxxModule`（实现 `module/Module`：id、名字、给助手的、给壳的、冷启动要做的事），在根目录 `Modules.kt` 里列一行就接上了。给助手的、给壳的是两个插口，各是一个 object（另外两个窄的：接通知管家交来的活 `intake/plugin/NoticeTarget`，§12.5；能钉到桌面卡片上的东西 `card/plugin/CardSource`，§8.5）：
+**接头**：一个模块一个 `XxxModule`（实现 `module/Module`：id、名字、给助手的、给壳的、冷启动要做的事），在根目录 `Modules.kt` 里列一行就接上了。给助手的、给壳的是两个插口，各是一个 object（另外两个窄的：接通知管家交来的活 `intake/plugin/NoticeTarget`，§12.5；桌面卡片能绑的数据和能点的动作 `card/plugin/CardSource`，§8.5）：
 
 | 插口 | 模块给什么 | 现在有的 |
 |---|---|---|
@@ -108,7 +108,7 @@ shared                地基：没有状态
 
 给助手的那个**叫 plugin，不叫 skill**（10-16 从 `AssistantSkill` 改的名）：agent 那边说 skill，一般指按需读进上下文的一段说明，核心是提示词；这个插口偏偏不给提示词，给的是工具、数据和界面上的几块。11-14 真做按需加载时也没用 skill 这个词，自己定了「工具包」（§6.11）。
 
-加模块 = 新目录 + `XxxModule`（要的话再加 `XxxPlugin`、`XxxShell`）+ `Modules.kt` 里一行；它给助手的工具要在助手的提示词里写上用法。助手的工具顺序、抽屉里的纸、设置首页的行都按 `Modules.kt` 的顺序。要接通知的模块在 `Module.notice` 交一个 `NoticeTarget`（§12.5）；有东西能钉到桌面的在 `Module.cards` 交一个 `CardSource`（§8.5）；要在后台自己跑一个 agent，写 `XxxAgent` + `XxxPrompt`、`Agents.kt` 里加一行（§6.1）。
+加模块 = 新目录 + `XxxModule`（要的话再加 `XxxPlugin`、`XxxShell`）+ `Modules.kt` 里一行；它给助手的工具要在助手的提示词里写上用法。助手的工具顺序、抽屉里的纸、设置首页的行都按 `Modules.kt` 的顺序。要接通知的模块在 `Module.notice` 交一个 `NoticeTarget`（§12.5）；有数据能绑到桌面卡片上的在 `Module.cards` 交一个 `CardSource`（§8.5）；要在后台自己跑一个 agent，写 `XxxAgent` + `XxxPrompt`、`Agents.kt` 里加一行（§6.1）。
 
 **依赖规则**（单元测试 `ArchitectureTest` 照这张表扫 import）
 
@@ -120,7 +120,7 @@ shared                地基：没有状态
 | `module` | 四个插口包 `assistant/plugin`、`shell/entry`、`intake/plugin`、`card/plugin` |
 | 模块的核心层（提醒的 `domain / data / application / scheduling / delivery`，记账的 `domain / data / capture`） | 自己、`shared`、通知监听层的核心、`intake/plugin` |
 | 模块的其余部分 | 再加上 `runtime`、给助手的、给壳的、给桌面卡片的（`card/plugin`）插口包、`module`。别的模块不碰 |
-| `card`（桌面卡片，§8.5） | 自己、`shared`、`runtime`、`assistant/plugin`、`module`。钉的是什么由别的模块经 `card/plugin` 交 |
+| `card`（桌面卡片，§8.5） | 自己、`shared`、`runtime`、`assistant/plugin`、`module`；接头和 `presentation/`（导出诊断那一段）再加 `shell/entry`。数从哪来由别的模块经 `card/plugin` 交 |
 | `intake` 的 `core/`（规则、收件箱、管家的纯逻辑） | 自己、`intake.Notice`；也不碰 Android、Room |
 | `intake` 的其余部分（监听、库、管家、插口、给助手的） | 自己、`shared`、`runtime`（管家要跑 agent）、`assistant/plugin` |
 | `intake` 的接头（`IntakeModule.kt`）和 `presentation/` | 再加上 `shell/entry`、`module` |
@@ -1003,32 +1003,38 @@ AudioRecord ─┬─ Level → 波形
 
 ### 8.5 桌面卡片
 
-把一件事钉在桌面上，卡片自己每天数还剩几天。和提醒小组件（§8.2）是两样：那块是「下一条是什么 + 说一句」，这块是一张卡片钉一件事，可以放好几块。设计稿：<https://claude.ai/artifact/9DoWbyCPStsXswbFn8GkbG>「桌面上的卡片」。
+在对话里说想在桌面上看什么，模型拼一张卡片，钉到桌面上，上面的数每天自己更新。和提醒小组件（§8.2）是两样：那块是「下一条是什么 + 说一句」，卡片可以放好几块、各画各的。设计稿：<https://claude.ai/artifact/QDvjSzBxtqKhp4gGAMGEpP>（零件、五张样板卡、说明和接口、对话里的预览、提醒小组件以后怎么换）。
 
-**卡片上的字是代码算的，模型只说钉什么**（用户 11-13 定的：不让模型画桌面）。模型调 `pin_card(source, ref, template)`，剩几天由 `CardFace` 每次重画时现算，所以跨了零点它自己变。
+**模型拼、代码画、代码算**（用户 11-15 定的，替掉了 11-14 的「两种写死的模板」）：模型交一份**卡片说明**（JSON：用哪些零件、怎么排、每个数绑到哪），代码照着拼成 RemoteViews；数写成绑定（`{{reminder.days_left #7}}`），每次重画时现取，跨了零点自己变。模型不抄数，也画不了网页 —— 桌面卡片是系统控件拼的，跑不了模型的代码（对话里的画图走 WebView，那是另一回事，§6.8）。
 
-**单独一个模块 `card/`**（11-14 从提醒模块里挪出来的：卡片是通用的，记账以后也要钉）：
+**零件**（`card/spec/CardSpec`，一样一份布局 `res/layout/card_*.xml`）：文字（标题 / 正文 / 小字）、大数字（前后各一个小字）、墨条、列表（左一句右一句，行尾可挂圈）、柱子、清单、点数、走秒、按钮（字 / 墨印麦克风 / 圈）、分隔线；竖排、横排，能套，`grow` 撑满剩下的地方。颜色只有墨、灰、朱砂（`accent_when` / `muted_when` 跟着数据变），一律 `@color` 交桌面解析。四种大小 2×2、4×1、4×2、4×4，一种一个桌面组件（`Card2x2Widget` …）。
 
-| 件 | 在哪 | 干什么 |
+**数从哪来**：
+
+| 前缀 | 谁交 | 有什么 |
 |---|---|---|
-| 插口 | `card/plugin/CardSource`（`Module.cards`） | 模块说「我有东西能钉」：给 `ref` 答一句「叫什么、哪一天、办完没有」（`CardSubject`）、点卡片去哪、给助手的一段（`ref` 是什么、怎么查到）。`CardBoard.changed` 让模块喊卡片重画 |
-| 模板 | `CardTemplate` + `CardFace` | 现在两种：`BIG` 2×2 大数字、`BAR` 4×1 墨条。`CardFace` 纯算，不碰 Android |
-| 桌面组件 | `CardWidget`（`BigCardWidget`、`BarCardWidget`） | 一种模板一个，桌面的小组件列表里各占一格。**全类名记在桌面上，发出去之后不挪** |
-| 登记 | `card.db`（`CardDatabase`） | 哪一块画哪个模块的哪件事、哪种模板、墨条的起点。自己一个库，不进 `reminder.db`：全丢了提醒照响 |
-| 对话里 | `card/assistant/CardPlugin` | 工具包 `card`（§6.11）：`pin_card`、`list_cards`、`change_card`。说明里拼着各来源自己写的那一段，加一种来源不改卡片的说明 |
+| `reminder` | 提醒（`reminder/card/ReminderCards`） | 某条的标题、哪天、星期几、还剩几天、过了几天、是不是今天 / 最后 7 天 / 过了 / 办完了、走了几成；今天的几件、接下来几条（行尾的圈 = 动作 `reminder.done`）；一共几条、下一条多久后 |
+| `ledger` | 记账（`ledger/card/LedgerCards`） | 今天 / 这周 / 这个月花了多少（净支出，可按类别）、几笔、每天各花多少（柱子） |
+| `time` | 卡片模块自带（`card/source/TimeSource`） | 今天几号、星期几、离某天几天、某段日子走了几成、今年还剩几天 |
+| `own` | 卡片自己（`card/own/OwnData`） | 说明里定义的：一个数（可设上限、每天零点清零）、一张清单、一句话、一个日子（不用到点提醒的倒数）、一个走秒。按钮点了改它（`own.add cups 1`），对话里说「喝了一杯」也改它（`change_card_data`） |
 
-现在交来源的只有提醒（`reminder/card/ReminderCards`）：当天事项是它的日子（顺延、提前提醒都不改它），带钟点的是下一次响的那天，`DONE` / `CANCELLED` 算办完。提醒每个改动点本来就喊 `WidgetUpdater.refresh`，它顺手喊 `CardBoard.changed`，卡片不用另外接线。
+插口是 `card/plugin/CardSource`（`Module.cards`）：模块列出能绑的名字（`CardField`：名字、种类、参数、一句说明）和能点的动作，卡片问它要值、叫它办事，不 import 它。**要多给一样数据，模块在自己的插口里多列一个名字，卡片模块不用改**；工具包说明里「能绑的」那一段由这些名字现拼。
 
-**写什么**（设计稿「大数字在各个时候」）：平时「92 天」，脚上写日期（不是今年的带年份）；最后 7 天数字变朱砂、脚上写星期几；那天写「今天」；过了写「过 2 天」、数字褪灰；办完写「办完了」。**这里写「还剩 N 天」**，是 §4.4「界面上只写具体日期」的例外。
+**闸门**（`spec/CardSpecs.check`）：零件认不认识、绑的名字有没有、参数个数对不对、值的种类合不合这个零件（大数字要数、列表要一组行、颜色条件要是 / 否）、按钮的动作有没有、own 的键有没有、最多 24 个零件 5 层。拦下的原因回给模型、让它自己改了再交，不出问卡（同倒数的 `selfFix`，§4.4）。
 
-**怎么放上桌面**：`pin_card` 先在库里备一张（`widgetId` 空着），再 `requestPinAppWidget` 请桌面加一块 —— 桌面弹框，他点「添加」才出现；桌面回话（`ACTION_PINNED` 带回那一块的 id）就登记上。桌面不支持、或者他自己从小组件列表里加的，那一块头一次重画时认领最新一张备好了没放的。同一种模板没放的只留最新一张。
+**在对话里**（工具包 `card`，§6.11）：`design_card` 画一张或整份重写（对话正文里挂预览：就是桌面上那份 RemoteViews 原样铺进来，按钮点不了，底下「放到桌面 ›」直接请桌面加 —— 插口 `AssistantPlugin.hasTraceBody` / `TraceBody`）；`pin_card` 请桌面加；`list_cards` 列出每张的说明（改的时候照它改）和记着的数；`change_card_data` 改卡片自己记的数。在桌面上的那张换了大小时另画一张（桌面上那一块的大小改不了）。
 
-**拿掉**：模型拿不掉，他长按卡片移除（`onDeleted` 跟着删登记）。钉的那件事被删了，卡片写「这件事不在了」，在对话里说换一件或者长按移除。
+**放上桌面**：`requestPinAppWidget`，桌面弹框，他点「添加」才出现；桌面回话（`ACTION_PINNED`）就登记上 `widgetId`。桌面不回话、或者他自己从小组件列表里加的，新加的那一块头一次重画时认领请得最晚的那张（`CardDao.claimable`）。长按移除后说明留着（`widgetId` 回到 null），能再钉。
 
-**刷新**同 §8.2 那三条：推的不是拉的（`CardBoard.changed`），30 分钟兜底，跨零点 / 改时间 / 换时区由 `DATE_CHANGED` 那几条补；颜色一律 `@color` 交给桌面解析；墨条是 `ProgressBar`（RemoteViews 白名单里有它），颜色在 `card_ink.xml`。
+**导出诊断**里卡片一段（`card/presentation/CardShell`）：画过几张、桌面上各大小几块、每张多大、零件几个、绑了哪几类、几个名字取不到值（多半是钉的提醒删了、或模块改了名字）。不写卡片名字、说明原文、记着的数。
 
-没做的：设计稿里「以后可以加的模板」（走秒、桌面上直接勾、七根柱子、一叠手滑着翻）；记账的来源。
+**刷新**同 §8.2 那三条：推的不是拉的（`CardBoard.changed`，插口里只有一个钩子，`CardModule.onAppStart` 把 `Cards.refresh` 装进去，模块不碰卡片里面：提醒每个改动点经 `WidgetUpdater.refresh` 顺手喊；记账由接头盯着流水表、1.5 秒防抖；卡片上点了按钮由 `CardActionReceiver` 改完重画），30 分钟兜底，跨零点 / 改时间 / 换时区由 `DATE_CHANGED` 那几条补。每天清零的数不靠零点那一刻：读的时候看存的那天是不是今天。
 
+**库**：`card.db` v2（卡片说明、卡片自己记的数、在桌面上是哪一块）。自己一个库，不进 `reminder.db`：全丢了提醒照响。v1（11-14 两种模板那版）只在 debug 包上出现过，迁移时整表重建。
+
+**知道的限制**：RemoteViews 量不了尺寸，放不下的零件被卡片边裁掉，不会自己往后砍（工具包说明里让模型宁少勿多）；走秒数到 0 后会接着数成负的，到下一次重画才收；预览里的按钮不接点击。
+
+**以后**：提醒小组件换成一张样板卡（设计稿最后一块：长相不变，`DaodianWidget` 类名留着当空壳，麦克风作为助手交的动作）——还差「刚记下那条先朱砂、过一会儿褪」这一样零件。
 ---
 
 ## 09 保活与验收

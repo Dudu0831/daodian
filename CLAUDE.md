@@ -16,6 +16,7 @@
   - 问卡：`ask_user` 删了 `hint`、`detail`，改成固定槽位（§6.6），提示词 `assistant-v10`。
   - 桌面卡片（§8.5）：新模块 `card/`、插口 `card/plugin/CardSource`（提醒交了一份）、新库 `card.db` v1、两个桌面组件（大数字、墨条）。
   - debug 包（11-15 16:35 那一版）里留着试的：提醒 rent、report、演唱会（点完成了），停着的规则 r1「取件码提醒取快递」，十来轮英文试话，桌面上两块卡片（一块钉的提醒已经删了）。
+- **分支 `card-spec`（从 `main` 开的，11-16 提交了，没并进 `main`、没发版）**：桌面卡片换成模型拼的（DESIGN §8.5，设计稿 <https://claude.ai/artifact/QDvjSzBxtqKhp4gGAMGEpP>）—— 零件 + 绑定、四种大小四个桌面组件（`Card2x2Widget` …，替掉 `BigCardWidget` / `BarCardWidget`）、卡片自己记的数、插口 `CardSource` 改成交数据和动作（提醒、记账各交一份，卡片自带 time）、工具包 `card` 换成 `design_card` / `pin_card` / `list_cards` / `change_card_data`、对话里挂预览（插口 `AssistantPlugin.TraceBody`）。`card.db` 升到 v2（v1 整表重建：debug 包桌面上原来那两块会消失或变成「还没钉东西」，要重新加）。单元测试、依赖规矩、打包都过了；11-16 装在 debug 包上（这台备用机 11-16 前时区是错的，用户改过了；app 数据 11-16 清过一次）。
   - 真机上验过的和没验的见下表「倒数」「工具包」「桌面卡片」几行。
 - 库：`reminder.db` v4（`main` 上，没发版；线上 0.2.1 是 v3）、`card.db` v1（同上）、`chat.db` v4（11-05 起，语音条加 `audio` 列）、`ledger.db` v2（10-26 起）。
 
@@ -38,7 +39,7 @@
 | 问卡与痕 | **11-12、11-13 改版（§6.6）**：连体 + 细线卡头、猜测一行横滑、翻页换题、只在输入条里答、三态提交、多题边流边长，用户在 release 包上测过（11-13 说都没问题，细项没逐条记）。一直没看的：问账的一题卡、深色；问卡等着时点「停」、杀进程后读回「没答」；多笔的对账问卡 |
 | 倒数、提醒页重画（§4.4、§08；`DayTasks.nextTrigger` / `advanceNudge`、`PlanValidator.nudges`、`ReminderListScreen`、`NudgeSheet`） | 11-14 在 debug 包上验过：v3 → v4 迁移（两条旧提醒、两个闹钟都在）；对话里说一句带提前提醒的，模型建成一条、`remindOn` 展开对了、闹钟排在第一个提前提醒那晚、「演唱会」填了 `carryOver=false`；提前提醒响了一次（库里把 `nextTriggerAt` 改到 3 分钟后、重装触发重排）：`fire_log` 是 `ALARM`、漂移 41ms，响完翻到下一个提前提醒、`dueDay` 没动；提醒页的线不断、远处虚线和月份 / 年份刻度、「今天」底下那行淡的；编辑页两行和刻度线。头一回模型把 `firstTriggerAt` 填成了今天（当成第一次响的日子），改了参数说明、闸门让它自己改了重试之后才对。**还没验**：**提前提醒那条通知长什么样**（debug 包的通知权限是关的，`fire_probe` 写「没发出 · 通知关」，先去系统里给 debug 包开通知）；到了那天 `endsOnDay` 的变 `DONE`、别的顺延；补发；改收尾时刻时提前提醒不被跳过；用中文说（adb 只能英文）、说「还有三个月过期」这种只给多久的；编辑页底纸叠着勾、改完保存；圈好不好点；深色；滚轮淡出和「回到今天」；小组件上远处的那条写成什么；release 包上的迁移 |
 | 工具包（§6.11；`runtime/kit/`、`KitGate`、`FoldKits`、`IntakeTools.kit`） | 11-14 在 debug 包上验过（火山方舟 `deepseek-v4.1-flash`，adb 说的英文）：说一句要盯短信里快递通知的话，模型头一步就 `open_kit("notice")`，工具从 11 个变 17 个，接着 `list_apps` ×2、`preview_rule`、`add_rule`，6 步建好 r1；之后 5 轮闲聊包一直开着，第 7 轮起回到 11 个 —— **历史里留着对那 6 个工具的旧调用、工具表里没有，网关照收**；收起后问「现在听着什么、把快递那条停了」，它又开了一次，`list_rules`、`stop_rule` 办成；对话里 `open_kit` 不留痕，建和停的痕照旧。**还没验**：用中文说、说得含糊的（「快递到了提醒我取」）它开不开；没开就调被挡回去那条路（真机上没碰到）；速记里说一句；深色以外的样子没看；前缀缓存实际命中多少 |
-| 桌面卡片（§8.5；`card/`、`CardFace`、`CardWidget`、`Cards.pin`、`reminder/card/ReminderCards`） | 11-15 用户在 debug 包上验过（深色）：英文说一句、中文说「把演唱会用墨条放到桌面」，模型都是先 `open_kit("card")` → `list_reminders` 查编号 → `pin_card`，`source`/`ref`/`template` 都对；**荣耀桌面收 `requestPinAppWidget`、弹了「添加」框**，加上后 `card.db` 里两张都登记上了 `widgetId`；改了演唱会的日子（12-25 → 12-26）墨条右头跟着变，点完成后写「办完了」、墨条走满；删掉护照那条后大数字卡写「这件事不在了」。**还没验**：大数字卡平时的样子（125 天那一版没截到图）、最后一周的朱砂和星期几、浅色；墨条平时走到一半的样子、给了起点的；点卡片进编辑页；对话里 `list_cards`、`change_card`；不弹框时手动从小组件列表加、认领；长按移除后登记删了；跨零点数字自己变 |
+| 桌面卡片（§8.5；`card/`、`spec/CardSpecs`、`render/CardViews`、`own/OwnData`、`CardSource`、`ReminderCards`、`LedgerCards`） | 11-16 在 debug 包上验过（adb 说的英文）：模型开 `card`、交说明、`pin_card` 弹框、点「添加」登记 `widgetId`；喝水 2×2（大数字、点、＋1，满 8 停住）、购物清单 4×2（点一项勾 / 取消，1.5 秒内变）、春节倒数（卡片自己记的日子，82 天对）都上了桌面；说明写错（`line`）闸门退回、模型自己改成 `rule` 重交。真机上修了两处：`Ref` 的正则右花括号没转义，安卓 ICU 不认，一画就 `ExceptionInInitializerError`（JVM 测试拦不住）；桌面重放 RemoteViews 时 `addView` 往后叠，现在先 `removeAllViews`。**还没验**：「今天要做」4×2 上桌面的样子和行尾的圈；「这周花了」绑记账、柱子；泡面计时；没满时 ＋1 多久变；跨零点清零；深色；4×1、4×4；长按移除再钉；「数字大一点」整份重写。看到的小毛病：痕上写「卡片 · 桌面卡片」不是卡片名；春节那张模型把日期写了两遍。原来写的：11-14 那版（两种模板）验过的、这次沿用的：荣耀桌面收 `requestPinAppWidget`、弹「添加」框、`ACTION_PINNED` 回话登记 `widgetId`。**要验**：说「桌面放一个喝水的，每天 8 杯，点一下加一杯」，模型开 `card`、交的说明一次过闸门没有（`chat.db` 里 `design_card` 的结果有没有「没画」）；对话里的预览出不出、长什么样、「放到桌面 ›」点了弹不弹框；桌面上每种零件的样子（字号、行距、横排里 `grow` 推到最右、柱子的高、点数、清单的方框、走秒、深色）、四种大小；＋1、勾清单、列表行尾的圈（提醒点完成后闹钟撤了没）点了有没有反应、多久变；「这周花了」绑记账，记一笔后卡片变不变；跨零点每天清零的数、还剩几天变不变；「数字大一点」整份重写后桌面那张跟着变；长按移除后再钉；放不下的零件被裁成什么样 |
 | 当天事项 | 列表的「拖 N 天」；小组件上的当天事项；重复的当天事项 |
 | 提醒列表（时间轴） | 告警态（过点没响、没排上）；深色；重复提醒的完成 / 撤销 |
 | 设置页、编辑页 | 深色；「当天之内」切换；CUSTOM 规则保留 |
@@ -114,7 +115,7 @@ release 签名靠根目录的 `keystore.properties` + `daodian-release.keystore`
 
 - **`reminder/scheduling/` 和 `reminder/data/` 是唯一不允许出错的部分**（DESIGN §05）。AlarmManager 里的排期是易失的，Room 是唯一真相，四个重排触发源缺一个都可能漏提醒。
 - **界面整包可丢弃、可重画**（各模块的 `presentation/`、`assistant/conversation`、`shell`），改起来不用犹豫。
-- **依赖规则**（DESIGN §2.2 那张表，`ArchitectureTest` 照着扫 import）：`assistant` 不 import 模块、模块之间不互相 import、模块只碰两个插口包（`assistant/plugin`、`shell/entry`）和 `module`、跨模块跳转只用路由；`runtime` 不碰 Android 和 app 里别的包；app 跑 agent 只走 `AgentRuntime`（循环、调模型的客户端是 runtime 的 `internal`，碰不到）。加功能先想它归哪个模块、要不要经接头；加模块 = `XxxModule`（+ 要的话 `XxxPlugin`、`XxxShell`）+ `Modules.kt` 一行，加后台 agent = `XxxAgent` + `XxxPrompt` + `Agents.kt` 一行。
+- **依赖规则**（DESIGN §2.2 那张表，`ArchitectureTest` 照着扫 import）：`assistant` 不 import 模块、模块之间不互相 import、模块只碰四个插口包（给助手的 `assistant/plugin`、给壳的 `shell/entry`、接通知管家交来的活的 `intake/plugin`、给桌面卡片交数据的 `card/plugin`）和 `module`；插口包里只放接口和装进去的钩子，不碰交它的模块里面（`CardBoard` 的重画由 `CardModule.onAppStart` 装进去）、跨模块跳转只用路由；`runtime` 不碰 Android 和 app 里别的包；app 跑 agent 只走 `AgentRuntime`（循环、调模型的客户端是 runtime 的 `internal`，碰不到）。加功能先想它归哪个模块、要不要经接头；加模块 = `XxxModule`（+ 要的话 `XxxPlugin`、`XxxShell`）+ `Modules.kt` 一行，加后台 agent = `XxxAgent` + `XxxPrompt` + `Agents.kt` 一行。
 - 换 Kotlin / AGP / Compose 版本前看 README「依赖版本」那条约束链，顺序不能反。
 - `minSdk` 是 **33**（10-15 为 Android 13 的内测者从 34 退回来，决策 3.2）：14 才有的接口要写版本分支，再往下不去。
 
@@ -134,7 +135,7 @@ release 签名靠根目录的 `keystore.properties` + `daodian-release.keystore`
 - 对话页说话是按住说：原地松手直接发，拖到左边「取消」、拖到右边「转文字」看着字发（11-04 改的，替掉了 10-07 的上滑取消）；文字框是灰的，锁定的字深灰、正在认的浅灰（§8.3）。＋ 在输入条最左，最右是麦克风 / 发送 / 停，框里有字先发掉或清空才能换档。
 - 随话发图：＋ 11-04 起挪到输入条最左（以前在最右、有东西可发时换成发送，设计稿「甲」）；一句最多 4 张；图只跟最近 6 轮发给模型（原来 3 轮，11-13 改的）；模型看不了图单独报一句，不挂「手动填一条」、印不变灰；配置页不测图（§6.10，用户 10-12 定的）。
 - 平时收着的工具叫**工具包**（`Kit`），一组工具加一段用法绑在一个对象上，`open_kit` 打开；**不用 skill 那套文件夹**，工具包的说明由交它的模块写（§6.11，用户 11-14 定的）。
-- 桌面卡片是**单独的模块 `card/`**，别的模块经插口 `card/plugin/CardSource` 交「能钉什么」，卡片不 import 它们；卡片上的数由代码算，模型只说钉哪件、用哪种模板（§8.5，用户 11-14 定的：卡片不放在提醒包里）。
+- 桌面卡片是**单独的模块 `card/`**，**模型拼说明、代码照着画、数由代码按绑定现取**：零件和颜色是固定的一套，模型不写网页、不抄数；别的模块经插口 `card/plugin/CardSource` 交能绑的数据和能点的动作，卡片不 import 它们（§8.5，用户 11-14 定「不放在提醒包里」、11-15 定「让模型自由发挥，我们只给零件和数据接口」，选了零件拼的甲，不走网页截图的乙）。
 - 每个 agent 的提示词写全在自己目录下，不拼别处的段落；模块只给工具和数据，不往助手的提示词里追加 —— 模块改了工具，回用它的 agent 的提示词里跟着改（§6.3 第 6 条，用户 10-15 定的）。
 - 模块给助手的插口叫 `AssistantPlugin`（`XxxPlugin`），**不叫 skill**：agent 那边 skill 指按需读进上下文的一段说明（提示词），这个插口偏偏不给提示词；以后真要按需加载某个模块的规矩，那才叫 skill（§2.2，用户 10-16 定的）。
 - 字体用系统泛型，没打包 Noto Serif SC —— 墨宋靠宋体挑大梁，真机上第一眼要看系统衬体的中文好不好看（§8.1）。

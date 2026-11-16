@@ -15,7 +15,7 @@ import org.junit.Test
  * | `module` | 四个插口包 `assistant/plugin`、`shell/entry`、`intake/plugin`、`card/plugin` |
  * | 模块的核心层（提醒的 domain/data/application/scheduling/delivery，记账的 domain/data/capture） | 自己、`shared`、通知监听层的核心、`intake/plugin` |
  * | 模块的其余部分 | 再加上 `runtime`、三个插口包（给助手的、给壳的、给桌面卡片的 `card/plugin`）、`module`。别的模块不碰 |
- * | `card`（桌面卡片） | 自己、`shared`、`runtime`、`assistant/plugin`、`module`。不碰别的模块：钉的是什么由它们经 `card/plugin` 交 |
+ * | `card`（桌面卡片） | 自己、`shared`、`runtime`、`assistant/plugin`、`module`；接头和 `presentation/`（诊断那一段）再加 `shell/entry`。不碰别的模块：数从哪来由它们经 `card/plugin` 交 |
  * | 通知监听层的其余部分（监听、库、管家、插口、给助手的） | 自己、`shared`、`runtime`（管家要跑 agent）、`assistant/plugin`（`IntakePlugin`） |
  * | 通知监听层的 `core/`（规则、收件箱、管家的纯逻辑） | 自己、`intake.Notice`；也不碰 Android、Room（JVM 单测） |
  * | 通知监听层的接头和 `presentation/` | 再加上 `shell/entry`、`module` |
@@ -41,7 +41,10 @@ class ArchitectureTest {
             p.startsWith("assistant/") -> Rule(listOf("assistant", "runtime", "shared") + ALWAYS)
             p.startsWith("shell/") -> Rule(listOf("shell", "assistant", "runtime", "shared", "update") + ALWAYS)
             p.startsWith("module/") -> Rule(listOf("module", "intake.plugin", CARD_PLUG) + PLUGS + ALWAYS)
-            p.startsWith("card/") -> Rule(listOf("card", "shared", "runtime", "assistant.plugin", "module") + ALWAYS)
+            p.startsWith("card/") -> {
+                val edge = p == "card/CardModule.kt" || p.startsWith("card/presentation/")
+                Rule(listOf("card", "shared", "runtime", "assistant.plugin", "module") + (if (edge) listOf("shell.entry") else emptyList()) + ALWAYS)
+            }
             p.startsWith("agent/") -> Rule(listOf("assistant") + ALWAYS)
             p.startsWith("whatsnew/") -> Rule(listOf("whatsnew", "shared", "module", "shell.entry") + ALWAYS)
             p.startsWith("update/") -> Rule(listOf("update", "shared") + ALWAYS)

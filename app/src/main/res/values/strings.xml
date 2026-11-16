@@ -5,19 +5,14 @@
     <!-- 桌面小组件 -->
     <string name="widget_label">到点 · 说一句就记下</string>
     <string name="widget_description">点右下角的麦克风，说一句话就建好提醒；下一条摆在眼前，点圈完成。</string>
-    <!-- 桌面卡片（§8.5）。preview 那几条是小组件列表里的样子 -->
-    <string name="card_big_label">到点 · 数日子</string>
-    <string name="card_big_description">把一件事钉在桌面上，每天自己数还剩几天。在对话里说「把某件事放到桌面」。</string>
-    <string name="card_bar_label">到点 · 墨条</string>
-    <string name="card_bar_description">一根从起点走到那天的墨条。在对话里说「把某件事用墨条放到桌面」。</string>
-    <string name="card_day">天</string>
-    <string name="card_preview_title">牛奶过期</string>
-    <string name="card_preview_number" translatable="false">92</string>
-    <string name="card_preview_date">2 月 13 日</string>
-    <string name="card_preview_bar_title">租约到期</string>
-    <string name="card_preview_bar_left">还剩 47 天</string>
-    <string name="card_preview_bar_start">去年 12 月 30 日</string>
-    <string name="card_preview_bar_end">12 月 30 日</string>
+    <!-- 桌面卡片（§8.5）：一种大小一个桌面组件，画什么在对话里说 -->
+    <string name="card_label_2x2">到点 · 卡片 2×2</string>
+    <string name="card_label_4x1">到点 · 卡片 4×1</string>
+    <string name="card_label_4x2">到点 · 卡片 4×2</string>
+    <string name="card_label_4x4">到点 · 卡片 4×4</string>
+    <string name="card_description">在对话里说想在桌面上看什么，模型拼一张卡片，数每天自己更新。</string>
+    <string name="card_preview_title">桌面卡片</string>
+    <string name="card_preview_hint">在对话里说「在桌面放一张……」</string>
     <string name="widget_empty">还没有排上的提醒。</string>
     <string name="widget_mic">说一句话建提醒</string>
     <string name="widget_done">标记完成</string>

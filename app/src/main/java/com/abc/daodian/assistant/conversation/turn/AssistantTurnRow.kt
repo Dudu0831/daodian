@@ -58,6 +58,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import com.abc.daodian.assistant.plugin.AssistantPlugins
+import com.abc.daodian.assistant.plugin.ToolTrace
 import com.abc.daodian.assistant.plugin.TraceState
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
@@ -270,7 +272,19 @@ fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) 
                                 }
                             }
                         }
-                        is TurnBlock.Ask, is TurnBlock.Trace, is TurnBlock.Said -> Unit
+                        is TurnBlock.Trace -> {
+                            // 模块在正文里挂的一块（桌面卡片的预览）。痕本身收在抬头的伴随印里
+                            val call = ToolTrace(b.tool, b.arguments, b.state, b.output, b.ref)
+                            val owner = remember(b.tool, b.state, b.arguments) { AssistantPlugins.traceBodyOf(call) }
+                            if (owner != null) {
+                                val gap = gapBefore(prevBody, b)
+                                prevBody = b
+                                key(b.key) {
+                                    Appear(animate, visible = true, enter = RevealEnter, gap = gap) { owner.TraceBody(call) }
+                                }
+                            }
+                        }
+                        is TurnBlock.Ask, is TurnBlock.Said -> Unit
                     }
                 }
 
