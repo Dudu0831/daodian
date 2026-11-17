@@ -4,6 +4,7 @@ import android.content.Context
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase
 import com.abc.daodian.reminder.data.ReminderStatus
+import com.abc.daodian.reminder.data.Ring
 import com.abc.daodian.reminder.data.Phase
 import com.abc.daodian.reminder.data.remindBeforeColumn
 import com.abc.daodian.reminder.data.timesColumn
@@ -91,7 +92,8 @@ object Reminders {
                 day = spec.day,
                 times = times,
                 remindBefore = remindBeforeColumn(spec.remindBefore),
-                ring = spec.ring,
+                // 不定钟点的一律只发通知（§4.6）
+                ring = if (times == null) Ring.NOTICE else spec.ring,
                 nag = spec.nag,
                 slot = times?.substringBefore(','),
                 createdAt = existing?.createdAt ?: now,

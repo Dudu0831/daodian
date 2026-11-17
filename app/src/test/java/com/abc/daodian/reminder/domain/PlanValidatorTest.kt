@@ -1,6 +1,7 @@
 package com.abc.daodian.reminder.domain
 
 import com.abc.daodian.reminder.data.Nag
+import com.abc.daodian.reminder.data.Ring
 import java.time.LocalDate
 import java.time.ZonedDateTime
 import org.junit.Assert.assertEquals
@@ -46,6 +47,9 @@ class PlanValidatorTest {
         assertFalse(s.wallClockAnchored)
         // 不定钟点的一律跟着当地
         assertTrue(ok(plan(anchored = false)).wallClockAnchored)
+        // 不定钟点的一律只发通知：收在收尾时刻那一组里
+        assertEquals(Ring.NOTICE, ok(plan(ring = "alarm")).ring)
+        assertEquals(Ring.ALARM, ok(plan(times = listOf("21:00"), ring = "alarm")).ring)
         // 超出子集的重复降级成一次性
         assertEquals(null, ok(plan(rrule = "FREQ=HOURLY")).rrule)
     }

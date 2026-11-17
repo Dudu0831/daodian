@@ -153,7 +153,7 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
     val effectiveNag = if (nag == Nag.DAILY && !dailyAllowed) Nag.NONE else nag
 
     fun followDefaults(newTimes: List<LocalTime>, newRepeat: RepeatChoice) {
-        if (!ringTouched) ring = if (newTimes.isEmpty()) Ring.NOTICE else Ring.ALARM
+        if (!ringTouched && newTimes.isNotEmpty()) ring = Ring.ALARM
         if (!nagTouched) nag = if (newTimes.isEmpty() && newRepeat == RepeatChoice.NONE) Nag.DAILY else Nag.NONE
     }
 
@@ -167,7 +167,7 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
                 times = times,
                 rrule = rrule,
                 remindBefore = before,
-                ring = ring,
+                ring = if (times.isEmpty()) Ring.NOTICE else ring,
                 nag = effectiveNag,
                 // 不定钟点的一律按当地（§4.6）
                 wallClockAnchored = times.isEmpty() || wallClockAnchored
@@ -263,10 +263,11 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
                         val nudges = before.map { date.minusDays(it.toLong()) }.filter { it.isAfter(today) }.sorted()
                         if (nudges.isNotEmpty()) NudgeStrip(today, date, nudges)
                     }
-                    GroupRule()
+                    // 不定钟点的一律只发通知（收在收尾时刻那一组里，§4.6），没得选，这一行不出。
                     // 名字是用户定的（10-11）：标题只叫「轻提醒」，它是什么写在底下两行小字里，开着关着都是这两行。
                     // 第二行不能再长：真机上一行放 20 个字，多了会把最后一两个字单独甩下去（§5.6）
-                    FormRow(
+                    if (times.isNotEmpty()) GroupRule()
+                    if (times.isNotEmpty()) FormRow(
                         title = "轻提醒",
                         note = "到点只发一条通知，不响铃、不弹全屏。\n响一声、震一下，声音跟通知音量走。",
                         onClick = { ring = if (ring == Ring.NOTICE) Ring.ALARM else Ring.NOTICE; ringTouched = true }

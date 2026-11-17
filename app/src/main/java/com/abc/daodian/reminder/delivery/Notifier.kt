@@ -17,6 +17,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.Phase
+import com.abc.daodian.reminder.data.Nag
 import com.abc.daodian.reminder.data.Ring
 import com.abc.daodian.reminder.data.slotTime
 import com.abc.daodian.reminder.data.untimed
@@ -59,11 +60,17 @@ object Notifier {
         nm.createNotificationChannel(channel)
     }
 
-    /** 到点了，响。返回是否真的送达用户 —— false 表示通知没出现在屏幕上。[lateBy] > 0 表示这是补发 */
+    /**
+     * 到点了，响。返回是否真的送达用户 —— false 表示通知没出现在屏幕上。[lateBy] > 0 表示这是补发。
+     *
+     * 收尾时刻那一下（提前提醒、不定钟点、每晚再提）一律进当天那一组通知，组头只响一声（§4.6，用户 11-16 定的）：
+     * 不弹全屏，免得一晚上几条各弹各的。只有定了钟点的正点、过一会儿再提、稍后才看 [Reminder.ring]
+     */
     fun fire(context: Context, reminder: Reminder, lateBy: Long): Boolean = when {
         reminder.phase == Phase.NUDGE -> fireNudge(context, reminder, lateBy)
-        reminder.ring == Ring.ALARM -> fireAlarm(context, reminder, lateBy)
         reminder.untimed -> fireDayTask(context, reminder, lateBy)
+        reminder.phase == Phase.NAG && reminder.nag == Nag.DAILY -> fireDayTask(context, reminder, lateBy)
+        reminder.ring == Ring.ALARM -> fireAlarm(context, reminder, lateBy)
         else -> fireGentle(context, reminder, lateBy)
     }
 
@@ -281,8 +288,8 @@ object Notifier {
     }
 
     /**
-     * 提前提醒（§4.6）：那天还没到，只是提一下 —— 不说「还没做」，不挂按钮，
-     * 不进「还有 N 件当天的事没做」那一组：它不是今天没做的事，自己单独响一下
+     * 提前提醒（§4.6）：那天还没到，只是提一下 —— 不说「还没做」，不挂按钮。
+     * 和当天的事进同一组，收尾时刻只响一声
      */
     private fun fireNudge(context: Context, reminder: Reminder, lateBy: Long): Boolean {
         if (!canPostDay(context, reminder)) return false
@@ -303,7 +310,7 @@ object Notifier {
             .setAutoCancel(true)
             .setContentIntent(openList(context))
             .build()
-        return post(context, reminder, child, "提前", summary = false)
+        return post(context, reminder, child, "提前", summary = true)
     }
 
     private fun canPostDay(context: Context, reminder: Reminder): Boolean {
@@ -321,7 +328,7 @@ object Notifier {
     private fun post(context: Context, reminder: Reminder, notification: Notification, kind: String, summary: Boolean): Boolean {
         val sent = try {
             NotificationManagerCompat.from(context).notify(reminder.id.toInt(), notification)
-            if (summary) refreshDaySummary(context, alert = true)
+            if (summary) refreshDaySummary(context, alert = true, fresh = reminder.snoozed)
             true
         } catch (e: SecurityException) {
             Log.e(TAG, "发通知被系统拒绝，$kind id=${reminder.id}", e)
@@ -332,12 +339,13 @@ object Notifier {
     }
 
     /**
-     * 组头：「今天还有 N 件没做」+ 逐条标题。条目从通知栏里现有的子通知数，不查库 ——
+     * 组头：「N 件事」+ 逐条标题。条目从通知栏里现有的子通知数，不查库 ——
      * 通知栏上挂着什么，组头就写什么，两边对不上的情况不存在。
      *
      * [alert]：这一晚第一次发要出声；同一晚后面几条跟着到点，只是静静地把数字改掉。
+     * [fresh]：稍后那一下单独回来，要再出一声（不然组头半小时内不再响，稍后就成了悄悄的）
      */
-    private fun refreshDaySummary(context: Context, alert: Boolean) {
+    private fun refreshDaySummary(context: Context, alert: Boolean, fresh: Boolean = false) {
         val nm = context.getSystemService(NotificationManager::class.java)
         val active = runCatching { nm.activeNotifications }.getOrNull() ?: return
         val children = active.filter { it.notification.group == DAY_GROUP && it.id != DAY_SUMMARY_ID }
@@ -348,12 +356,12 @@ object Notifier {
         val existing = active.firstOrNull { it.id == DAY_SUMMARY_ID }
         if (!alert && existing == null) return
         // 昨晚那个组头还挂着没划掉：先收掉，不然 onlyAlertOnce 会让今晚这一次不出声
-        if (alert && existing != null && System.currentTimeMillis() - existing.postTime > DAY_REALERT_MS) {
+        if (alert && existing != null && (fresh || System.currentTimeMillis() - existing.postTime > DAY_REALERT_MS)) {
             nm.cancel(DAY_SUMMARY_ID)
         }
 
         val titles = children.mapNotNull { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() }
-        val headline = "还有 ${children.size} 件当天的事没做"
+        val headline = "${children.size} 件事"
         val style = NotificationCompat.InboxStyle().setBigContentTitle(headline)
         titles.take(6).forEach { style.addLine(it) }
         val summary = NotificationCompat.Builder(context, DAY_CHANNEL_ID)

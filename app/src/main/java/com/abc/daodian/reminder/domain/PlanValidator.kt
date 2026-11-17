@@ -114,7 +114,8 @@ object PlanValidator {
                 // rrule 超出支持子集就降级成一次性，不静默丢掉
                 rrule = plan.rrule?.trim()?.takeIf { Rrule.isSupported(it) },
                 remindBefore = plan.remindBefore.distinct().sortedDescending(),
-                ring = ring, nag = nag,
+                // 不定钟点的收在收尾时刻那一组通知里，一律只发通知（§4.6）
+                ring = if (times.isEmpty()) Ring.NOTICE else ring, nag = nag,
                 // 不定钟点的一律按当地（§4.6）
                 wallClockAnchored = times.isEmpty() || plan.wallClockAnchored
             )

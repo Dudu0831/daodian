@@ -99,8 +99,8 @@ class CreateReminderTool(private val commit: suspend (ReminderSpec, ToolContext)
             "ring" to enum(
                 listOf("alarm", "notice"),
                 "到点怎么响：alarm 响铃（全屏、一直响到点掉），notice 只发一条通知（轻提醒）。" +
-                    "有钟点的默认 alarm，他明说「轻提醒」「不用响铃」「发个通知就行」才填 notice；" +
-                    "没钟点的默认 notice，他明说要响铃才填 alarm"
+                    "有钟点的默认 alarm，他明说「轻提醒」「不用响铃」「发个通知就行」才填 notice。" +
+                    "没钟点的一律 notice：它们都在那天晚上收尾时刻并成一条通知。他要响铃又没说几点，问他几点"
             ),
             "nag" to enum(
                 listOf("none", "soon", "daily"),

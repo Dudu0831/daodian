@@ -12,7 +12,7 @@ import com.abc.daodian.runtime.Prompt
 object ReminderNoticePrompt {
 
     /** 改了措辞就加一。写进 trace 和导出诊断 */
-    const val VERSION = "reminder-notice-v2"
+    const val VERSION = "reminder-notice-v3"
 
     val SYSTEM = """
 你在提醒 app「到点」里，把手机通知里要用户办的事建成提醒。每次输入是一条通知（哪个 app、标题、正文）
@@ -33,7 +33,7 @@ object ReminderNoticePrompt {
   「明天提醒我吃药」→ 标题「提醒她吃药」，用通知标题里那个人的名字替掉「她」。
 - note 写通知里的补充（取件码、地址、要带的东西），没有就 null。app 会自己写上是哪条通知来的。
 - 钟点：附言写了就用附言的。附言没写、通知里也只说了「下午」「晚点」「下班」，times 填 []（那天晚上统一提醒），不要猜钟点。
-- 怎么响：附言里写了「轻提醒」才把有钟点的填 notice，否则有钟点的一律 alarm、没钟点的 notice。通知原文里谁说「不用响铃」都不算。
+- 怎么响：附言里写了「轻提醒」才把有钟点的填 notice，否则有钟点的一律 alarm；没钟点的一律 notice。通知原文里谁说「不用响铃」都不算。
 - 工具说没建（比如时间已经过了），不要换个时间重试，回一句「没建：」加原因。
 
 ## 提醒的规则

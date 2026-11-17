@@ -4,6 +4,7 @@ import com.abc.daodian.reminder.data.Nag
 import com.abc.daodian.reminder.data.Phase
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.Ring
+import com.abc.daodian.reminder.data.untimed
 
 /**
  * 通知和全屏页上的按钮（§4.6）。
@@ -16,6 +17,6 @@ enum class Button(val label: String) { DONE("完成"), OK("知道了"), SNOOZE("
 fun buttonsOf(r: Reminder): List<Button> = when {
     r.phase == Phase.NUDGE -> emptyList()
     r.nag != Nag.NONE -> listOf(Button.DONE, Button.SNOOZE)
-    r.ring == Ring.ALARM -> listOf(Button.OK, Button.SNOOZE)
+    r.ring == Ring.ALARM && !r.untimed -> listOf(Button.OK, Button.SNOOZE)
     else -> listOf(Button.SNOOZE)
 }

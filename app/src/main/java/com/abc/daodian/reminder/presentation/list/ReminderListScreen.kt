@@ -74,6 +74,7 @@ import com.abc.daodian.reminder.data.slotTime
 import com.abc.daodian.reminder.data.untimed
 import com.abc.daodian.reminder.domain.Rrule
 import com.abc.daodian.reminder.presentation.ReminderViewModel
+import com.abc.daodian.reminder.scheduling.Schedule
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
@@ -81,6 +82,7 @@ import com.abc.daodian.shared.theme.Motion
 import com.abc.daodian.shared.ui.CheckIcon
 import com.abc.daodian.shared.ui.ChevronRightIcon
 import com.abc.daodian.shared.ui.PlusIcon
+import com.abc.daodian.shared.ui.LeafIcon
 import com.abc.daodian.shared.ui.RepeatIcon
 import com.abc.daodian.shared.ui.ScreenTopBar
 import com.abc.daodian.shared.ui.SwipeToDelete
@@ -661,7 +663,7 @@ private fun EchoRow(e: Line.Echo, onClick: () -> Unit) {
             Stamp(Format.clock(e.at) + if (e.rang) " · 提过了" else "", colors.hint)
             Text(e.r.title, style = DaodianType.axisTitlePast, color = colors.ink2)
             Text(
-                (if (due.year != LocalDate.now().year) "${due.year}年" else "") + "${due.monthValue}月${due.dayOfMonth}日的事，提一下",
+                (if (due.year != LocalDate.now().year) "${due.year}年" else "") + "${due.monthValue}月${due.dayOfMonth}日的事",
                 style = DaodianType.caption, color = colors.muted,
                 modifier = Modifier.padding(top = 3.dp)
             )
@@ -670,23 +672,35 @@ private fun EchoRow(e: Line.Echo, onClick: () -> Unit) {
 }
 
 /**
- * 标题下面那一行小字，只写和默认不一样的、和下一下什么时候响有关的，用「·」连成一行（§4.6 第 ④ 步，用户要尽量少字）：
- * 重复、一天几次、轻提醒（不定钟点的反过来写「响铃」）、正在催的第几次、排着的提前提醒。都没有就什么也不画。
- * 没排上闹钟另起一行红字。
+ * 标题下面那一行小字，尽量少字（§4.6 第 ④ 步，用户 11-16 要的）：重复是 ↻ 加「每天 4 次」，轻提醒是一片叶子，
+ * 再跟一个眼下的状态（正在催「再提 1/3」、排着提前提醒「12月13日先提」）。
+ * 都没有就什么也不画。没排上闹钟另起一行红字。
  */
 @Composable
 private fun EntryNotes(r: Reminder, armed: Boolean) {
     val colors = DaodianColors.current
     val repeat = Rrule.human(r.rrule)
-    val how = remember(r) { notesOf(r, repeat) }
-    if (how.isNotEmpty()) {
+    val n = r.clockTimes().size
+    val freq = when {
+        repeat != null && n > 1 -> "$repeat $n 次"
+        repeat != null -> repeat
+        n > 1 -> "一天 $n 次"
+        else -> null
+    }
+    val gentle = !r.untimed && r.ring == Ring.NOTICE
+    val extra = remember(r) { extraOf(r) }
+    if (freq != null || gentle || extra != null) {
         Row(
             Modifier.padding(top = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             if (repeat != null) RepeatIcon(tint = colors.muted)
-            Text(how, style = DaodianType.caption, color = colors.muted)
+            if (freq != null) Text(freq, style = DaodianType.caption, color = colors.muted)
+            if (gentle) LeafIcon(tint = colors.muted)
+            if (extra != null) {
+                Text(if (freq != null || gentle) "· $extra" else extra, style = DaodianType.caption, color = colors.muted)
+            }
         }
     }
     if (!armed) {
@@ -697,23 +711,19 @@ private fun EntryNotes(r: Reminder, armed: Boolean) {
     }
 }
 
-private fun notesOf(r: Reminder, repeat: String?): String {
+/** 小字里眼下的那一样：正在催第几次、排着提前提醒 */
+private fun extraOf(r: Reminder): String? {
     val zone = ZoneId.systemDefault()
-    val n = r.clockTimes().size
     return listOfNotNull(
-        repeat,
-        "一天 $n 次".takeIf { n > 1 },
-        "轻提醒".takeIf { !r.untimed && r.ring == Ring.NOTICE },
-        "响铃".takeIf { r.untimed && r.ring == Ring.ALARM },
         when {
-            // 钟点头上已经写了，这里只说是第几次；每晚再提的不写：拖着的头上已经写了「拖 N 天」
-            r.phase == Phase.NAG && r.nag == Nag.SOON -> "第 ${r.nagCount} 次再提"
+            // 钟点头上已经写了，只说第几次；每晚再提的不写：拖着的头上已经是「拖 N 天」
+            r.phase == Phase.NAG && r.nag == Nag.SOON -> "再提 ${r.nagCount}/${Schedule.NAG_SOON_MAX}"
             r.phase == Phase.NUDGE -> dateOf(r.nextTriggerAt, zone).let { d ->
-                if (d == LocalDate.now(zone)) "今晚先提一下" else "${d.monthValue}月${d.dayOfMonth}日先提一下"
+                if (d == LocalDate.now(zone)) "今晚先提" else "${d.monthValue}月${d.dayOfMonth}日先提"
             }
             else -> null
         }
-    ).joinToString(" · ")
+    ).joinToString(" · ").ifEmpty { null }
 }
 
 @Composable

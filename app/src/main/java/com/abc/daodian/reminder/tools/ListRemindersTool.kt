@@ -103,11 +103,7 @@ class ListRemindersTool(
                 "拖了 ${ChronoUnit.DAYS.between(spec.day, today)} 天".takeIf { r.untimed && spec.day.isBefore(today) && spec.rrule == null },
                 "下次 ${Format.humanDateTime(r.nextTriggerAt, zone)}".takeIf { r.status == ReminderStatus.SCHEDULED && !r.untimed },
                 spec.remindBefore.takeIf { it.isNotEmpty() }?.let { "提前 ${it.joinToString("、")} 天提一下" },
-                when {
-                    !r.untimed && spec.ring == Ring.NOTICE -> "只发通知"
-                    r.untimed && spec.ring == Ring.ALARM -> "响铃"
-                    else -> null
-                },
+                "只发通知".takeIf { !r.untimed && spec.ring == Ring.NOTICE },
                 when (spec.nag) {
                     Nag.NONE -> null
                     Nag.SOON -> "没点完成 30 分钟后再提"

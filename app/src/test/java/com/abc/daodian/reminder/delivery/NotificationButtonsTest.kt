@@ -32,6 +32,8 @@ class NotificationButtonsTest {
     fun `a notice without nagging only snoozes, untimed ones too`() {
         assertEquals(listOf(Button.SNOOZE), buttonsOf(r("10:00", Ring.NOTICE)))
         assertEquals(listOf(Button.SNOOZE), buttonsOf(r(null, Ring.NOTICE)))
+        // 库里留着的不定钟点响铃：收尾时刻只发通知，没有「知道了」
+        assertEquals(listOf(Button.SNOOZE), buttonsOf(r(null, Ring.ALARM)))
     }
 
     @Test

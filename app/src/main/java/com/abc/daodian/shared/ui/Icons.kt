@@ -14,6 +14,9 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * 细线图标，手绘复刻视觉稿里的 20x20 viewBox SVG（见 DESIGN.md §8.1「图标一律细线、不填充」）。
@@ -187,16 +190,48 @@ fun CheckIcon(modifier: Modifier = Modifier, size: Dp = 11.dp, tint: Color, stro
     }
 }
 
-/** 重复徽标里的井字格 */
+/** 重复：一圈带箭头的弧（↻），右边留个口，箭头顺时针 */
 @Composable
 fun RepeatIcon(modifier: Modifier = Modifier, size: Dp = 11.dp, tint: Color, strokeWidth: Dp = 1.1.dp) {
     Canvas(modifier.size(size)) {
         val k = this.size.width / 12f
-        val sw = strokeWidth.toPx()
-        drawLine(tint, Offset(2 * k, 4.2f * k), Offset(10 * k, 4.2f * k), strokeWidth = sw, cap = StrokeCap.Round)
-        drawLine(tint, Offset(2 * k, 7.8f * k), Offset(10 * k, 7.8f * k), strokeWidth = sw, cap = StrokeCap.Round)
-        drawLine(tint, Offset(4.4f * k, 2 * k), Offset(4.4f * k, 10.2f * k), strokeWidth = sw, cap = StrokeCap.Round)
-        drawLine(tint, Offset(7.6f * k, 2 * k), Offset(7.6f * k, 10.2f * k), strokeWidth = sw, cap = StrokeCap.Round)
+        val r = 4.3f * k
+        val c = Offset(6f * k, 6.3f * k)
+        val start = 50f
+        val sweep = 290f
+        drawArc(
+            tint, startAngle = start, sweepAngle = sweep, useCenter = false,
+            topLeft = Offset(c.x - r, c.y - r), size = Size(2 * r, 2 * r), style = strokeOf(strokeWidth.toPx())
+        )
+        // 箭头在弧的尾巴上，朝顺时针方向
+        val end = Math.toRadians((start + sweep).toDouble())
+        val tip = Offset(c.x + r * cos(end).toFloat(), c.y + r * sin(end).toFloat())
+        val dir = atan2(cos(end), -sin(end))
+        val len = 3.2f * k
+        val head = Path().apply {
+            listOf(dir + Math.toRadians(150.0), dir - Math.toRadians(150.0)).forEachIndexed { i, a ->
+                val p = Offset(tip.x + len * cos(a).toFloat(), tip.y + len * sin(a).toFloat())
+                if (i == 0) { moveTo(p.x, p.y); lineTo(tip.x, tip.y) } else lineTo(p.x, p.y)
+            }
+        }
+        drawPath(head, tint, style = strokeOf(strokeWidth.toPx()))
+    }
+}
+
+/** 轻提醒：一片叶子，中间一道叶脉 */
+@Composable
+fun LeafIcon(modifier: Modifier = Modifier, size: Dp = 11.dp, tint: Color, strokeWidth: Dp = 1.1.dp) {
+    Canvas(modifier.size(size)) {
+        val k = this.size.width / 12f
+        val leaf = Path().apply {
+            moveTo(2.6f * k, 9.4f * k)
+            cubicTo(1.8f * k, 5.2f * k, 5.2f * k, 2.2f * k, 10.4f * k, 1.6f * k)
+            cubicTo(10.2f * k, 6.8f * k, 7.2f * k, 10.2f * k, 2.6f * k, 9.4f * k)
+            close()
+        }
+        val sw = strokeOf(strokeWidth.toPx())
+        drawPath(leaf, tint, style = sw)
+        drawLine(tint, Offset(1.4f * k, 10.6f * k), Offset(7.6f * k, 4.4f * k), strokeWidth = strokeWidth.toPx(), cap = StrokeCap.Round)
     }
 }
 
