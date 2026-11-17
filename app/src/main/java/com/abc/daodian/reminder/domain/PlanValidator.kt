@@ -6,7 +6,6 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZonedDateTime
 import java.time.format.DateTimeParseException
-import java.time.temporal.ChronoUnit
 
 /** 闸门的判定 */
 sealed interface Verdict {
@@ -66,7 +65,7 @@ object PlanValidator {
 
         // 只在本身说不通时才拦（§4.6）
         if (rrule != null) {
-            val gap = shortestGap(rrule, day, now)
+            val gap = Rrule.shortestGap(rrule, day, now.zone)
             if (gap != null && before.isNotEmpty() && before.first() >= gap) {
                 return Verdict.Rejected(
                     "${Rrule.human(rrule)}重复，两次之间最短 $gap 天，提前 ${before.first()} 天就和上一次撞上了：提前的天数要比 $gap 天短。" +
@@ -127,19 +126,5 @@ object PlanValidator {
         LocalTime.parse(t.trim()).withSecond(0).withNano(0)
     } catch (_: DateTimeParseException) {
         null
-    }
-
-    /** 往后几次里两次之间最短隔几天；没有下一次（UNTIL 已到）是 null */
-    private fun shortestGap(rrule: String, day: LocalDate, now: ZonedDateTime): Long? {
-        val zone = now.zone
-        var at = day.atTime(12, 0).atZone(zone)
-        var gap: Long? = null
-        repeat(8) {
-            val next = Rrule.nextAfter(rrule, at, zone) ?: return gap
-            val d = ChronoUnit.DAYS.between(at.toLocalDate(), next.toLocalDate())
-            gap = minOf(gap ?: d, d)
-            at = next
-        }
-        return gap
     }
 }

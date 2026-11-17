@@ -4,6 +4,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.time.temporal.ChronoUnit
 
 /**
  * RFC 5545 的一个**子集**。超出子集的规则一律当成一次性提醒处理。
@@ -90,6 +91,20 @@ object Rrule {
     }
 
     /** 规则 → 「每周二」这类人话。超出 §7.2 支持范围的一律显示「重复」；不重复是 null */
+    /** 往后几次里两次之间最短隔几天；不重复、没有下一次（UNTIL 已到）是 null。提前的天数要比它短（§4.6） */
+    fun shortestGap(rrule: String?, day: LocalDate, zone: ZoneId): Long? {
+        if (rrule == null) return null
+        var at = day.atTime(12, 0).atZone(zone)
+        var gap: Long? = null
+        repeat(8) {
+            val next = nextAfter(rrule, at, zone) ?: return gap
+            val d = ChronoUnit.DAYS.between(at.toLocalDate(), next.toLocalDate())
+            gap = minOf(gap ?: d, d)
+            at = next
+        }
+        return gap
+    }
+
     fun human(rrule: String?): String? {
         if (rrule.isNullOrBlank()) return null
         val parts = parse(rrule)

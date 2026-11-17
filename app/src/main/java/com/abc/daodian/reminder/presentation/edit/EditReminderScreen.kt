@@ -2,12 +2,13 @@ package com.abc.daodian.reminder.presentation.edit
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -23,15 +24,12 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
@@ -47,17 +45,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import com.abc.daodian.reminder.data.Nag
 import com.abc.daodian.reminder.data.ReminderStatus
 import com.abc.daodian.reminder.data.Ring
-import com.abc.daodian.reminder.data.clockTimes
-import com.abc.daodian.reminder.data.gentle
-import com.abc.daodian.reminder.data.nudgeDays
-import com.abc.daodian.reminder.data.slotTime
-import com.abc.daodian.reminder.data.untimed
+import com.abc.daodian.reminder.data.parseTimes
+import com.abc.daodian.reminder.data.remindBeforeColumn
+import com.abc.daodian.reminder.data.timesColumn
 import com.abc.daodian.reminder.domain.ReminderSpec
+import com.abc.daodian.reminder.domain.spec
 import com.abc.daodian.reminder.domain.Rrule
 import com.abc.daodian.reminder.presentation.ReminderViewModel
 import com.abc.daodian.shared.format.Format
@@ -77,7 +74,6 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
-import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 
 /**
@@ -91,51 +87,52 @@ private val weekdayCode = arrayOf("MO", "TU", "WE", "TH", "FR", "SA", "SU")
 /**
  * 手动建 / 改一条提醒 —— 逃生舱。必须能完全脱离 AI 建成一条完整提醒。见 DESIGN.md §2.1
  *
- * 版式跟设置页同一本账（设计稿方向 A：https://claude.ai/artifact/UdcBGTTx5quxPfsnR5Akq7）：
- * 宋体标题写在横线上，底下一行人话复述「什么时候」，再往下时间 / 重复 / 备注三组纸，
- * 「记下」钉在底部。几点和重复各拉一张底纸，不用 Material 的表盘。
+ * 版式跟设置页同一本账：宋体标题写在横线上，底下一行人话复述，再往下几组纸，「记下」钉在底部。
+ * 一条提醒六件事（§4.6，设计稿 https://claude.ai/artifact/GN6UcNftUvPNAALd8GTVD8）：
+ * 「什么时候」一组是哪天、几点（可以不定、可以几个）、重复；「怎么提醒」一组是提前提醒、轻提醒、没点完成，
+ * 定了钟点才多一行「跟着我所在时区走」。几点、重复、提前、没点完成各拉一张底纸。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> Unit) {
     val colors = DaodianColors.current
-    val context = LocalContext.current
     val reminders by vm.reminders.collectAsState()
     val existing = remember(reminders, reminderId) { reminders.firstOrNull { it.id == reminderId } }
+    val start = remember(existing) { existing?.spec() }
 
-    var title by rememberSaveable(existing) { mutableStateOf(existing?.title ?: "") }
-    var note by rememberSaveable(existing) { mutableStateOf(existing?.note ?: "") }
+    var title by rememberSaveable(existing) { mutableStateOf(start?.title ?: "") }
+    var note by rememberSaveable(existing) { mutableStateOf(start?.note ?: "") }
 
     val defaultDateTime = remember { ZonedDateTime.now().plusHours(1).withMinute(0).withSecond(0) }
-    // 这一次是哪天：不定钟点的拖过几天也还是原来那天，重复的是排到的那一次
-    var date by rememberSaveable(existing) { mutableStateOf(existing?.day ?: defaultDateTime.toLocalDate()) }
-    var allDay by rememberSaveable(existing) { mutableStateOf(existing?.untimed ?: false) }
-    val checkTime by vm.checkTime.collectAsState()
-    var time by rememberSaveable(existing) {
-        mutableStateOf(existing?.let { it.slotTime() ?: it.clockTimes().firstOrNull() } ?: defaultDateTime.toLocalTime())
+    // 这一次是哪天：拖着的还是原来那天，重复的是排到的那一次
+    var date by rememberSaveable(existing) { mutableStateOf(start?.day ?: defaultDateTime.toLocalDate()) }
+    // 几点、提前几天存成库里那一列的写法，省得另写 Saver。几点空串 = 不定
+    var timesText by rememberSaveable(existing) {
+        mutableStateOf(if (start != null) timesColumn(start.times).orEmpty() else timesColumn(listOf(defaultDateTime.toLocalTime()))!!)
     }
-    val originalRrule = existing?.rrule
+    val times = remember(timesText) { parseTimes(timesText.ifEmpty { null }) }
+    val originalRrule = start?.rrule
     var repeat by rememberSaveable(existing) { mutableStateOf(initialRepeat(originalRrule, date)) }
-    var wallClockAnchored by rememberSaveable(existing) {
-        mutableStateOf(existing?.wallClockAnchored ?: false)
-    }
-    var gentle by rememberSaveable(existing) { mutableStateOf(existing?.gentle ?: false) }
-    // 提前提醒的那几天、过了那天要不要接着提醒（§4.4）。存成库里那一列的写法，省得另写 Saver
-    var nudgeText by rememberSaveable(existing) { mutableStateOf(existing?.nudgeDays()?.joinToString(",").orEmpty()) }
-    // 这一页还是两种提醒那一套（重画在 §4.6 第四步）：「过了那天就结束」= 不催，「接着提醒」= 每天再提
-    var endsOnDay by rememberSaveable(existing) { mutableStateOf(existing?.let { it.untimed && it.nag == Nag.NONE } ?: false) }
+    var beforeText by rememberSaveable(existing) { mutableStateOf(remindBeforeColumn(start?.remindBefore.orEmpty()).orEmpty()) }
+    var ring by rememberSaveable(existing) { mutableStateOf(start?.ring ?: Ring.ALARM) }
+    var nag by rememberSaveable(existing) { mutableStateOf(start?.nag ?: Nag.NONE) }
+    var wallClockAnchored by rememberSaveable(existing) { mutableStateOf(start?.wallClockAnchored ?: false) }
+    // 新建时，响法和催跟着「几点」「重复」换默认（和模型那边一样）；自己动过那一行就不再跟
+    var ringTouched by rememberSaveable(existing) { mutableStateOf(existing != null) }
+    var nagTouched by rememberSaveable(existing) { mutableStateOf(existing != null) }
+
+    val checkTime by vm.checkTime.collectAsState()
     val today = remember { LocalDate.now() }
-    // 只留排得上的：今天以后、那天以前。改了日期，排在新日期后面的那几天自己掉出去
-    val nudges = remember(nudgeText, date) {
-        nudgeText.split(',').mapNotNull { runCatching { LocalDate.parse(it.trim()) }.getOrNull() }
-            .filter { it.isAfter(today) && it.isBefore(date) }.distinct().sorted()
-    }
-    var showNudgeSheet by remember { mutableStateOf(false) }
 
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimeSheet by remember { mutableStateOf(false) }
     var showRepeatSheet by remember { mutableStateOf(false) }
+    var showNudgeSheet by remember { mutableStateOf(false) }
+    var showNagSheet by remember { mutableStateOf(false) }
     var askDelete by remember { mutableStateOf(false) }
+    // 拉底纸前先放掉标题、备注的焦点：不然底纸一收，焦点回到输入框，键盘又弹起来
+    val focusManager = LocalFocusManager.current
+    fun sheet(open: () -> Unit) { focusManager.clearFocus(); open() }
 
     fun buildRrule(): String? = when (repeat) {
         RepeatChoice.NONE -> null
@@ -146,20 +143,34 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
         RepeatChoice.CUSTOM -> originalRrule
     }
 
+    // 只在说不通时才拦（§4.6）：不弹错，说不通的那几样当场落回去 —— 提前的天数要比两次间隔短，每天都有的不能每晚再提
+    val rrule = buildRrule()
+    val gap = remember(rrule, date) { Rrule.shortestGap(rrule, date, ZoneId.systemDefault()) }
+    val before = remember(beforeText, gap) {
+        beforeText.split(',').mapNotNull { it.trim().toIntOrNull() }.filter { it > 0 && (gap == null || it < gap) }
+    }
+    val dailyAllowed = gap == null || gap > 1
+    val effectiveNag = if (nag == Nag.DAILY && !dailyAllowed) Nag.NONE else nag
+
+    fun followDefaults(newTimes: List<LocalTime>, newRepeat: RepeatChoice) {
+        if (!ringTouched) ring = if (newTimes.isEmpty()) Ring.NOTICE else Ring.ALARM
+        if (!nagTouched) nag = if (newTimes.isEmpty() && newRepeat == RepeatChoice.NONE) Nag.DAILY else Nag.NONE
+    }
+
     fun save() {
-        val once = repeat == RepeatChoice.NONE
         vm.upsertManual(
             existing?.id,
             ReminderSpec(
                 title = title.ifBlank { "未命名提醒" },
                 note = note.ifBlank { null },
                 day = date,
-                times = if (allDay) emptyList() else listOf(time),
-                rrule = buildRrule(),
-                remindBefore = if (allDay && once) nudges.map { ChronoUnit.DAYS.between(it, date).toInt() } else emptyList(),
-                ring = if (allDay || gentle) Ring.NOTICE else Ring.ALARM,
-                nag = if (allDay && once && !endsOnDay) Nag.DAILY else Nag.NONE,
-                wallClockAnchored = wallClockAnchored
+                times = times,
+                rrule = rrule,
+                remindBefore = before,
+                ring = ring,
+                nag = effectiveNag,
+                // 不定钟点的一律按当地（§4.6）
+                wallClockAnchored = times.isEmpty() || wallClockAnchored
             )
         )
         onBack()
@@ -186,7 +197,7 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
                 }
                 Box(Modifier.fillMaxWidth().height(1.dp).background(if (title.isEmpty()) colors.rule2 else colors.rule))
                 Spacer(Modifier.height(12.dp))
-                Summary(date = date, time = time, allDay = allDay, checkTime = checkTime, repeatLabel = repeatLabel.takeIf { repeat != RepeatChoice.NONE })
+                Summary(date = date, times = times, checkTime = checkTime, repeatLabel = repeatLabel.takeIf { repeat != RepeatChoice.NONE })
             }
 
             Column(Modifier.padding(horizontal = 20.dp)) {
@@ -198,92 +209,89 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         quickPicks().forEach { q ->
-                            Chip(q.label, selected = !allDay && date == q.date && time == q.time) {
-                                allDay = false; date = q.date; time = q.time
+                            val picked = listOfNotNull(q.time)
+                            Chip(q.label, selected = date == q.date && times == picked) {
+                                date = q.date; timesText = timesColumn(picked).orEmpty()
+                                followDefaults(picked, repeat)
                             }
                         }
                     }
                 }
 
-                // ---- 时间 ----
-                GroupLabel("时间")
+                // ---- 什么时候 ----
+                GroupLabel("什么时候")
                 PaperGroup {
-                    Segmented(
-                        left = "定个钟点", right = "当天之内", rightOn = allDay,
-                        onPick = { allDay = it },
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp)
-                    )
                     FormRow(
                         title = if (repeat == RepeatChoice.NONE) "哪天" else "从哪天起",
-                        onClick = { showDatePicker = true }
+                        onClick = { sheet { showDatePicker = true } }
                     ) { Value("${relativeDay(date)?.let { "$it · " } ?: ""}${Format.humanDay(date)}") }
                     GroupRule()
-                    if (allDay) {
-                        // 日子还远的（倒数，§4.4）才有下面两行：那天之前提醒哪几次、过了那天还催不催。
-                        // 已经设过的，日子近了也还摆着，不然改不了
-                        val once = repeat == RepeatChoice.NONE
-                        val far = once && (date.isAfter(today.plusDays(6)) || nudges.isNotEmpty() || endsOnDay)
-                        FormRow(
-                            title = "几点",
-                            note = "不定钟点。那天晚上 ${checkTime.toString().take(5)} 提醒一次" +
-                                if (once && endsOnDay) "。" else "，没做完顺延到第二天。"
-                        ) {}
-                        if (far) {
-                            GroupRule()
-                            FormRow(title = "提前提醒", onClick = { showNudgeSheet = true }) {
-                                Value(if (nudges.isEmpty()) "不提前" else "${nudges.size} 次")
+                    FormRow(
+                        title = "几点",
+                        note = if (times.isEmpty()) "那天 ${clock(checkTime)} 提醒" else null,
+                        onClick = { sheet { showTimeSheet = true } }
+                    ) {
+                        Value(
+                            when {
+                                times.isEmpty() -> "不定"
+                                times.size <= 4 -> times.joinToString("、") { clock(it) }
+                                else -> "${times.size} 个钟点"
                             }
-                            if (nudges.isNotEmpty()) NudgeStrip(today, date, nudges)
-                            GroupRule()
-                            FormRow(title = "过了那天", onClick = { endsOnDay = !endsOnDay }) {
-                                Value(if (endsOnDay) "就结束" else "接着提醒")
-                            }
-                        }
-                    } else {
-                        FormRow(title = "几点", onClick = { showTimeSheet = true }) {
-                            Text(time.toString().take(5), style = DaodianType.settingValue, color = colors.ink)
-                            Spacer(Modifier.width(8.dp))
-                            ChevronRightIcon(size = 13.dp, tint = colors.muted)
-                        }
-                        // 到点怎么叫：默认响铃，这一条可以改成轻提醒（DESIGN.md §5.6）。当天事项本来就只发通知，没得选。
-                        // 名字是用户定的（10-11）：标题只叫「轻提醒」，它是什么写在底下两行小字里，开着关着都是这两行。
-                        // 第二行不能再长：真机上一行放 20 个字，多了会把最后一两个字单独甩下去。
-                        // 设计稿方向 B（稿子上还叫「到点只发通知」）：https://claude.ai/artifact/W5GHdm3T7XxGRP2c7DnizJ
-                        GroupRule()
-                        FormRow(
-                            title = "轻提醒",
-                            note = "到点只发一条通知，不响铃、不弹全屏。\n响一声、震一下，声音跟通知音量走。",
-                            onClick = { gentle = !gentle }
-                        ) { PaperSwitch(checked = gentle, onCheckedChange = { gentle = it }) }
+                        )
                     }
+                    GroupRule()
+                    FormRow(title = "重复", onClick = { sheet { showRepeatSheet = true } }) { Value(repeatLabel) }
                 }
 
-                // ---- 重复 ----
-                GroupLabel("重复")
+                // ---- 怎么提醒 ----
+                GroupLabel("怎么提醒")
                 PaperGroup {
-                    FormRow(title = "重复", onClick = { showRepeatSheet = true }) { Value(repeatLabel) }
-                    // 当天事项没有钟点，「跟着时区走」对它没意义（一律按当地晚上提醒）
-                    if (!allDay) {
+                    if (gap != null && gap <= 1) {
+                        FormRow(title = "提前提醒", note = "每天都有的，提前不了", dim = true) {
+                            Text("不提前", style = DaodianType.axisTime, color = colors.hint)
+                        }
+                    } else {
+                        FormRow(title = "提前提醒", onClick = { sheet { showNudgeSheet = true } }) {
+                            Value(
+                                when {
+                                    before.isEmpty() -> "不提前"
+                                    before.size <= 3 -> "提前 ${before.joinToString("、")} 天"
+                                    else -> "${before.size} 次"
+                                }
+                            )
+                        }
+                        val nudges = before.map { date.minusDays(it.toLong()) }.filter { it.isAfter(today) }.sorted()
+                        if (nudges.isNotEmpty()) NudgeStrip(today, date, nudges)
+                    }
+                    GroupRule()
+                    // 名字是用户定的（10-11）：标题只叫「轻提醒」，它是什么写在底下两行小字里，开着关着都是这两行。
+                    // 第二行不能再长：真机上一行放 20 个字，多了会把最后一两个字单独甩下去（§5.6）
+                    FormRow(
+                        title = "轻提醒",
+                        note = "到点只发一条通知，不响铃、不弹全屏。\n响一声、震一下，声音跟通知音量走。",
+                        onClick = { ring = if (ring == Ring.NOTICE) Ring.ALARM else Ring.NOTICE; ringTouched = true }
+                    ) {
+                        PaperSwitch(checked = ring == Ring.NOTICE, onCheckedChange = { ring = if (it) Ring.NOTICE else Ring.ALARM; ringTouched = true })
+                    }
+                    GroupRule()
+                    FormRow(title = "没点完成", onClick = { sheet { showNagSheet = true } }) {
+                        Value(
+                            when (effectiveNag) {
+                                Nag.NONE -> "不催"
+                                Nag.SOON -> "过一会儿再提"
+                                Nag.DAILY -> "每晚再提"
+                            }
+                        )
+                    }
+                    // 不定钟点的一律按当地，这一行对它没意义
+                    if (times.isNotEmpty()) {
                         GroupRule()
                         FormRow(
                             title = "跟着我所在时区走",
-                            note = if (wallClockAnchored) "飞到哪儿都是当地这个点，适合「每天早上 8 点吃药」"
-                            else "固定那一瞬间，适合「${Format.humanDay(date)} ${time.toString().take(5)} 的会」",
+                            note = if (wallClockAnchored) "飞到哪儿都是当地这个点"
+                            else "固定那一瞬间，适合「${Format.humanDay(date)} ${clock(times.first())} 的航班」",
                             onClick = { wallClockAnchored = !wallClockAnchored }
-                        ) {
-                            Switch(
-                                checked = wallClockAnchored,
-                                onCheckedChange = { wallClockAnchored = it },
-                                colors = SwitchDefaults.colors(
-                                    checkedTrackColor = colors.solid,
-                                    checkedThumbColor = colors.onSolid,
-                                    checkedBorderColor = colors.solid,
-                                    uncheckedTrackColor = colors.surfaceAlt,
-                                    uncheckedThumbColor = colors.rule2,
-                                    uncheckedBorderColor = colors.rule2
-                                )
-                            )
-                        }
+                        ) { PaperSwitch(checked = wallClockAnchored, onCheckedChange = { wallClockAnchored = it }) }
                     }
                 }
 
@@ -311,8 +319,7 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
                             modifier = Modifier.padding(horizontal = 4.dp)
                         )
                     }
-                    // 依据：模型当初怎么算出这个时间的（以前在对话卡片底下，卡片没了挪到这儿）。
-                    // 模型算歪的时候，这是唯一能看出哪步歪了的线索
+                    // 依据：模型当初怎么算出这个时间的。模型算歪的时候，这是唯一能看出哪步歪了的线索
                     var basis by remember(existing.id) { mutableStateOf<String?>(null) }
                     LaunchedEffect(existing.id) { basis = vm.basisOf(existing.id) }
                     basis?.let {
@@ -359,18 +366,31 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
 
     if (showTimeSheet) {
         TimeSheet(
-            initial = time,
+            initial = times,
             dayLabel = "${relativeDay(date)?.let { "$it " } ?: ""}${Format.humanDay(date)}",
-            onPick = { time = it; showTimeSheet = false },
+            onPick = {
+                timesText = timesColumn(it).orEmpty()
+                followDefaults(it, repeat)
+                showTimeSheet = false
+            },
             onDismiss = { showTimeSheet = false }
         )
     }
 
     if (showNudgeSheet) {
         NudgeSheet(
-            today = today, due = date, current = nudges,
-            onChange = { nudgeText = it.joinToString(",") },
+            day = date, today = today, gap = gap, repeating = repeat != RepeatChoice.NONE, checkTime = checkTime,
+            current = before,
+            onChange = { beforeText = remindBeforeColumn(it).orEmpty() },
             onDismiss = { showNudgeSheet = false }
+        )
+    }
+
+    if (showNagSheet) {
+        NagSheet(
+            current = effectiveNag, dailyAllowed = dailyAllowed, checkTime = checkTime,
+            onPick = { nag = it; nagTouched = true; showNagSheet = false },
+            onDismiss = { showNagSheet = false }
         )
     }
 
@@ -381,6 +401,7 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
             onPick = { choice ->
                 repeat = choice
                 if (choice != RepeatChoice.NONE) wallClockAnchored = true
+                followDefaults(times, choice)
                 showRepeatSheet = false
             },
             onDismiss = { showRepeatSheet = false }
@@ -425,22 +446,32 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
     }
 }
 
-/** 标题下那一行：「明天 9月19日 周六 15:00 · 21 小时后」，重复的带一枚徽标 */
+private fun clock(t: LocalTime): String = t.toString().take(5)
+
+/**
+ * 标题下那一行：「明天 9月19日 周六 15:00 · 21 小时后」。重复的带一枚徽标；
+ * 不定钟点写几点提醒，几个钟点写一天几次
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Summary(date: LocalDate, time: LocalTime, allDay: Boolean, checkTime: LocalTime, repeatLabel: String?) {
+private fun Summary(date: LocalDate, times: List<LocalTime>, checkTime: LocalTime, repeatLabel: String?) {
     val colors = DaodianColors.current
     val rel = relativeDay(date)
     val whenText = buildString {
         if (rel != null) append(rel).append(' ')
         append(Format.humanDay(date))
-        if (!allDay) append(' ').append(time.toString().take(5))
+        if (times.size == 1) append(' ').append(clock(times[0]))
     }
-    val tail = if (allDay) "当天之内 · 晚上 ${checkTime.toString().take(5)} 提醒"
-    else Format.relative(ZonedDateTime.of(date, time, ZoneId.systemDefault()).toInstant().toEpochMilli())
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    val tail = when {
+        times.isEmpty() -> "不定钟点，${clock(checkTime)} 提醒"
+        times.size > 1 -> "一天 ${times.size} 次"
+        repeatLabel != null -> null
+        else -> Format.relative(ZonedDateTime.of(date, times[0], ZoneId.systemDefault()).toInstant().toEpochMilli())
+    }
+    FlowRow(verticalArrangement = Arrangement.Center, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(whenText, style = DaodianType.axisTime, color = colors.ink2)
         if (repeatLabel != null) RepeatBadge(repeatLabel)
-        else Text("· $tail", style = DaodianType.caption, color = colors.muted)
+        if (tail != null) Text("· $tail", style = DaodianType.caption, color = colors.muted)
     }
 }
 
@@ -478,6 +509,7 @@ private fun FormRow(
     title: String,
     note: String? = null,
     onClick: (() -> Unit)? = null,
+    dim: Boolean = false,
     trailing: @Composable RowScope.() -> Unit
 ) {
     val colors = DaodianColors.current
@@ -489,8 +521,8 @@ private fun FormRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = DaodianType.body, color = colors.ink)
-            if (note != null) Text(note, style = DaodianType.settingNote, color = colors.muted)
+            Text(title, style = DaodianType.body, color = if (dim) colors.hint else colors.ink)
+            if (note != null) Text(note, style = DaodianType.settingNote, color = if (dim) colors.hint else colors.muted)
         }
         Spacer(Modifier.width(12.dp))
         trailing()
@@ -505,33 +537,8 @@ private fun RowScope.Value(text: String) {
     ChevronRightIcon(size = 13.dp, tint = colors.muted)
 }
 
-/** 两段开关「定个钟点 / 当天之内」，选中那段墨色实心 */
-@Composable
-private fun Segmented(left: String, right: String, rightOn: Boolean, onPick: (Boolean) -> Unit, modifier: Modifier = Modifier) {
-    val colors = DaodianColors.current
-    Row(
-        modifier
-            .fillMaxWidth()
-            .border(1.dp, colors.rule2, RoundedCornerShape(22.dp))
-            .padding(3.dp)
-    ) {
-        listOf(left to false, right to true).forEach { (label, isRight) ->
-            val on = isRight == rightOn
-            Box(
-                Modifier
-                    .weight(1f)
-                    .then(if (on) Modifier.background(colors.solid, RoundedCornerShape(19.dp)) else Modifier)
-                    .clickable { onPick(isRight) }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(label, style = DaodianType.bodySmall, color = if (on) colors.onSolid else colors.ink2)
-            }
-        }
-    }
-}
-
-private data class QuickPick(val label: String, val date: LocalDate, val time: LocalTime)
+/** [time] = null 是不定钟点 */
+private data class QuickPick(val label: String, val date: LocalDate, val time: LocalTime?)
 
 /** 新建时的几个快捷钟点。今晚已经过了八点就不给「今晚」 */
 private fun quickPicks(now: LocalDateTime = LocalDateTime.now()): List<QuickPick> {
@@ -541,6 +548,7 @@ private fun quickPicks(now: LocalDateTime = LocalDateTime.now()): List<QuickPick
     return buildList {
         if (now.toLocalTime() < LocalTime.of(19, 50)) add(QuickPick("今晚 20:00", today, LocalTime.of(20, 0)))
         add(QuickPick("明早 9:00", today.plusDays(1), LocalTime.of(9, 0)))
+        add(QuickPick("明天，不定钟点", today.plusDays(1), null))
         add(QuickPick("周六上午", sat, LocalTime.of(10, 0)))
         add(QuickPick("下周一", today.with(TemporalAdjusters.next(DayOfWeek.MONDAY)), LocalTime.of(9, 0)))
     }

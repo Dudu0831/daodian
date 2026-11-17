@@ -106,9 +106,6 @@ fun Reminder.remindBeforeDays(): List<Int> =
 /** 这一次的提前提醒落在哪几天，从早到晚 */
 fun Reminder.nudgeDays(): List<LocalDate> = remindBeforeDays().map { day.minusDays(it.toLong()) }
 
-/** 只发通知（界面上的「轻提醒」）。不定钟点的本来就只发通知，不算 */
-val Reminder.gentle: Boolean get() = ring == Ring.NOTICE && !untimed
-
 fun parseTimes(column: String?): List<LocalTime> =
     column?.split(',')?.mapNotNull { runCatching { LocalTime.parse(it.trim()) }.getOrNull() }?.distinct()?.sorted().orEmpty()
 
