@@ -16,8 +16,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.abc.daodian.reminder.data.Reminder
-import com.abc.daodian.reminder.data.dueDate
-import com.abc.daodian.reminder.data.isAllDay
+import com.abc.daodian.reminder.data.Phase
+import com.abc.daodian.reminder.data.Ring
+import com.abc.daodian.reminder.data.slotTime
+import com.abc.daodian.reminder.data.untimed
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.reminder.presentation.alarm.AlarmActivity
 import com.abc.daodian.reminder.ReminderRoutes
@@ -58,9 +60,15 @@ object Notifier {
     }
 
     /** 到点了，响。返回是否真的送达用户 —— false 表示通知没出现在屏幕上。[lateBy] > 0 表示这是补发 */
-    fun fire(context: Context, reminder: Reminder, lateBy: Long): Boolean {
-        if (reminder.isAllDay) return fireDayTask(context, reminder, lateBy)
-        if (reminder.gentle) return fireGentle(context, reminder, lateBy)
+    fun fire(context: Context, reminder: Reminder, lateBy: Long): Boolean = when {
+        reminder.phase == Phase.NUDGE -> fireNudge(context, reminder, lateBy)
+        reminder.ring == Ring.ALARM -> fireAlarm(context, reminder, lateBy)
+        reminder.untimed -> fireDayTask(context, reminder, lateBy)
+        else -> fireGentle(context, reminder, lateBy)
+    }
+
+    /** 响铃：全屏 + 闹钟铃声循环，直到点掉 */
+    private fun fireAlarm(context: Context, reminder: Reminder, lateBy: Long): Boolean {
         ensureChannel(context)
 
         val open = PendingIntent.getActivity(
@@ -78,8 +86,8 @@ object Notifier {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setContentIntent(open)
-            .addAction(0, "完成", actionIntent(context, reminder.id, NotificationActionReceiver.ACTION_DONE))
-            .addAction(0, "稍后 10 分钟", actionIntent(context, reminder.id, NotificationActionReceiver.ACTION_SNOOZE))
+            .addAction(0, "完成", actionIntent(context, reminder, NotificationActionReceiver.ACTION_DONE))
+            .addAction(0, "稍后 10 分钟", actionIntent(context, reminder, NotificationActionReceiver.ACTION_SNOOZE))
 
         val body = timedBody(reminder, lateBy)
         if (body.isNotEmpty()) builder.setContentText(body)
@@ -91,10 +99,12 @@ object Notifier {
             val ring = PendingIntent.getActivity(
                 context,
                 reminder.id.toInt(),
-                Intent(context, AlarmActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    .putExtra(AlarmActivity.EXTRA_REMINDER_ID, reminder.id)
-                    .putExtra(AlarmActivity.EXTRA_TITLE, reminder.title),
+                Fired.of(reminder).into(
+                    Intent(context, AlarmActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        .putExtra(AlarmActivity.EXTRA_REMINDER_ID, reminder.id)
+                        .putExtra(AlarmActivity.EXTRA_TITLE, reminder.title)
+                ),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
             builder.setFullScreenIntent(ring, true)
@@ -140,7 +150,9 @@ object Notifier {
      * 迟到必须写在脸上 —— 补发假装准时，用户下次就不敢信这个 app 了。
      */
     private fun timedBody(reminder: Reminder, lateBy: Long): String = buildString {
-        reminder.note?.let { append(it) }
+        // 催的那几次：先说清楚是哪一次的事、催到第几次了
+        if (reminder.phase == Phase.NAG) append("还没点完成 · 第 ${reminder.nagCount} 次提醒")
+        reminder.note?.let { if (isNotEmpty()) append(" · "); append(it) }
         if (isEmpty()) {
             if (lateBy > 60_000) append("应在 ${Format.clock(reminder.nextTriggerAt)}")
             else append(Format.humanDateTime(reminder.nextTriggerAt))
@@ -200,7 +212,7 @@ object Notifier {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setContentIntent(openList(context))
-            .addAction(0, "稍后 10 分钟", actionIntent(context, reminder.id, NotificationActionReceiver.ACTION_SNOOZE))
+            .addAction(0, "稍后 10 分钟", actionIntent(context, reminder, NotificationActionReceiver.ACTION_SNOOZE))
         val body = timedBody(reminder, lateBy)
         if (body.isNotEmpty()) builder.setContentText(body)
 
@@ -240,31 +252,17 @@ object Notifier {
     }
 
     /**
-     * 每条一个通知（各带自己的「完成」），挂在同一组下面；只有组头出声 ——
+     * 不定钟点的、只发通知的：每条一个通知（各带自己的「完成」），挂在同一组下面；只有组头出声 ——
      * 收尾时刻几条同时到点，响一下就够了，不是一条响一下。
      */
     private fun fireDayTask(context: Context, reminder: Reminder, lateBy: Long): Boolean {
-        ensureDayChannel(context)
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            Log.e(TAG, "通知权限被拒，当天事项 id=${reminder.id}「${reminder.title}」没能送达用户！去「体检」页处理")
-            FireProbe.fired(context, reminder.id, "当天", DAY_CHANNEL_ID, fullScreen = null, sent = false)
-            return false
-        }
-
-        val due = reminder.dueDate()
+        if (!canPostDay(context, reminder)) return false
         val today = LocalDate.now()
-        // 提前提醒（§4.4）：那天还没到，只是提一下 —— 不说「还没做」，也不挂「完成」
-        val nudge = due != null && due.isAfter(today)
+        val carried = ChronoUnit.DAYS.between(reminder.day, today)
         val body = buildString {
-            val carried = due?.let { ChronoUnit.DAYS.between(it, today) } ?: 0
             append(
-                when {
-                    nudge -> (if (due!!.year != today.year) "${due.year}年" else "") + "${due.monthValue}月${due.dayOfMonth}日的事，提一下"
-                    carried > 0 -> "从 ${due!!.monthValue}月${due.dayOfMonth}日 拖过来的，第 ${carried + 1} 天"
-                    else -> "今天的事，还没做"
-                }
+                if (carried > 0) "从 ${reminder.day.monthValue}月${reminder.day.dayOfMonth}日 拖过来的，第 ${carried + 1} 天"
+                else "今天的事，还没做"
             )
             reminder.note?.let { append(" · ").append(it) }
             if (lateBy > 60_000) append(" · 补发，迟了 ${lateBy / 60_000} 分钟")
@@ -274,22 +272,63 @@ object Notifier {
             .setContentTitle(reminder.title)
             .setContentText(body)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            // 提前提醒不进「还有 N 件当天的事没做」那一组：它不是今天没做的事，自己单独响一下
-            .apply { if (!nudge) setGroup(DAY_GROUP).setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY) }
+            .setGroup(DAY_GROUP)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
             .setAutoCancel(true)
             .setContentIntent(openList(context))
-            .apply { if (!nudge) addAction(0, "完成", actionIntent(context, reminder.id, NotificationActionReceiver.ACTION_DONE)) }
+            .addAction(0, "完成", actionIntent(context, reminder, NotificationActionReceiver.ACTION_DONE))
             .build()
+        return post(context, reminder, child, "当天", summary = true)
+    }
 
+    /**
+     * 提前提醒（§4.6）：那天还没到，只是提一下 —— 不说「还没做」，不挂按钮，
+     * 不进「还有 N 件当天的事没做」那一组：它不是今天没做的事，自己单独响一下
+     */
+    private fun fireNudge(context: Context, reminder: Reminder, lateBy: Long): Boolean {
+        if (!canPostDay(context, reminder)) return false
+        val today = LocalDate.now()
+        val day = reminder.day
+        val body = buildString {
+            append(if (day.year != today.year) "${day.year}年" else "").append("${day.monthValue}月${day.dayOfMonth}日")
+            reminder.slotTime()?.let { append(" ").append(it.toString()) }
+            append(" 的事，提一下")
+            reminder.note?.let { append(" · ").append(it) }
+            if (lateBy > 60_000) append(" · 补发，迟了 ${lateBy / 60_000} 分钟")
+        }
+        val child = NotificationCompat.Builder(context, DAY_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentTitle(reminder.title)
+            .setContentText(body)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setAutoCancel(true)
+            .setContentIntent(openList(context))
+            .build()
+        return post(context, reminder, child, "提前", summary = false)
+    }
+
+    private fun canPostDay(context: Context, reminder: Reminder): Boolean {
+        ensureDayChannel(context)
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.e(TAG, "通知权限被拒，id=${reminder.id}「${reminder.title}」没能送达用户！去「体检」页处理")
+            FireProbe.fired(context, reminder.id, "当天", DAY_CHANNEL_ID, fullScreen = null, sent = false)
+            return false
+        }
+        return true
+    }
+
+    private fun post(context: Context, reminder: Reminder, notification: Notification, kind: String, summary: Boolean): Boolean {
         val sent = try {
-            NotificationManagerCompat.from(context).notify(reminder.id.toInt(), child)
-            if (!nudge) refreshDaySummary(context, alert = true)
+            NotificationManagerCompat.from(context).notify(reminder.id.toInt(), notification)
+            if (summary) refreshDaySummary(context, alert = true)
             true
         } catch (e: SecurityException) {
-            Log.e(TAG, "发通知被系统拒绝，当天事项 id=${reminder.id}", e)
+            Log.e(TAG, "发通知被系统拒绝，$kind id=${reminder.id}", e)
             false
         }
-        FireProbe.fired(context, reminder.id, "当天", DAY_CHANNEL_ID, fullScreen = null, sent)
+        FireProbe.fired(context, reminder.id, kind, DAY_CHANNEL_ID, fullScreen = null, sent)
         return sent
     }
 
@@ -348,10 +387,14 @@ object Notifier {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-    private fun actionIntent(context: Context, reminderId: Long, action: String): PendingIntent {
-        val intent = Intent(context, NotificationActionReceiver::class.java)
-            .setAction(action)
-            .putExtra(NotificationActionReceiver.EXTRA_REMINDER_ID, reminderId)
+    /** 按钮上记着这一下是哪一次的（[Fired]）：按回来时这条往往已经排到别的次了 */
+    private fun actionIntent(context: Context, reminder: Reminder, action: String): PendingIntent {
+        val reminderId = reminder.id
+        val intent = Fired.of(reminder).into(
+            Intent(context, NotificationActionReceiver::class.java)
+                .setAction(action)
+                .putExtra(NotificationActionReceiver.EXTRA_REMINDER_ID, reminderId)
+        )
         // action 不同 → PendingIntent 不同；request code 再加一层保险
         val requestCode = (reminderId.toInt() shl 2) or action.hashCode().and(0b11)
         return PendingIntent.getBroadcast(

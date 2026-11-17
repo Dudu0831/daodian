@@ -1,5 +1,9 @@
 package com.abc.daodian.reminder.tools
 
+import java.time.LocalDate
+import com.abc.daodian.reminder.data.Ring
+import com.abc.daodian.reminder.data.Phase
+import com.abc.daodian.reminder.data.Nag
 import com.abc.daodian.assistant.plugin.ToolTrace
 import com.abc.daodian.assistant.plugin.TraceState
 import com.abc.daodian.reminder.data.Reminder
@@ -27,19 +31,21 @@ class ReminderEditToolsTest {
         listOf(
             Reminder(
                 id = 3, title = "喝水", nextTriggerAt = at("2026-11-14T10:00:00+08:00"), rrule = "FREQ=DAILY",
-                zoneId = zone.id, localTime = "10:00", wallClockAnchored = true, gentle = true, createdAt = 0, updatedAt = 0
+                zoneId = zone.id, wallClockAnchored = true, day = LocalDate.parse("2026-11-14"), times = "10:00", slot = "10:00",
+                ring = Ring.NOTICE, createdAt = 0, updatedAt = 0
             ),
             Reminder(
                 id = 5, title = "交房租", note = "转给房东", nextTriggerAt = at("2026-11-20T15:00:00+08:00"),
-                zoneId = zone.id, createdAt = 0, updatedAt = 0
+                zoneId = zone.id, day = LocalDate.parse("2026-11-20"), times = "15:00", slot = "15:00", createdAt = 0, updatedAt = 0
             ),
             Reminder(
-                id = 7, title = "报销", nextTriggerAt = at("2026-11-13T20:00:00+08:00"), dueDay = "2026-11-11",
-                zoneId = zone.id, localTime = "20:00", wallClockAnchored = true, createdAt = 0, updatedAt = 0
+                id = 7, title = "报销", nextTriggerAt = at("2026-11-13T20:00:00+08:00"), day = LocalDate.parse("2026-11-11"),
+                zoneId = zone.id, wallClockAnchored = true, ring = Ring.NOTICE, nag = Nag.DAILY, phase = Phase.NAG, nagCount = 2,
+                createdAt = 0, updatedAt = 0
             ),
             Reminder(
                 id = 9, title = "开会", nextTriggerAt = at("2026-11-12T09:00:00+08:00"), status = ReminderStatus.DONE,
-                zoneId = zone.id, createdAt = 0, updatedAt = 5
+                zoneId = zone.id, day = LocalDate.parse("2026-11-12"), times = "09:00", slot = "09:00", createdAt = 0, updatedAt = 5
             )
         )
     )

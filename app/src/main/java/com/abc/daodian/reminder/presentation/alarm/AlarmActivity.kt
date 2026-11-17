@@ -5,13 +5,14 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.abc.daodian.reminder.delivery.FireProbe
+import com.abc.daodian.reminder.delivery.Fired
 import com.abc.daodian.reminder.delivery.NotificationActionReceiver
 
 /**
  * 到点全屏页 —— 到点了真正弹出来的那个屏幕，不是 MainActivity。
  * 见 DESIGN.md §08 界面、视觉稿的 Alarm / AlarmDark 两块画板。
  *
- * 「完成」「稍后 10 分钟」直接复用 NotificationActionReceiver 的逻辑（发同样的广播），
+ * 「完成」「稍后 10 分钟」直接复用 NotificationActionReceiver 的逻辑（发同样的广播，带上是哪一下 [Fired]），
  * 不重复一份 DB/Rescheduler 代码。
  */
 class AlarmActivity : ComponentActivity() {
@@ -43,11 +44,10 @@ class AlarmActivity : ComponentActivity() {
 
     private fun act(action: String, reminderId: Long) {
         if (reminderId >= 0) {
-            sendBroadcast(
-                Intent(this, NotificationActionReceiver::class.java)
-                    .setAction(action)
-                    .putExtra(NotificationActionReceiver.EXTRA_REMINDER_ID, reminderId)
-            )
+            val broadcast = Intent(this, NotificationActionReceiver::class.java)
+                .setAction(action)
+                .putExtra(NotificationActionReceiver.EXTRA_REMINDER_ID, reminderId)
+            sendBroadcast(Fired.from(intent)?.into(broadcast) ?: broadcast)
         }
         finish()
     }

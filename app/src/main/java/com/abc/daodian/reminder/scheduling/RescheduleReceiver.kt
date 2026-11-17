@@ -27,8 +27,8 @@ class RescheduleReceiver : BroadcastReceiver() {
                 val rescheduler = Rescheduler(app)
                 when (action) {
                     Intent.ACTION_TIMEZONE_CHANGED, Intent.ACTION_TIME_CHANGED ->
-                        // 墙钟锚定的要重算，不是简单重排
-                        rescheduler.recomputeForTimeZone()
+                        // 跟着人走的、不定钟点的要重新落，不是简单重排
+                        rescheduler.realignAll(CheckTime.get(app))
                     else ->
                         rescheduler.rescheduleAll()
                 }

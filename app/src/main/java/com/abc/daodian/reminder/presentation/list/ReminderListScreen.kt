@@ -65,9 +65,10 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderStatus
-import com.abc.daodian.reminder.data.dueDate
-import com.abc.daodian.reminder.data.isAllDay
-import com.abc.daodian.reminder.data.nudgeDates
+import com.abc.daodian.reminder.data.gentle
+import com.abc.daodian.reminder.data.nudgeDays
+import com.abc.daodian.reminder.data.untimed
+import com.abc.daodian.reminder.data.untimedDay
 import com.abc.daodian.reminder.domain.Rrule
 import com.abc.daodian.reminder.presentation.ReminderViewModel
 import com.abc.daodian.shared.format.Format
@@ -134,8 +135,9 @@ fun ReminderListScreen(
         delay(600)
         armedProbe++
     }
-    val timeline = remember(reminders, now, armedProbe) {
-        buildTimeline(reminders, now, ZoneId.systemDefault(), vm::isArmed)
+    val checkTime by vm.checkTime.collectAsState()
+    val timeline = remember(reminders, now, armedProbe, checkTime) {
+        buildTimeline(reminders, now, ZoneId.systemDefault(), checkTime, vm::isArmed)
     }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -241,7 +243,7 @@ fun ReminderListScreen(
                                     now = now,
                                     onClick = { onEdit(line.r.id) },
                                     onComplete = {
-                                        vm.markDone(line.r)
+                                        vm.complete(line.r)
                                         undo = Undo("已完成「${line.r.title}」", line.r)
                                     }
                                 )
@@ -384,6 +386,7 @@ private fun buildTimeline(
     all: List<Reminder>,
     now: Long,
     zone: ZoneId,
+    checkTime: LocalTime,
     isArmed: (Long) -> Boolean
 ): Timeline {
     val today = dateOf(now, zone)
@@ -393,12 +396,12 @@ private fun buildTimeline(
 
     // 当天事项按「算哪天的」摆，不按闹钟挂在哪 —— 顺延过的闹钟在明晚，人还得今天看见它。
     // 拖得最久的排最前
-    val dayTasks = scheduled.filter { it.isAllDay }
-        .sortedWith(compareBy({ it.dueDay }, { it.createdAt }))
+    val dayTasks = scheduled.filter { it.untimed }
+        .sortedWith(compareBy({ it.day }, { it.createdAt }))
         .map { Line.Entry(it, Kind.DayTask, armed = it.nextTriggerAt <= now || isArmed(it.id)) }
-    val dayTasksByDay = dayTasks.groupBy { maxOf(it.r.dueDate() ?: today, today) }
+    val dayTasksByDay = dayTasks.groupBy { maxOf(it.r.day, today) }
 
-    val timed = scheduled.filterNot { it.isAllDay }
+    val timed = scheduled.filterNot { it.untimed }
     val overdue = timed.filter { it.nextTriggerAt <= now }.map { Line.Entry(it, Kind.Overdue, armed = true) }
     val future = timed.filter { it.nextTriggerAt > now }.mapIndexed { i, r ->
         Line.Entry(r, if (i == 0) Kind.Next else Kind.Upcoming, armed = isArmed(r.id))
@@ -416,12 +419,11 @@ private fun buildTimeline(
         return Timeline(emptyList(), 0)
     }
 
-    // 今天是提前提醒的日子（§4.4）：那件事还挂在远处它自己那天，今天底下多一行淡的
+    // 今天是提前提醒的日子（§4.6）：那件事还挂在远处它自己那天，今天底下多一行淡的
     val echoes = scheduled.filter { r ->
-        r.rrule == null && (r.dueDate()?.isAfter(today) ?: false) && today in r.nudgeDates()
+        r.untimed && r.day.isAfter(today) && today in r.nudgeDays()
     }.map { r ->
-        val clock = r.localTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() } ?: LocalTime.of(20, 0)
-        val at = today.atTime(clock).atZone(zone).toInstant().toEpochMilli()
+        val at = today.atTime(checkTime).atZone(zone).toInstant().toEpochMilli()
         Line.Echo(r, at, rang = at <= now)
     }
 
@@ -579,13 +581,13 @@ private fun EntryRow(e: Line.Entry, now: Long, onClick: () -> Unit, onComplete: 
 
         Kind.DayTask -> {
             val today = LocalDate.now()
-            val due = r.dueDate() ?: today
+            val due = r.day
             val carried = due.isBefore(today)
             // 闹钟本该在收尾时刻响过、却还挂在过去 —— 和定时提醒的「过点没响」同一个告警
             val missed = r.nextTriggerAt <= now
             val ringDay = dateOf(r.nextTriggerAt, zone)
-            // 日子还没到、闹钟却排在它前面：排着的是提前提醒（§4.4）
-            val nudges = if (r.rrule == null && ringDay.isBefore(due)) r.nudgeDates().count { !it.isBefore(ringDay) && it.isBefore(due) } else 0
+            // 日子还没到、闹钟却排在它前面：排着的是提前提醒（§4.6）
+            val nudges = if (ringDay.isBefore(due)) r.nudgeDays().count { !it.isBefore(ringDay) && it.isBefore(due) } else 0
             AxisRow(
                 far = e.far,
                 node = { HollowNode(14.dp, if (missed) colors.red else if (carried) colors.ink2 else colors.rule2) },
@@ -657,7 +659,7 @@ private fun EntryRow(e: Line.Entry, now: Long, onClick: () -> Unit, onComplete: 
 @Composable
 private fun EchoRow(e: Line.Echo, onClick: () -> Unit) {
     val colors = DaodianColors.current
-    val due = e.r.dueDate() ?: return
+    val due = e.r.untimedDay() ?: return
     AxisRow(
         far = false,
         node = { HollowNode(6.dp, colors.rule2, stroke = 1.dp) },

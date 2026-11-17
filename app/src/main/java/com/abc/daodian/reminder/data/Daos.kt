@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
+import java.time.LocalDate
 
 @Dao
 interface ReminderDao {
@@ -29,36 +30,28 @@ interface ReminderDao {
     @Query("SELECT * FROM reminders WHERE status = 'SCHEDULED' AND nextTriggerAt < :now ORDER BY nextTriggerAt ASC")
     suspend fun overdue(now: Long): List<Reminder>
 
-    /** 墙钟锚定的提醒，时区变更后需要重算而非简单重排。见 §7.1 */
-    @Query("SELECT * FROM reminders WHERE status = 'SCHEDULED' AND wallClockAnchored = 1")
-    suspend fun wallClockAnchored(): List<Reminder>
-
     @Query("SELECT * FROM reminders ORDER BY status ASC, nextTriggerAt ASC")
     fun observeAll(): Flow<List<Reminder>>
 
     @Query("UPDATE reminders SET status = :status, updatedAt = :now WHERE id = :id")
     suspend fun setStatus(id: Long, status: ReminderStatus, now: Long)
 
-    @Query("UPDATE reminders SET nextTriggerAt = :at, updatedAt = :now WHERE id = :id")
-    suspend fun setNextTrigger(id: Long, at: Long, now: Long)
-
     /**
-     * 重复的定时提醒排到 [at]，稍后记下的那一刻一并作废。响完排下一次、稍后着点「完成」都走这里。
-     * 见 [com.abc.daodian.reminder.scheduling.Series]
+     * 排到下一下（[com.abc.daodian.reminder.scheduling.Beat]）：这一次是哪天哪个钟点、哪一种、第几次催、哪一刻。
+     * 响完、点完成、改收尾时刻、换时区都走这里；稍后作废，回到 SCHEDULED
      */
-    @Query("UPDATE reminders SET nextTriggerAt = :at, seriesNextAt = NULL, updatedAt = :now WHERE id = :id")
-    suspend fun advance(id: Long, at: Long, now: Long)
+    @Query(
+        "UPDATE reminders SET day = :day, slot = :slot, phase = :phase, nagCount = :nagCount, nextTriggerAt = :at, " +
+            "snoozed = 0, status = 'SCHEDULED', updatedAt = :now WHERE id = :id"
+    )
+    suspend fun arm(id: Long, day: LocalDate, slot: String?, phase: Phase, nagCount: Int, at: Long, now: Long)
 
-    /**
-     * 稍后：这一次挪到 [at]，保持 SCHEDULED。[seriesNextAt] 是重复提醒这一串本来的下一次，一次性的传 null。
-     * 见 [com.abc.daodian.reminder.scheduling.Series]
-     */
-    @Query("UPDATE reminders SET status = 'SCHEDULED', nextTriggerAt = :at, seriesNextAt = :seriesNextAt, updatedAt = :now WHERE id = :id")
-    suspend fun snooze(id: Long, at: Long, seriesNextAt: Long?, now: Long)
-
-    /** 时区变了、稍后着的重复提醒：稍后那一刻不动，重算的是这一串本来的下一次。见 Rescheduler.recomputeForTimeZone */
-    @Query("UPDATE reminders SET seriesNextAt = :at, updatedAt = :now WHERE id = :id")
-    suspend fun setSeriesNext(id: Long, at: Long, now: Long)
+    /** 稍后：刚响的那一下（哪天哪个钟点、哪一种、第几次催）挪到 [at] 再响一次，保持 SCHEDULED */
+    @Query(
+        "UPDATE reminders SET day = :day, slot = :slot, phase = :phase, nagCount = :nagCount, nextTriggerAt = :at, " +
+            "snoozed = 1, status = 'SCHEDULED', updatedAt = :now WHERE id = :id"
+    )
+    suspend fun snooze(id: Long, day: LocalDate, slot: String?, phase: Phase, nagCount: Int, at: Long, now: Long)
 }
 
 @Dao

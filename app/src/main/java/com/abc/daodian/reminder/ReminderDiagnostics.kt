@@ -41,16 +41,16 @@ internal object ReminderDiagnostics {
             .joinToString("、") { "${it[0]} ${it[1]}" }.ifEmpty { "一条没有" })
 
         val due = db.rows(
-            "SELECT id, nextTriggerAt, rrule IS NOT NULL, dueDay IS NOT NULL, gentle FROM reminders " +
+            "SELECT id, nextTriggerAt, rrule IS NOT NULL, times IS NULL, ring = 'NOTICE', phase, nag FROM reminders " +
                 "WHERE status = 'SCHEDULED' ORDER BY nextTriggerAt LIMIT 30"
         )
-        appendLine("排着的（最近 30 条，#id · 下次 · 重复 / 当天事项 / 轻提醒；过点没响的打 !）：")
-        due.forEach { (id, next, repeat, day, gentle) ->
-            val at = next?.toLongOrNull()
+        appendLine("排着的（最近 30 条，#id · 下次 · 重复 / 不定钟点 / 只发通知 / 这一下是哪种 / 催法；过点没响的打 !）：")
+        due.forEach { row ->
+            val at = row[1]?.toLongOrNull()
             val late = at != null && at < now - 60_000
-            appendLine("  ${if (late) "!" else " "} #$id · ${time(at)}" +
-                (if (repeat == "1") " · 重复" else "") + (if (day == "1") " · 当天" else "") +
-                (if (gentle == "1" && day != "1") " · 轻提醒" else ""))
+            appendLine("  ${if (late) "!" else " "} #${row[0]} · ${time(at)}" +
+                (if (row[2] == "1") " · 重复" else "") + (if (row[3] == "1") " · 当天" else "") +
+                (if (row[4] == "1") " · 只发通知" else "") + " · ${row[5]} · 催 ${row[6]}")
         }
 
         appendLine("最近响的（30 次，#提醒 · 该响 · 实际 · 晚了多少 · 来路）：")

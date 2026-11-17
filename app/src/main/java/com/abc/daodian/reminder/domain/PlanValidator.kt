@@ -1,9 +1,7 @@
 package com.abc.daodian.reminder.domain
 
-import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
-import java.time.ZoneId
 import java.time.ZonedDateTime
 
 /** 闸门的判定 */
@@ -100,8 +98,4 @@ object PlanValidator {
 
     /** 当天事项的那一天。取模型写的日期本身（它带的偏移就是用户的），不换算时区 —— 换算会把 00:00 挪到前一天 */
     fun dueDayOf(plan: ReminderPlan): LocalDate = OffsetDateTime.parse(plan.firstTriggerAt).toLocalDate()
-
-    fun localTimeOf(plan: ReminderPlan, zone: ZoneId): String =
-        ZonedDateTime.ofInstant(Instant.ofEpochMilli(triggerMillis(plan)), zone)
-            .toLocalTime().withSecond(0).withNano(0).toString()
 }

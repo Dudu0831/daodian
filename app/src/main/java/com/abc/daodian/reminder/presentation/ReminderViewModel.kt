@@ -7,11 +7,11 @@ import com.abc.daodian.assistant.plugin.CallHistory
 import com.abc.daodian.reminder.application.Reminders
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase
-import com.abc.daodian.reminder.scheduling.DayTasks
+import com.abc.daodian.reminder.domain.ReminderSpec
+import com.abc.daodian.reminder.scheduling.CheckTime
 import com.abc.daodian.reminder.scheduling.Rescheduler
 import com.abc.daodian.reminder.tools.CreateReminderTool
 import com.abc.daodian.reminder.tools.UpdateReminderTool
-import java.time.LocalDate
 import java.time.LocalTime
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
@@ -32,30 +32,16 @@ class ReminderViewModel(app: Application) : AndroidViewModel(app) {
     val logs = db.fireLogDao().observeRecent()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** 当天事项晚上几点提醒。设置页改它 */
-    val dayCheckTime = DayTasks.checkTimeFlow(app)
-        .stateIn(viewModelScope, SharingStarted.Eagerly, DayTasks.DEFAULT_CHECK)
+    /** 收尾时刻：没说几点的、提前提醒、每天再提都在这个点。设置页改它 */
+    val checkTime = CheckTime.flow(app)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, CheckTime.DEFAULT)
 
-    fun setDayCheckTime(time: LocalTime) = viewModelScope.launch { Reminders.setDayCheckTime(getApplication(), time) }
+    fun setCheckTime(time: LocalTime) = viewModelScope.launch { Reminders.setCheckTime(getApplication(), time) }
 
-    fun upsertManual(
-        id: Long?,
-        title: String,
-        note: String?,
-        triggerAt: Long,
-        rrule: String?,
-        wallClockAnchored: Boolean,
-        dueDay: LocalDate? = null,
-        gentle: Boolean = false,
-        nudges: List<LocalDate> = emptyList(),
-        endsOnDay: Boolean = false
-    ) = viewModelScope.launch {
-        Reminders.upsertManual(
-            getApplication(), id, title, note, triggerAt, rrule, wallClockAnchored, dueDay, gentle, nudges, endsOnDay
-        )
-    }
+    fun upsertManual(id: Long?, spec: ReminderSpec) = viewModelScope.launch { Reminders.upsertManual(getApplication(), id, spec) }
 
-    fun markDone(r: Reminder) = viewModelScope.launch { Reminders.markDone(getApplication(), r) }
+    /** 完成这一次（§4.6）：一次性的办完，重复的排下一次 */
+    fun complete(r: Reminder) = viewModelScope.launch { Reminders.complete(getApplication(), r) }
 
     fun delete(r: Reminder) = viewModelScope.launch { Reminders.delete(getApplication(), r) }
 

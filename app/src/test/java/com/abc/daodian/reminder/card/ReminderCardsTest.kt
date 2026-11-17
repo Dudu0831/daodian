@@ -1,5 +1,8 @@
 package com.abc.daodian.reminder.card
 
+import com.abc.daodian.reminder.data.Ring
+import com.abc.daodian.reminder.data.Phase
+import com.abc.daodian.reminder.data.Nag
 import com.abc.daodian.card.assistant.CardGuide
 import com.abc.daodian.card.plugin.CardValue
 import com.abc.daodian.card.source.TimeSource
@@ -21,7 +24,7 @@ class ReminderCardsTest {
 
     private val milk = Reminder(
         id = 7, title = "牛奶过期", nextTriggerAt = ZonedDateTime.of(2026, 12, 13, 20, 0, 0, 0, zone).toInstant().toEpochMilli(),
-        zoneId = zone.id, dueDay = "2027-02-13", createdAt = ZonedDateTime.of(2026, 11, 13, 9, 0, 0, 0, zone).toInstant().toEpochMilli(), updatedAt = 0
+        zoneId = zone.id, day = LocalDate.parse("2027-02-13"), phase = Phase.NUDGE, remindBefore = "62,31", ring = Ring.NOTICE, nag = Nag.DAILY, createdAt = ZonedDateTime.of(2026, 11, 13, 9, 0, 0, 0, zone).toInstant().toEpochMilli(), updatedAt = 0
     )
 
     private fun f(name: String, r: Reminder = milk, args: List<String> = listOf("#7"), on: LocalDate = today) =
@@ -29,7 +32,7 @@ class ReminderCardsTest {
 
     @Test
     fun `a day item counts to its own day, even while it is being nudged`() {
-        assertEquals(LocalDate.parse("2027-02-13"), ReminderCards.dayOf(milk, zone))
+        assertEquals(LocalDate.parse("2027-02-13"), ReminderCards.dayOf(milk))
         assertEquals(CardValue.Number(90), f("days_left"))
         assertEquals(CardValue.Text("2027 年 2 月 13 日"), f("date"))
         assertEquals(CardValue.Text("周六"), f("weekday"))
@@ -47,8 +50,8 @@ class ReminderCardsTest {
     }
 
     @Test
-    fun `a timed one is the day it next rings, and a finished one is done`() {
-        val rent = Reminder(id = 8, title = "交房租", nextTriggerAt = ZonedDateTime.of(2026, 11, 20, 9, 0, 0, 0, zone).toInstant().toEpochMilli(), zoneId = zone.id, createdAt = 0, updatedAt = 0)
+    fun `a timed one is the day of this time, and a finished one is done`() {
+        val rent = Reminder(id = 8, title = "交房租", nextTriggerAt = ZonedDateTime.of(2026, 11, 20, 9, 0, 0, 0, zone).toInstant().toEpochMilli(), zoneId = zone.id, day = LocalDate.parse("2026-11-20"), times = "09:00", slot = "09:00", createdAt = 0, updatedAt = 0)
         assertEquals(CardValue.Number(5), f("days_left", r = rent))
         assertEquals(CardValue.Flag(true), f("done", r = rent.copy(status = ReminderStatus.DONE)))
     }

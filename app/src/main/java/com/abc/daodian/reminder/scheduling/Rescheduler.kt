@@ -8,11 +8,8 @@ import android.util.Log
 import com.abc.daodian.shared.navigation.Launch
 import com.abc.daodian.reminder.data.ReminderDatabase
 import com.abc.daodian.reminder.data.Reminder
-import com.abc.daodian.reminder.domain.Rrule
-import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneId
-import java.time.ZonedDateTime
 
 /**
  * AlarmManager 里的排期是**易失**的 —— 重启、应用更新、被 ROM 强杀都会让它和 Room 脱节。
@@ -73,41 +70,33 @@ class Rescheduler(private val context: Context) {
     }
 
     /**
-     * 时区变了。墙钟锚定的提醒要**重算**而不是简单重排 ——
-     * 「每天早上 8 点」到了新时区还得是当地 8 点。见设计文档 §7.1
+     * 排到 [beat]：先撤旧闹钟，库里写成这一下，再照库里的排。响完、点完成、改收尾时刻、换时区都走这里 ——
+     * 顺序不能反：反了会留下一个指向旧时刻的闹钟
      */
-    suspend fun recomputeForTimeZone(): Int {
-        val zone = ZoneId.systemDefault()
-        val now = System.currentTimeMillis()
+    suspend fun arm(reminder: Reminder, beat: Beat) {
+        cancel(reminder.id)
         val dao = db.reminderDao()
-        var changed = 0
+        dao.arm(reminder.id, beat.day, beat.slot?.toString(), beat.phase, beat.nagCount, beat.at, System.currentTimeMillis())
+        dao.byId(reminder.id)?.let { schedule(it) }
+    }
 
-        dao.wallClockAnchored().forEach { r ->
-            val localTime = r.localTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() } ?: return@forEach
-            // 稍后着的重复提醒：稍后那一刻是绝对的（「十分钟后」），不动；要重算的是这一串本来的下一次（Series）
-            val snoozed = r.seriesNextAt
-            val base = snoozed ?: r.nextTriggerAt
-            val current = ZonedDateTime.ofInstant(Instant.ofEpochMilli(base), zone)
-            val retargeted = current.with(localTime)
-            val next = if (retargeted.toInstant().toEpochMilli() > now) {
-                retargeted
-            } else {
-                Rrule.nextAfter(r.rrule, retargeted, zone) ?: retargeted.plusDays(1)
-            }
-            val newAt = next.toInstant().toEpochMilli()
-            if (newAt != base) {
-                if (snoozed != null) {
-                    dao.setSeriesNext(r.id, newAt, now)
-                } else {
-                    cancel(r.id)
-                    dao.setNextTrigger(r.id, newAt, now)
-                    dao.byId(r.id)?.let { schedule(it) }
-                }
+    /**
+     * 时区变了、收尾时刻改了：排着的每一下按新的重新落（[Schedule.realign]）。
+     * 跟着人走的「每天早上 8 点」到了新时区还得是当地 8 点；固定那一瞬间的不动。见设计文档 §7.1、§4.6
+     */
+    suspend fun realignAll(check: LocalTime): Int {
+        val here = ZoneId.systemDefault()
+        val now = System.currentTimeMillis()
+        var changed = 0
+        db.reminderDao().allScheduled().forEach { r ->
+            val beat = Schedule.realign(r, now, check, Schedule.zoneOf(r, here)) ?: return@forEach
+            if (beat.at != r.nextTriggerAt || beat.day != r.day || beat.phase != r.phase) {
+                arm(r, beat)
                 changed++
             }
         }
-        Log.i(TAG, "时区变更重算：$changed 条墙钟锚定提醒时间已调整，时区=$zone")
-        // 绝对时刻的提醒时间戳没变，但闹钟可能已经掉了，一并重排
+        Log.i(TAG, "重新落：$changed 条挪了，时区=$here，收尾时刻=$check")
+        // 没挪的时间戳没变，但闹钟可能已经掉了，一并重排
         rescheduleAll()
         return changed
     }

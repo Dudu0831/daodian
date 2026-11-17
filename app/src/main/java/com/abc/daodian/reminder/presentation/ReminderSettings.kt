@@ -54,7 +54,7 @@ fun ReminderSettingsScreen(onBack: () -> Unit, open: (String) -> Unit) {
     val vm = activityViewModel<ReminderViewModel>()
     val colors = DaodianColors.current
     val logs by vm.logs.collectAsState()
-    val checkTime by vm.dayCheckTime.collectAsState()
+    val checkTime by vm.checkTime.collectAsState()
     var pickingCheckTime by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize().background(colors.paper)) {
@@ -100,7 +100,7 @@ fun ReminderSettingsScreen(onBack: () -> Unit, open: (String) -> Unit) {
             onDismissRequest = { pickingCheckTime = false },
             confirmButton = {
                 TextButton(onClick = {
-                    vm.setDayCheckTime(LocalTime.of(state.hour, state.minute))
+                    vm.setCheckTime(LocalTime.of(state.hour, state.minute))
                     pickingCheckTime = false
                 }) { Text("确定") }
             },

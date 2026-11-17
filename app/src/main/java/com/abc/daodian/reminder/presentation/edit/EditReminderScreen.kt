@@ -49,8 +49,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.abc.daodian.reminder.data.dueDate
-import com.abc.daodian.reminder.data.isAllDay
+import com.abc.daodian.reminder.data.Nag
+import com.abc.daodian.reminder.data.Ring
+import com.abc.daodian.reminder.data.clockTimes
+import com.abc.daodian.reminder.data.gentle
+import com.abc.daodian.reminder.data.nudgeDays
+import com.abc.daodian.reminder.data.slotTime
+import com.abc.daodian.reminder.data.untimed
+import com.abc.daodian.reminder.domain.ReminderSpec
 import com.abc.daodian.reminder.domain.Rrule
 import com.abc.daodian.reminder.presentation.ReminderViewModel
 import com.abc.daodian.shared.format.Format
@@ -70,6 +76,7 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 
 /**
@@ -98,22 +105,13 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
     var title by rememberSaveable(existing) { mutableStateOf(existing?.title ?: "") }
     var note by rememberSaveable(existing) { mutableStateOf(existing?.note ?: "") }
 
-    val zone = ZoneId.systemDefault()
     val defaultDateTime = remember { ZonedDateTime.now().plusHours(1).withMinute(0).withSecond(0) }
-    // 当天事项的日期是它「算哪天的」（顺延过的也还是原来那天），不是闹钟挂在哪天
-    var date by rememberSaveable(existing) {
-        mutableStateOf(
-            existing?.let { it.dueDate() ?: Instant.ofEpochMilli(it.nextTriggerAt).atZone(zone).toLocalDate() }
-                ?: defaultDateTime.toLocalDate()
-        )
-    }
-    var allDay by rememberSaveable(existing) { mutableStateOf(existing?.isAllDay ?: false) }
-    val checkTime by vm.dayCheckTime.collectAsState()
+    // 这一次是哪天：不定钟点的拖过几天也还是原来那天，重复的是排到的那一次
+    var date by rememberSaveable(existing) { mutableStateOf(existing?.day ?: defaultDateTime.toLocalDate()) }
+    var allDay by rememberSaveable(existing) { mutableStateOf(existing?.untimed ?: false) }
+    val checkTime by vm.checkTime.collectAsState()
     var time by rememberSaveable(existing) {
-        mutableStateOf(
-            existing?.let { Instant.ofEpochMilli(it.nextTriggerAt).atZone(zone).toLocalTime() }
-                ?: defaultDateTime.toLocalTime()
-        )
+        mutableStateOf(existing?.let { it.slotTime() ?: it.clockTimes().firstOrNull() } ?: defaultDateTime.toLocalTime())
     }
     val originalRrule = existing?.rrule
     var repeat by rememberSaveable(existing) { mutableStateOf(initialRepeat(originalRrule, date)) }
@@ -122,8 +120,9 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
     }
     var gentle by rememberSaveable(existing) { mutableStateOf(existing?.gentle ?: false) }
     // 提前提醒的那几天、过了那天要不要接着提醒（§4.4）。存成库里那一列的写法，省得另写 Saver
-    var nudgeText by rememberSaveable(existing) { mutableStateOf(existing?.nudges.orEmpty()) }
-    var endsOnDay by rememberSaveable(existing) { mutableStateOf(existing?.endsOnDay ?: false) }
+    var nudgeText by rememberSaveable(existing) { mutableStateOf(existing?.nudgeDays()?.joinToString(",").orEmpty()) }
+    // 这一页还是两种提醒那一套（重画在 §4.6 第四步）：「过了那天就结束」= 不催，「接着提醒」= 每天再提
+    var endsOnDay by rememberSaveable(existing) { mutableStateOf(existing?.let { it.untimed && it.nag == Nag.NONE } ?: false) }
     val today = remember { LocalDate.now() }
     // 只留排得上的：今天以后、那天以前。改了日期，排在新日期后面的那几天自己掉出去
     val nudges = remember(nudgeText, date) {
@@ -147,18 +146,20 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
     }
 
     fun save() {
-        val triggerAt = ZonedDateTime.of(date, time, zone).toInstant().toEpochMilli()
+        val once = repeat == RepeatChoice.NONE
         vm.upsertManual(
-            id = existing?.id,
-            title = title.ifBlank { "未命名提醒" },
-            note = note.ifBlank { null },
-            triggerAt = triggerAt,
-            rrule = buildRrule(),
-            wallClockAnchored = wallClockAnchored,
-            dueDay = if (allDay) date else null,
-            gentle = gentle && !allDay,
-            nudges = if (allDay && repeat == RepeatChoice.NONE) nudges else emptyList(),
-            endsOnDay = allDay && repeat == RepeatChoice.NONE && endsOnDay
+            existing?.id,
+            ReminderSpec(
+                title = title.ifBlank { "未命名提醒" },
+                note = note.ifBlank { null },
+                day = date,
+                times = if (allDay) emptyList() else listOf(time),
+                rrule = buildRrule(),
+                remindBefore = if (allDay && once) nudges.map { ChronoUnit.DAYS.between(it, date).toInt() } else emptyList(),
+                ring = if (allDay || gentle) Ring.NOTICE else Ring.ALARM,
+                nag = if (allDay && once && !endsOnDay) Nag.DAILY else Nag.NONE,
+                wallClockAnchored = wallClockAnchored
+            )
         )
         onBack()
     }

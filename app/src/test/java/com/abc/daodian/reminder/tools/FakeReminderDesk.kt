@@ -1,5 +1,7 @@
 package com.abc.daodian.reminder.tools
 
+import com.abc.daodian.reminder.domain.toSpec
+import com.abc.daodian.reminder.data.timesColumn
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.domain.PlanValidator
 import com.abc.daodian.reminder.domain.ReminderPlan
@@ -20,9 +22,10 @@ class FakeReminderDesk(
     override suspend fun create(plan: ReminderPlan, context: ToolContext): Long {
         commit?.let { return it(plan, context) }
         val id = (reminders.maxOfOrNull { it.id } ?: 0L) + 1
+        val spec = plan.toSpec(ZoneId.systemDefault())
         reminders += Reminder(
             id = id, title = plan.title, nextTriggerAt = PlanValidator.triggerMillis(plan), zoneId = ZoneId.systemDefault().id,
-            createdAt = 0, updatedAt = 0
+            day = spec.day, times = timesColumn(spec.times), ring = spec.ring, nag = spec.nag, createdAt = 0, updatedAt = 0
         )
         return id
     }
@@ -30,8 +33,10 @@ class FakeReminderDesk(
     override suspend fun update(id: Long, plan: ReminderPlan, context: ToolContext): Reminder? {
         val i = reminders.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: return null
         updates += id to plan
+        val spec = plan.toSpec(ZoneId.systemDefault())
         reminders[i] = reminders[i].copy(
-            title = plan.title, note = plan.note, nextTriggerAt = PlanValidator.triggerMillis(plan), rrule = plan.rrule, gentle = plan.gentle
+            title = plan.title, note = plan.note, nextTriggerAt = PlanValidator.triggerMillis(plan), rrule = plan.rrule,
+            day = spec.day, times = timesColumn(spec.times), ring = spec.ring, nag = spec.nag
         )
         return reminders[i]
     }

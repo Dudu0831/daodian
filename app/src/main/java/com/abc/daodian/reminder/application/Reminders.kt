@@ -4,15 +4,19 @@ import android.content.Context
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase
 import com.abc.daodian.reminder.data.ReminderStatus
-import com.abc.daodian.reminder.data.nudgesColumn
+import com.abc.daodian.reminder.data.Phase
+import com.abc.daodian.reminder.data.remindBeforeColumn
+import com.abc.daodian.reminder.data.timesColumn
+import com.abc.daodian.reminder.delivery.Fired
 import com.abc.daodian.reminder.delivery.Notifier
-import com.abc.daodian.reminder.domain.PlanValidator
 import com.abc.daodian.reminder.domain.ReminderPlan
-import com.abc.daodian.reminder.scheduling.DayTasks
+import com.abc.daodian.reminder.domain.ReminderSpec
+import com.abc.daodian.reminder.domain.toSpec
+import com.abc.daodian.reminder.scheduling.CheckTime
 import com.abc.daodian.reminder.scheduling.Rescheduler
+import com.abc.daodian.reminder.scheduling.Schedule
 import com.abc.daodian.reminder.widget.WidgetUpdater
 import java.time.Instant
-import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.util.concurrent.TimeUnit
@@ -21,60 +25,94 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 /**
- * 提醒的所有写操作，app 里只有这一个入口：模型建 / 改 / 删的（`create_reminder`、`update_reminder`、`delete_reminders`）、手动建 / 改、完成、删、撤销、重排。
- * 响铃、通知按钮、小组件按钮、巡检这些 app 外面的路径在 scheduling / delivery / widget 里，各自已经排好。
+ * 提醒的所有写操作，app 里只有这一个入口：模型建 / 改 / 删的（`create_reminder`、`update_reminder`、`delete_reminders`）、
+ * 手动建 / 改、完成、稍后、删、撤销、重排。通知按钮、全屏页、小组件的 ✓ 也走这里；响了之后排下一下在 `FireHandler`。
  *
- * 只调 Rescheduler 的公开入口，不碰 scheduling / data 的内部。改完一律喊小组件重画一次（[WidgetUpdater]）——
+ * 「这一次排到哪了」全由 [Schedule] 算（DESIGN.md §4.6），这里只管落库和排闹钟。改完一律喊小组件重画一次（[WidgetUpdater]）——
  * 它在别的进程里，收不到 Room 的 Flow。
  */
 object Reminders {
 
+    /** 「稍后」挪多久 */
+    const val SNOOZE_MS = 10 * 60 * 1000L
+
     /**
      * 模型建出来的一条提醒「落库 → 排闹钟」，返回新提醒的 id。对话页和桌面速记都经由 `create_reminder` 到这里。
      * 桌面上那一行先亮成朱砂的「刚记下」（[WidgetUpdater.announce]），速记记完回到桌面就看得见。
+     */
+    suspend fun commitPlan(context: Context, rawInput: String, plan: ReminderPlan, parsedBy: String): Long {
+        val saved = save(context, null, plan.toSpec(ZoneId.systemDefault()), rawInput, parsedBy)!!
+        WidgetUpdater.announce(context.applicationContext, saved.id)
+        return saved.id
+    }
+
+    /**
+     * 模型改了一条（`update_reminder`）：整条换成 [plan]（已经过了闸门），原话、建的时刻不动，重新排期。没有这一条是 null。
+     * 响过了、完成了的改完一律回到 SCHEDULED；稍后作废；还挂在通知栏上的那条一起收掉 —— 不然点它的「完成」会把改好的这条也完成了
+     */
+    suspend fun updatePlan(context: Context, id: Long, plan: ReminderPlan, parsedBy: String): Reminder? =
+        save(context, id, plan.toSpec(ZoneId.systemDefault()), rawInput = null, parsedBy = parsedBy)?.also {
+            WidgetUpdater.refresh(context.applicationContext)
+        }
+
+    /** 手动建 / 改一条提醒 —— 逃生舱，必须能完全脱离 AI 用。见 DESIGN.md §2.1 */
+    suspend fun upsertManual(context: Context, id: Long?, spec: ReminderSpec) {
+        save(context, id, spec, rawInput = spec.title, parsedBy = null)
+        WidgetUpdater.refresh(context.applicationContext)
+    }
+
+    /**
+     * 建（[id] = null）或整条改：几件事换成 [spec]，「这一次」从 [ReminderSpec.day] 头一个钟点重新起，排第一下（[Schedule.start]）。
+     * 排不出来的（一次性的、时刻全在过去）也照样排在它的正点上 —— 已经过了，巡检当场补发，不会悄悄丢掉。
+     * 改的时候原话不动，[parsedBy] 是 null 就留着原来的。
      *
      * 整段 NonCancellable：插完库、闹钟还没排上的那一瞬间如果被取消（页面关了、桌面速记被 Home 掉），
      * 就会留下一条 SCHEDULED 却没有闹钟的记录，要等下一个重排触发源才补得上。
      */
-    suspend fun commitPlan(context: Context, rawInput: String, plan: ReminderPlan, parsedBy: String): Long =
+    private suspend fun save(context: Context, id: Long?, spec: ReminderSpec, rawInput: String?, parsedBy: String?): Reminder? =
         withContext(NonCancellable) {
             val app = context.applicationContext
             val dao = ReminderDatabase.get(app).reminderDao()
-            val reminder = fromPlan(app, rawInput, plan, parsedBy, ZoneId.systemDefault(), System.currentTimeMillis())
-            val id = dao.insert(reminder)
-            dao.byId(id)?.let { Rescheduler(app).schedule(it) }
-            WidgetUpdater.announce(app, id)
-            id
-        }
-
-    /**
-     * 模型改了一条（`update_reminder`）：整条换成 [plan]（已经过了闸门），原话、建的时刻不动，重新排期。
-     * 没有这一条是 null。响过了、完成了的改完一律回到 SCHEDULED（时间是这一下重新定的，闸门保证在将来）；
-     * 稍后记下的那一刻作废，同手动改。还挂在通知栏上的那条一起收掉 —— 不然点它的「完成」会把改好的这条也完成了。
-     * NonCancellable 同 [commitPlan]
-     */
-    suspend fun updatePlan(context: Context, id: Long, plan: ReminderPlan, parsedBy: String): Reminder? =
-        withContext(NonCancellable) {
-            val app = context.applicationContext
-            val dao = ReminderDatabase.get(app).reminderDao()
-            val existing = dao.byId(id) ?: return@withContext null
-            val now = System.currentTimeMillis()
-            val zone = ZoneId.systemDefault()
-            val fresh = fromPlan(app, existing.rawInput, plan, parsedBy, zone, now)
-            val updated = existing.copy(
-                title = fresh.title, note = fresh.note, nextTriggerAt = fresh.nextTriggerAt, rrule = fresh.rrule,
-                zoneId = fresh.zoneId, localTime = fresh.localTime, wallClockAnchored = fresh.wallClockAnchored,
-                dueDay = fresh.dueDay, gentle = fresh.gentle, nudges = fresh.nudges, endsOnDay = fresh.endsOnDay,
-                parsedBy = parsedBy,
-                seriesNextAt = null, status = ReminderStatus.SCHEDULED, updatedAt = now
-            )
             val rescheduler = Rescheduler(app)
-            rescheduler.cancel(id)
-            Notifier.cancel(app, id)
-            dao.update(updated)
-            rescheduler.schedule(updated)
-            WidgetUpdater.refresh(app)
-            updated
+            val now = System.currentTimeMillis()
+            val here = ZoneId.systemDefault()
+            val existing = id?.let { dao.byId(it) ?: return@withContext null }
+            val times = timesColumn(spec.times)
+            val draft = Reminder(
+                id = existing?.id ?: 0,
+                title = spec.title,
+                note = spec.note,
+                rawInput = existing?.rawInput ?: rawInput ?: spec.title,
+                nextTriggerAt = 0,
+                rrule = spec.rrule,
+                zoneId = here.id,
+                wallClockAnchored = spec.wallClockAnchored,
+                parsedBy = parsedBy ?: existing?.parsedBy,
+                day = spec.day,
+                times = times,
+                remindBefore = remindBeforeColumn(spec.remindBefore),
+                ring = spec.ring,
+                nag = spec.nag,
+                slot = times?.substringBefore(','),
+                createdAt = existing?.createdAt ?: now,
+                updatedAt = now
+            )
+            val check = CheckTime.get(app)
+            val zone = Schedule.zoneOf(draft, here)
+            val beat = Schedule.start(draft, now, check, zone) ?: Schedule.firstMain(draft, check, zone)
+            val armed = draft.copy(
+                day = beat.day, slot = beat.slot?.toString(), phase = beat.phase, nagCount = beat.nagCount, nextTriggerAt = beat.at
+            )
+            val saved = if (existing == null) {
+                armed.copy(id = dao.insert(armed))
+            } else {
+                rescheduler.cancel(existing.id)
+                Notifier.cancel(app, existing.id)
+                dao.update(armed)
+                armed
+            }
+            rescheduler.schedule(saved)
+            saved
         }
 
     /** 模型删的（`delete_reminders`），一次几条。返回真删了的（库里没有的跳过）。删法同 [delete] */
@@ -95,150 +133,58 @@ object Reminders {
     suspend fun all(context: Context): List<Reminder> =
         ReminderDatabase.get(context.applicationContext).reminderDao().observeAll().first()
 
-    /** 模型给的一条 → 还没落库的 [Reminder]。当天事项走 [dayTask] */
-    private suspend fun fromPlan(
-        context: Context, rawInput: String, plan: ReminderPlan, parsedBy: String, zone: ZoneId, now: Long
-    ): Reminder = if (plan.allDay) dayTask(context, rawInput, plan, parsedBy, zone, now) else Reminder(
-        title = plan.title,
-        note = plan.note,
-        rawInput = rawInput,
-        nextTriggerAt = PlanValidator.triggerMillis(plan),
-        rrule = plan.rrule,
-        zoneId = zone.id,
-        localTime = if (plan.wallClockAnchored) PlanValidator.localTimeOf(plan, zone) else null,
-        wallClockAnchored = plan.wallClockAnchored,
-        parsedBy = parsedBy,
-        gentle = plan.gentle,
-        createdAt = now,
-        updatedAt = now
-    )
-
     /**
-     * 当天事项：日期取模型给的，钟点换成收尾时刻。一律墙钟锚定 —— 「晚上八点提醒」到哪个时区都该是当地八点。
-     * 见 DESIGN.md §4.3
-     */
-    private suspend fun dayTask(
-        context: Context, rawInput: String, plan: ReminderPlan, parsedBy: String, zone: ZoneId, now: Long
-    ): Reminder {
-        val check = DayTasks.checkTime(context)
-        val due = PlanValidator.dueDayOf(plan)
-        // 提前提醒、到了那天就结束：只有不重复的才有（闸门已经拦过，这里再守一道）
-        val once = plan.rrule == null
-        val nudges = if (once) plan.remindOn.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() } else emptyList()
-        return Reminder(
-            title = plan.title,
-            note = plan.note,
-            rawInput = rawInput,
-            nextTriggerAt = DayTasks.nextTrigger(due, nudges, check, zone, now),
-            rrule = plan.rrule,
-            zoneId = zone.id,
-            localTime = check.toString(),
-            wallClockAnchored = true,
-            parsedBy = parsedBy,
-            dueDay = due.toString(),
-            nudges = nudgesColumn(nudges),
-            endsOnDay = once && !plan.carryOver,
-            createdAt = now,
-            updatedAt = now
-        )
-    }
-
-    /**
-     * 手动建 / 改一条提醒 —— 逃生舱，必须能完全脱离 AI 用。见 DESIGN.md §2.1
+     * 完成「这一次」（§4.6，用户 11-16 定的）：在哪儿点都一样 —— 通知、全屏页、提醒页的圈、小组件的 ✓、桌面卡片的圈。
+     * 一次性的办完；重复的排下一次（先排它的提前那几下），不再整串停掉。
      *
-     * [dueDay] 不为 null 就是当天事项：[triggerAt] 不看，换成那天的收尾时刻，一律墙钟锚定；[gentle] 也不看（它本来就只发通知）。
-     * [nudges]（提前提醒的那几天）、[endsOnDay]（到了那天就结束）只有不重复的当天事项看，见 DESIGN.md §4.4
+     * [fired] 是通知上那一下属于哪一次：这条已经翻到别的次了（重复的响完就翻过去），只收通知，不把下一次也算掉。
+     * 先撤闹钟再改状态 —— 反了会留下一个指向 DONE 记录的闹钟，到点照响。
      */
-    suspend fun upsertManual(
-        context: Context,
-        id: Long?,
-        title: String,
-        note: String?,
-        triggerAt: Long,
-        rrule: String?,
-        wallClockAnchored: Boolean,
-        dueDay: LocalDate? = null,
-        gentle: Boolean = false,
-        nudges: List<LocalDate> = emptyList(),
-        endsOnDay: Boolean = false
-    ) {
+    suspend fun complete(context: Context, r: Reminder, fired: Fired? = null) {
         val app = context.applicationContext
-        val now = System.currentTimeMillis()
-        val zone = ZoneId.systemDefault()
-        if (dueDay != null) {
-            val check = DayTasks.checkTime(app)
-            val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
-            val kept = if (rrule == null) nudges.filter { !it.isBefore(today) && it.isBefore(dueDay) } else emptyList()
-            upsert(
-                app, id, title, note, rrule,
-                triggerAt = DayTasks.nextTrigger(dueDay, kept, check, zone, now),
-                localTime = check.toString(), wallClockAnchored = true, dueDay = dueDay.toString(), gentle = false,
-                nudges = nudgesColumn(kept), endsOnDay = rrule == null && endsOnDay, now = now
-            )
-        } else {
-            val localTime = if (wallClockAnchored) {
-                Instant.ofEpochMilli(triggerAt).atZone(zone).toLocalTime()
-                    .withSecond(0).withNano(0).toString()
-            } else null
-            upsert(
-                app, id, title, note, rrule, triggerAt, localTime, wallClockAnchored, dueDay = null, gentle = gentle,
-                nudges = null, endsOnDay = false, now = now
-            )
+        Notifier.cancel(app, r.id)
+        if (fired == null || fired.sameOccurrence(r)) {
+            val dao = ReminderDatabase.get(app).reminderDao()
+            val rescheduler = Rescheduler(app)
+            val now = System.currentTimeMillis()
+            when (r.status) {
+                ReminderStatus.SCHEDULED -> {
+                    val next = Schedule.afterDone(r, now, CheckTime.get(app), Schedule.zoneOf(r))
+                    if (next != null) {
+                        rescheduler.arm(r, next)
+                    } else {
+                        rescheduler.cancel(r.id)
+                        dao.setStatus(r.id, ReminderStatus.DONE, now)
+                    }
+                }
+                ReminderStatus.FIRED -> dao.setStatus(r.id, ReminderStatus.DONE, now)
+                else -> Unit
+            }
         }
         WidgetUpdater.refresh(app)
     }
 
-    private suspend fun upsert(
-        context: Context,
-        id: Long?,
-        title: String,
-        note: String?,
-        rrule: String?,
-        triggerAt: Long,
-        localTime: String?,
-        wallClockAnchored: Boolean,
-        dueDay: String?,
-        gentle: Boolean,
-        nudges: String?,
-        endsOnDay: Boolean,
-        now: Long
-    ) {
-        val dao = ReminderDatabase.get(context).reminderDao()
-        val rescheduler = Rescheduler(context)
-        val zone = ZoneId.systemDefault()
-
-        if (id == null) {
-            val reminder = Reminder(
-                title = title, note = note, rawInput = title,
-                nextTriggerAt = triggerAt, rrule = rrule, zoneId = zone.id,
-                localTime = localTime, wallClockAnchored = wallClockAnchored, dueDay = dueDay, gentle = gentle,
-                nudges = nudges, endsOnDay = endsOnDay,
-                createdAt = now, updatedAt = now
-            )
-            val newId = dao.insert(reminder)
-            dao.byId(newId)?.let { rescheduler.schedule(it) }
-        } else {
-            val existing = dao.byId(id) ?: return
-            rescheduler.cancel(id)
-            // 时间是这一下重新定的：稍后着的话，记下的那一刻作废（Series）
-            val updated = existing.copy(
-                title = title, note = note, nextTriggerAt = triggerAt, rrule = rrule,
-                localTime = localTime, wallClockAnchored = wallClockAnchored, dueDay = dueDay, gentle = gentle,
-                nudges = nudges, endsOnDay = endsOnDay,
-                seriesNextAt = null, status = ReminderStatus.SCHEDULED, updatedAt = now
-            )
-            dao.update(updated)
-            rescheduler.schedule(updated)
-        }
-    }
-
-    suspend fun markDone(context: Context, r: Reminder) {
+    /**
+     * 「稍后 10 分钟」：刚响的那一下（[fired]）挪到十分钟后再响一次，响完照它顶替的那一下往后排（§4.6）。
+     * 这条下一下本来就排在十分钟以内（几个钟点挨得近、下一次的提前提醒），不另挪，下一下照常来
+     */
+    suspend fun snooze(context: Context, id: Long, fired: Fired?) {
         val app = context.applicationContext
-        // 当天事项有自己的「完成」：重复的只算今天这一次。见 DayTasks.complete
-        if (!DayTasks.complete(app, r)) {
-            Rescheduler(app).cancel(r.id)
-            Notifier.cancel(app, r.id)
-            ReminderDatabase.get(app).reminderDao().setStatus(r.id, ReminderStatus.DONE, System.currentTimeMillis())
+        Notifier.cancel(app, id)
+        val dao = ReminderDatabase.get(app).reminderDao()
+        val r = dao.byId(id)
+        if (r != null) {
+            val now = System.currentTimeMillis()
+            val at = now + SNOOZE_MS
+            val beat = fired ?: Fired.of(r)
+            val sooner = r.status == ReminderStatus.SCHEDULED && !beat.sameOccurrence(r) && r.nextTriggerAt <= at
+            if (!sooner) {
+                val rescheduler = Rescheduler(app)
+                rescheduler.cancel(id)
+                val phase = if (beat.phase == Phase.NUDGE) Phase.MAIN else beat.phase
+                dao.snooze(id, beat.day, beat.slot, phase, beat.nagCount, at, now)
+                dao.byId(id)?.let { rescheduler.schedule(it) }
+            }
         }
         WidgetUpdater.refresh(app)
     }
@@ -260,8 +206,10 @@ object Reminders {
         val app = context.applicationContext
         val dao = ReminderDatabase.get(app).reminderDao()
         if (dao.byId(r.id) != null) dao.update(r) else dao.insert(r)
+        val rescheduler = Rescheduler(app)
+        rescheduler.cancel(r.id)
         if (r.status == ReminderStatus.SCHEDULED && r.nextTriggerAt > System.currentTimeMillis()) {
-            Rescheduler(app).schedule(r)
+            rescheduler.schedule(r)
         }
         WidgetUpdater.refresh(app)
     }
@@ -272,10 +220,11 @@ object Reminders {
         WidgetUpdater.refresh(app)
     }
 
-    /** 当天事项晚上几点提醒。改完全部当天事项的闹钟跟着挪（DayTasks 里） */
-    suspend fun setDayCheckTime(context: Context, time: LocalTime) {
+    /** 收尾时刻（「没说几点的，几点提醒」）。改完排着的那几下跟着挪（[Rescheduler.realignAll]） */
+    suspend fun setCheckTime(context: Context, time: LocalTime) {
         val app = context.applicationContext
-        DayTasks.setCheckTime(app, time)
+        CheckTime.save(app, time)
+        Rescheduler(app).realignAll(time)
         WidgetUpdater.refresh(app)
     }
 
@@ -287,21 +236,16 @@ object Reminders {
      */
     suspend fun startSoakTest(context: Context) {
         val app = context.applicationContext
-        val dao = ReminderDatabase.get(app).reminderDao()
-        val rescheduler = Rescheduler(app)
+        val zone = ZoneId.systemDefault()
         val now = System.currentTimeMillis()
         val step = TimeUnit.HOURS.toMillis(48) / 20
         repeat(20) { i ->
-            val r = Reminder(
-                title = "放置测试 #${i + 1}",
-                rawInput = "soak",
-                nextTriggerAt = now + step * (i + 1),
-                zoneId = ZoneId.systemDefault().id,
-                createdAt = now,
-                updatedAt = now
+            val at = Instant.ofEpochMilli(now + step * (i + 1)).atZone(zone)
+            save(
+                app, null,
+                ReminderSpec(title = "放置测试 #${i + 1}", day = at.toLocalDate(), times = listOf(at.toLocalTime().withSecond(0).withNano(0))),
+                rawInput = "soak", parsedBy = null
             )
-            val id = dao.insert(r)
-            dao.byId(id)?.let { rescheduler.schedule(it) }
         }
         WidgetUpdater.refresh(app)
     }

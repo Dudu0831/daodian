@@ -13,7 +13,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.abc.daodian.reminder.data.ReminderStatus
-import com.abc.daodian.reminder.data.dueDate
+import com.abc.daodian.reminder.data.untimed
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
@@ -46,9 +46,9 @@ fun ReminderDrawerCard(onOpen: () -> Unit) {
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
                     // 今晚响的是提前提醒（日子还远，§4.4）时不说「今天之内」，写它今晚几点提
-                    if (next.dueDay != null) "今天之内".takeIf { onToday && next.dueDate()?.isAfter(today) != true } ?: Format.humanDateTimeShort(next.nextTriggerAt)
+                    if (next.untimed) "今天之内".takeIf { onToday && !next.day.isAfter(today) } ?: Format.humanDateTimeShort(next.nextTriggerAt)
                     else if (onToday) Format.clock(next.nextTriggerAt) else Format.humanDateTimeShort(next.nextTriggerAt),
-                    style = DaodianType.greeting.copy(fontSize = if (onToday && next.dueDay == null) 30.sp else 19.sp, lineHeight = 34.sp),
+                    style = DaodianType.greeting.copy(fontSize = if (onToday && !next.untimed) 30.sp else 19.sp, lineHeight = 34.sp),
                     color = colors.ink
                 )
                 Text(

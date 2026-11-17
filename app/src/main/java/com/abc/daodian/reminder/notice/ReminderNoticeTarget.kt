@@ -15,7 +15,7 @@ import com.abc.daodian.reminder.ReminderRoutes
 import com.abc.daodian.reminder.application.Reminders
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase
-import com.abc.daodian.reminder.data.dueDate
+import com.abc.daodian.reminder.data.untimedDay
 import com.abc.daodian.reminder.domain.ReminderText
 import com.abc.daodian.reminder.domain.Rrule
 import com.abc.daodian.reminder.tools.CreateReminderTool
@@ -114,7 +114,7 @@ object ReminderNoticeTarget : NoticeTarget {
     /** 「10月1日 周四 15:00」「今天之内」「每天 08:00」 */
     private fun whenOf(r: Reminder): String {
         val repeat = Rrule.human(r.rrule)
-        val day = r.dueDate()
+        val day = r.untimedDay()
         return when {
             day != null && repeat != null -> "$repeat · 当天之内"
             day != null -> ReminderText.dayTaskWhen(day)

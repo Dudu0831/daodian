@@ -11,7 +11,9 @@ import com.abc.daodian.reminder.application.Reminders
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase
 import com.abc.daodian.reminder.data.ReminderStatus
-import com.abc.daodian.reminder.data.dueDate
+import com.abc.daodian.reminder.data.slotTime
+import com.abc.daodian.reminder.data.untimed
+import com.abc.daodian.reminder.data.untimedDay
 import com.abc.daodian.shared.format.Format
 import java.time.Instant
 import java.time.LocalDate
@@ -20,7 +22,7 @@ import java.time.temporal.ChronoUnit
 
 /**
  * 提醒给桌面卡片的：某一条的日子、还剩几天，今天的几件、接下来几条，和「完成」这个动作（DESIGN.md §8.5）。
- * 卡片模块来问「days_left #7 现在是几」，这里只读库作答；点完成走 [Reminders.markDone]（先撤闹钟再改状态，同小组件的 ✓）。
+ * 卡片模块来问「days_left #7 现在是几」，这里只读库作答；点完成走 [Reminders.complete]（只算这一次，同小组件的 ✓、提醒页的圈）。
  * 提醒有改动时 `widget/WidgetUpdater.refresh` 顺手喊卡片重画，这里不用另外喊。
  */
 object ReminderCards : CardSource {
@@ -65,14 +67,14 @@ object ReminderCards : CardSource {
             "count" -> CardValue.Number(dao.countScheduled().toLong())
             "today", "upcoming", "today_count", "next_title", "next_in" -> {
                 val upcoming = ordered(dao.allScheduled(), today, zone)
-                val todays = upcoming.filter { dayOf(it, zone) <= today }
+                val todays = upcoming.filter { dayOf(it) <= today }
                 when (name) {
                     "today" -> CardValue.Rows(todays.map { row(it, today, zone) })
                     "upcoming" -> CardValue.Rows(upcoming.take(8).map { row(it, today, zone) }, upcoming.size)
                     "today_count" -> CardValue.Number(todays.size.toLong())
                     "next_title" -> upcoming.firstOrNull()?.let { CardValue.Text(it.title) }
                     else -> upcoming.firstOrNull()?.let { r ->
-                        CardValue.Text(if (r.dueDate() != null && dayOf(r, zone) <= today) "今天之内" else Format.relative(r.nextTriggerAt, now))
+                        CardValue.Text(if (r.untimed && dayOf(r) <= today) "今天之内" else Format.relative(r.nextTriggerAt, now))
                     }
                 }
             }
@@ -85,13 +87,13 @@ object ReminderCards : CardSource {
         val id = args.firstOrNull()?.let { idOf(it) } ?: return false
         val r = ReminderDatabase.get(context).reminderDao().byId(id) ?: return false
         if (r.status != ReminderStatus.SCHEDULED && r.status != ReminderStatus.FIRED) return false
-        Reminders.markDone(context, r)
+        Reminders.complete(context, r)
         return true
     }
 
     /** 一条提醒的那几样。拆出来给测试用 */
     fun field(r: Reminder, name: String, args: List<String>, today: LocalDate, zone: ZoneId = ZoneId.systemDefault()): CardValue? {
-        val day = dayOf(r, zone)
+        val day = dayOf(r)
         val days = ChronoUnit.DAYS.between(today, day)
         return when (name) {
             "title" -> CardValue.Text(r.title)
@@ -113,26 +115,26 @@ object ReminderCards : CardSource {
         }
     }
 
-    /** 说的是哪一天：当天事项是它的日子（顺延、提前提醒都不改它），带钟点的是下一次响的那天 */
-    fun dayOf(r: Reminder, zone: ZoneId = ZoneId.systemDefault()): LocalDate =
-        r.dueDate() ?: Instant.ofEpochMilli(r.nextTriggerAt).atZone(zone).toLocalDate()
+    /** 说的是哪一天：这一次的那天（提前提醒、没点完成在催都不改它） */
+    fun dayOf(r: Reminder): LocalDate = r.day
 
     private fun idOf(arg: String): Long? = arg.trim().removePrefix("#").toLongOrNull()
 
     /** 先后同桌面小组件：当天事项排在它那一天最前面（拖过来的算今天） */
     private fun ordered(all: List<Reminder>, today: LocalDate, zone: ZoneId): List<Reminder> = all.sortedBy { r ->
-        val due = r.dueDate()
+        val due = r.untimedDay()
         if (due == null) r.nextTriggerAt else maxOf(due, today).atStartOfDay(zone).toInstant().toEpochMilli()
     }
 
     private fun row(r: Reminder, today: LocalDate, zone: ZoneId): CardRow {
-        val day = maxOf(dayOf(r, zone), if (r.dueDate() != null) today else LocalDate.MIN)
+        val day = maxOf(dayOf(r), if (r.untimed) today else LocalDate.MIN)
         val dayWord = when (ChronoUnit.DAYS.between(today, day)) {
             0L -> ""
             1L -> "明天"
             else -> "${day.monthValue}月${day.dayOfMonth}日"
         }
-        val note = if (r.dueDate() != null) dayWord.ifEmpty { "当天" } else listOf(dayWord, Format.clock(r.nextTriggerAt, zone)).filter { it.isNotEmpty() }.joinToString(" ")
-        return CardRow(r.title, note, accent = r.dueDate() != null && day == today, action = "${ReminderModule.ID}.done #${r.id}")
+        val clock = r.slotTime()?.toString() ?: Format.clock(r.nextTriggerAt, zone)
+        val note = if (r.untimed) dayWord.ifEmpty { "当天" } else listOf(dayWord, clock).filter { it.isNotEmpty() }.joinToString(" ")
+        return CardRow(r.title, note, accent = r.untimed && day == today, action = "${ReminderModule.ID}.done #${r.id}")
     }
 }

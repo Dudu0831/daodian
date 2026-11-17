@@ -11,8 +11,8 @@ import com.abc.daodian.R
 import com.abc.daodian.reminder.ReminderRoutes
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase
-import com.abc.daodian.reminder.data.dueDate
-import com.abc.daodian.reminder.data.isAllDay
+import com.abc.daodian.reminder.data.untimed
+import com.abc.daodian.reminder.data.untimedDay
 import com.abc.daodian.reminder.domain.ReminderText
 import com.abc.daodian.reminder.domain.Rrule
 import com.abc.daodian.shared.format.Format
@@ -101,7 +101,7 @@ object WidgetRenderer {
         val zone = ZoneId.systemDefault()
         val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
         return all.sortedBy { r ->
-            val due = r.dueDate()
+            val due = r.untimedDay()
             if (due == null) r.nextTriggerAt
             else maxOf(due, today).atStartOfDay(zone).toInstant().toEpochMilli()
         }
@@ -204,7 +204,7 @@ object WidgetRenderer {
                 fit.shape == Shape.Hero -> heroWhen(next, now, next.id == freshId)
                 hidden > 0 -> context.getString(R.string.widget_more, hidden)
                 // 时间表里只写了钟点，「还有多久」挪到脚上。当天事项没有「还有多久」，数的是下一个定时的
-                fit.shape == Shape.Rows -> (items.firstOrNull { !it.isAllDay } ?: next).let {
+                fit.shape == Shape.Rows -> (items.firstOrNull { !it.untimed } ?: next).let {
                     context.getString(R.string.widget_next_in, Format.relative(it.nextTriggerAt, now))
                 }
                 else -> ""
@@ -224,7 +224,7 @@ object WidgetRenderer {
         // 当天事项没有钟点，大字写「今天」「明天」
         views.setTextViewText(
             R.id.hero_time,
-            reminder.dueDate()?.let { dayLabelOf(maxOf(it, today(now)), now) } ?: Format.clock(reminder.nextTriggerAt)
+            reminder.untimedDay()?.let { dayLabelOf(maxOf(it, today(now)), now) } ?: Format.clock(reminder.nextTriggerAt)
         )
         views.setTextViewText(R.id.hero_title, reminder.title)
         if (full) {
@@ -262,7 +262,7 @@ object WidgetRenderer {
     /** 「刚记下 · 明天 · 每天 · 23 小时后」 */
     private fun heroWhen(reminder: Reminder, now: Long, fresh: Boolean): String = buildString {
         if (fresh) append("刚记下 · ")
-        reminder.dueDate()?.let { due ->
+        reminder.untimedDay()?.let { due ->
             // 「今天之内 · 20:00 提醒」「拖了 1 天 · 今晚 20:00 再提醒」
             append(ReminderText.dayTaskWhen(due, today(now)))
             Rrule.human(reminder.rrule)?.let { append(" · ").append(it) }
@@ -292,7 +292,7 @@ object WidgetRenderer {
 
     /** 行尾那一小段：重复的写「每天 10:00」，一次性的写「明天 15:00」 */
     private fun whenShort(reminder: Reminder, now: Long): String {
-        reminder.dueDate()?.let { due ->
+        reminder.untimedDay()?.let { due ->
             return Rrule.human(reminder.rrule)?.let { "$it · 当天" } ?: ReminderText.dayTaskWhen(due, today(now))
         }
         val clock = Format.clock(reminder.nextTriggerAt)
