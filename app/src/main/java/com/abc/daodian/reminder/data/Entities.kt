@@ -103,9 +103,6 @@ fun Reminder.slotTime(): LocalTime? = slot?.let { runCatching { LocalTime.parse(
 fun Reminder.remindBeforeDays(): List<Int> =
     remindBefore?.split(',')?.mapNotNull { it.trim().toIntOrNull()?.takeIf { d -> d > 0 } }?.distinct()?.sortedDescending().orEmpty()
 
-/** 这一次的提前提醒落在哪几天，从早到晚 */
-fun Reminder.nudgeDays(): List<LocalDate> = remindBeforeDays().map { day.minusDays(it.toLong()) }
-
 fun parseTimes(column: String?): List<LocalTime> =
     column?.split(',')?.mapNotNull { runCatching { LocalTime.parse(it.trim()) }.getOrNull() }?.distinct()?.sorted().orEmpty()
 

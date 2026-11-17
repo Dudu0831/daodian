@@ -235,6 +235,72 @@ fun LeafIcon(modifier: Modifier = Modifier, size: Dp = 11.dp, tint: Color, strok
     }
 }
 
+/** 一天几次：一个钟面，和「重复」那一圈分开 —— 重复只管哪几天，钟面管一天里几个钟点 */
+@Composable
+fun BeatIcon(modifier: Modifier = Modifier, size: Dp = 11.dp, tint: Color, strokeWidth: Dp = 1.1.dp) {
+    Canvas(modifier.size(size)) {
+        val k = this.size.width / 12f
+        val sw = strokeWidth.toPx()
+        drawCircle(tint, radius = 4.6f * k, center = Offset(6f * k, 6f * k), style = strokeOf(sw))
+        drawPath(Path().apply { moveTo(6f * k, 3.6f * k); lineTo(6f * k, 6f * k); lineTo(7.9f * k, 6f * k) }, tint, style = strokeOf(sw))
+    }
+}
+
+/** 铃身 + 铃舌，[BellIcon]、[BellOffIcon] 共用 */
+private fun bellPath(k: Float) = Path().apply {
+    moveTo(3.4f * k, 8.4f * k)
+    lineTo(3.4f * k, 5.8f * k)
+    cubicTo(3.4f * k, 2.35f * k, 8.6f * k, 2.35f * k, 8.6f * k, 5.8f * k)
+    lineTo(8.6f * k, 8.4f * k)
+    lineTo(9.4f * k, 9.3f * k)
+    lineTo(2.6f * k, 9.3f * k)
+    close()
+    moveTo(5.1f * k, 10.6f * k)
+    quadraticTo(6f * k, 11.6f * k, 6.9f * k, 10.6f * k)
+}
+
+/** 再提：一只铃，两边两道响声 —— 还会再响 */
+@Composable
+fun BellIcon(modifier: Modifier = Modifier, size: Dp = 11.dp, tint: Color, strokeWidth: Dp = 1.1.dp) {
+    Canvas(modifier.size(size)) {
+        val k = this.size.width / 12f
+        val sw = strokeOf(strokeWidth.toPx())
+        drawPath(bellPath(k), tint, style = sw)
+        drawPath(Path().apply { moveTo(1.2f * k, 4.2f * k); quadraticTo(1.5f * k, 2.9f * k, 2.4f * k, 2.2f * k) }, tint, style = sw)
+        drawPath(Path().apply { moveTo(10.8f * k, 4.2f * k); quadraticTo(10.5f * k, 2.9f * k, 9.6f * k, 2.2f * k) }, tint, style = sw)
+    }
+}
+
+/** 没送到：一只铃，斜着划一道 */
+@Composable
+fun BellOffIcon(modifier: Modifier = Modifier, size: Dp = 11.dp, tint: Color, strokeWidth: Dp = 1.1.dp) {
+    Canvas(modifier.size(size)) {
+        val k = this.size.width / 12f
+        drawPath(bellPath(k), tint, style = strokeOf(strokeWidth.toPx()))
+        drawLine(tint, Offset(1.6f * k, 1.6f * k), Offset(10.4f * k, 10.4f * k), strokeWidth = strokeWidth.toPx(), cap = StrokeCap.Round)
+    }
+}
+
+/** 提前提醒：沙漏 —— 日子快到了，先提一下 */
+@Composable
+fun HourglassIcon(modifier: Modifier = Modifier, size: Dp = 11.dp, tint: Color, strokeWidth: Dp = 1.1.dp) {
+    Canvas(modifier.size(size)) {
+        val k = this.size.width / 12f
+        val sw = strokeWidth.toPx()
+        drawLine(tint, Offset(3f * k, 1.4f * k), Offset(9f * k, 1.4f * k), strokeWidth = sw, cap = StrokeCap.Round)
+        drawLine(tint, Offset(3f * k, 10.6f * k), Offset(9f * k, 10.6f * k), strokeWidth = sw, cap = StrokeCap.Round)
+        val glass = Path().apply {
+            moveTo(3.8f * k, 1.4f * k)
+            cubicTo(3.8f * k, 4.4f * k, 6f * k, 4.9f * k, 6f * k, 6f * k)
+            cubicTo(6f * k, 7.1f * k, 3.8f * k, 7.6f * k, 3.8f * k, 10.6f * k)
+            moveTo(8.2f * k, 1.4f * k)
+            cubicTo(8.2f * k, 4.4f * k, 6f * k, 4.9f * k, 6f * k, 6f * k)
+            cubicTo(6f * k, 7.1f * k, 8.2f * k, 7.6f * k, 8.2f * k, 10.6f * k)
+        }
+        drawPath(glass, tint, style = strokeOf(sw))
+    }
+}
+
 @Composable
 fun BackIcon(modifier: Modifier = Modifier, size: Dp = 19.dp, tint: Color, strokeWidth: Dp = 1.3.dp) {
     Canvas(modifier.size(size)) {

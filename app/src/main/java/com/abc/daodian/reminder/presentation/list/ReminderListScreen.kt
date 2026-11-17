@@ -69,7 +69,6 @@ import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderStatus
 import com.abc.daodian.reminder.data.Ring
 import com.abc.daodian.reminder.data.clockTimes
-import com.abc.daodian.reminder.data.nudgeDays
 import com.abc.daodian.reminder.data.slotTime
 import com.abc.daodian.reminder.data.untimed
 import com.abc.daodian.reminder.domain.Rrule
@@ -82,6 +81,10 @@ import com.abc.daodian.shared.theme.Motion
 import com.abc.daodian.shared.ui.CheckIcon
 import com.abc.daodian.shared.ui.ChevronRightIcon
 import com.abc.daodian.shared.ui.PlusIcon
+import com.abc.daodian.shared.ui.BeatIcon
+import com.abc.daodian.shared.ui.BellIcon
+import com.abc.daodian.shared.ui.BellOffIcon
+import com.abc.daodian.shared.ui.HourglassIcon
 import com.abc.daodian.shared.ui.LeafIcon
 import com.abc.daodian.shared.ui.RepeatIcon
 import com.abc.daodian.shared.ui.ScreenTopBar
@@ -111,7 +114,7 @@ import kotlinx.coroutines.launch
  * 11 月重画（设计稿「版本三」：https://claude.ai/artifact/9DoWbyCPStsXswbFn8GkbG）：线从最远的那件事一直通到过去，
  * 不被任何抬头切开。左边一栏只放刻度 —— 一周以内是「今天」「明天」这样的一道，再远的只标月份、那一段线画成虚的
  * （隔得远，没按比例）；事情挂在右边，时间写在标题上面一行，只写具体的钟点和日期。
- * 日子还远的当天事项（倒数，DESIGN §4.4）就挂在它那一天；提前提醒的那天，「今天」底下多一行淡的、没有圈的。
+ * 日子还远的当天事项（倒数，DESIGN §4.4）就挂在它那一天；排着提前提醒的也一直挂在正日子上，今天底下不另挂一行（用户 11-17 定的），小字的沙漏写哪天先提。
  *
  * 操作：轴上的圈 = 完成；点整行 = 编辑；左滑 = 删除。完成和删除都不弹确认，底下给 5 秒「撤销」。
  * 红字只给两种情况：过点没响、闹钟没排上（和小组件「过点写红字」同一个语义，§8.2）。
@@ -140,9 +143,8 @@ fun ReminderListScreen(
         delay(600)
         armedProbe++
     }
-    val checkTime by vm.checkTime.collectAsState()
-    val timeline = remember(reminders, now, armedProbe, checkTime) {
-        buildTimeline(reminders, now, ZoneId.systemDefault(), checkTime, vm::isArmed)
+    val timeline = remember(reminders, now, armedProbe) {
+        buildTimeline(reminders, now, ZoneId.systemDefault(), vm::isArmed)
     }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -232,7 +234,6 @@ fun ReminderListScreen(
                     when (line) {
                         is Line.Day -> DayTick(line)
                         is Line.Month -> MonthTick(line)
-                        is Line.Echo -> EchoRow(line, onClick = { onEdit(line.r.id) })
                         is Line.Now -> NowLine(line.at)
                         is Line.End -> EndMark()
                         is Line.AheadEmpty -> AheadEmpty()
@@ -319,14 +320,6 @@ private sealed interface Line {
         override val key: Any get() = "month-$month-$ahead"
     }
 
-    /**
-     * 提前提醒的那天（§4.4），挂在「今天」底下的一行淡的：不是另一条，点它就是点远处那一行；没有圈。
-     * [at] = 今晚提的那一刻，[rang] = 已经提过了
-     */
-    data class Echo(val r: Reminder, val at: Long, val rang: Boolean) : Line {
-        override val key: Any get() = "echo-${r.id}"
-    }
-
     data class Now(val at: Long) : Line {
         override val key: Any get() = "now"
     }
@@ -370,7 +363,7 @@ private fun dayLine(date: LocalDate, today: LocalDate): Line.Day {
 }
 
 /**
- * 这一条在轴上挂在哪一刻：排着提前提醒的，挂在那件事本身那一刻（提前那一下在「今天」底下另有一行淡的）；
+ * 这一条在轴上挂在哪一刻：排着提前提醒的，挂在那件事本身那一刻；
  * 别的就是排着的那一下
  */
 private fun axisAt(r: Reminder, zone: ZoneId): Long {
@@ -402,7 +395,6 @@ private fun buildTimeline(
     all: List<Reminder>,
     now: Long,
     zone: ZoneId,
-    checkTime: LocalTime,
     isArmed: (Long) -> Boolean
 ): Timeline {
     val today = dateOf(now, zone)
@@ -435,14 +427,6 @@ private fun buildTimeline(
         return Timeline(emptyList(), 0)
     }
 
-    // 今天是提前提醒的日子（§4.6）：那件事还挂在远处它自己那天，今天底下多一行淡的
-    val echoes = scheduled.filter { r ->
-        r.day.isAfter(today) && today in r.nudgeDays()
-    }.map { r ->
-        val at = today.atTime(checkTime).atZone(zone).toInstant().toEpochMilli()
-        Line.Echo(r, at, rang = at <= now)
-    }
-
     val lines = buildList {
         if (future.isEmpty() && dayTasksByDay.keys.none { it.isAfter(today) }) add(Line.AheadEmpty)
         var month: YearMonth? = null
@@ -460,9 +444,7 @@ private fun buildTimeline(
             addAll(futureByDay[date].orEmpty().asReversed().map { it.copy(far = far) })
             when {
                 date == today -> {
-                    addAll(echoes.filter { !it.rang })
                     add(Line.Now(now))
-                    addAll(echoes.filter { it.rang })
                     addAll(todayPast)
                 }
                 date.isBefore(today) ->
@@ -572,11 +554,12 @@ private fun EntryRow(e: Line.Entry, now: Long, onClick: () -> Unit, onComplete: 
                     color = if (e.kind == Kind.Rang) colors.ink2 else colors.hint,
                     textDecoration = if (e.kind == Kind.Cancelled) TextDecoration.LineThrough else null
                 )
+                // 停在 FIRED 的只有通知没送到的（关了通知、关了渠道），响成了的早就落成过去或排到下一次
                 if (e.kind == Kind.Rang) {
-                    Text(
-                        "响过了", style = DaodianType.caption, color = colors.muted,
-                        modifier = Modifier.padding(top = 3.dp)
-                    )
+                    NoteRow(listOf {
+                        BellOffIcon(tint = colors.muted)
+                        Note("没送到")
+                    })
                 }
             }
         }
@@ -648,61 +631,43 @@ private fun EntryRow(e: Line.Entry, now: Long, onClick: () -> Unit, onComplete: 
     }
 }
 
-/** 提前提醒的那天挂在「今天」底下的那一行：淡的、没有圈，写今晚几点提、是哪天的事。见 [Line.Echo] */
-@Composable
-private fun EchoRow(e: Line.Echo, onClick: () -> Unit) {
-    val colors = DaodianColors.current
-    val due = e.r.day
-    AxisRow(
-        far = false,
-        node = { HollowNode(6.dp, colors.rule2, stroke = 1.dp) },
-        onNode = null,
-        onClick = onClick
-    ) {
-        Column(Modifier.padding(top = 9.dp, bottom = 11.dp)) {
-            Stamp(Format.clock(e.at) + if (e.rang) " · 提过了" else "", colors.hint)
-            Text(e.r.title, style = DaodianType.axisTitlePast, color = colors.ink2)
-            Text(
-                (if (due.year != LocalDate.now().year) "${due.year}年" else "") + "${due.monthValue}月${due.dayOfMonth}日的事",
-                style = DaodianType.caption, color = colors.muted,
-                modifier = Modifier.padding(top = 3.dp)
-            )
-        }
-    }
-}
-
 /**
- * 标题下面那一行小字，尽量少字（§4.6 第 ④ 步，用户 11-16 要的）：重复是 ↻ 加「每天 4 次」，轻提醒是一片叶子，
- * 再跟一个眼下的状态（正在催「再提 1/3」、排着提前提醒「12月13日先提」）。
- * 都没有就什么也不画。没排上闹钟另起一行红字。
+ * 标题下面那一行小字，能用图标的就用图标（用户 11-16、11-17 要的，设计稿 https://claude.ai/artifact/4tbtHzfLzinrLqSeJMbA8N），
+ * 一样一个图标，样与样之间一个圆点：↻ 每天（重复，只管哪几天）· 钟面 2/4（一天几次）· 叶子（轻提醒）·
+ * 铃 1/3（正在再提第几次）· 沙漏 12月13日（下一个提前提醒的日子）。
+ * 只写和默认不一样的，都没有就什么也不画。没排上闹钟另起一行红字。
  */
 @Composable
 private fun EntryNotes(r: Reminder, armed: Boolean) {
     val colors = DaodianColors.current
+    val zone = ZoneId.systemDefault()
+    val today = LocalDate.now(zone)
     val repeat = Rrule.human(r.rrule)
-    val n = r.clockTimes().size
-    val freq = when {
-        repeat != null && n > 1 -> "$repeat $n 次"
-        repeat != null -> repeat
-        n > 1 -> "一天 $n 次"
-        else -> null
-    }
-    val gentle = !r.untimed && r.ring == Ring.NOTICE
-    val extra = remember(r) { extraOf(r) }
-    if (freq != null || gentle || extra != null) {
-        Row(
-            Modifier.padding(top = 3.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
-        ) {
-            if (repeat != null) RepeatIcon(tint = colors.muted)
-            if (freq != null) Text(freq, style = DaodianType.caption, color = colors.muted)
-            if (gentle) LeafIcon(tint = colors.muted)
-            if (extra != null) {
-                Text(if (freq != null || gentle) "· $extra" else extra, style = DaodianType.caption, color = colors.muted)
-            }
+    val times = r.clockTimes()
+    val parts = buildList<@Composable () -> Unit> {
+        if (repeat != null) add {
+            RepeatIcon(tint = colors.muted)
+            Note(repeat)
+        }
+        // 一天几次：轮到的这一次在今天，写响了几下 / 一共几下；还没到那天只写一共几下
+        if (times.size > 1) add {
+            BeatIcon(tint = colors.muted)
+            Note(if (r.phase != Phase.NUDGE && r.day == today) "${rangToday(r, times)}/${times.size}" else "${times.size} 次")
+        }
+        if (!r.untimed && r.ring == Ring.NOTICE) add { LeafIcon(tint = colors.muted) }
+        // 钟点头上已经写了，这里只说第几次；每晚再提的不写：拖着的头上已经是「拖 N 天」
+        if (r.phase == Phase.NAG && r.nag == Nag.SOON) add {
+            BellIcon(tint = colors.muted)
+            Note("${r.nagCount}/${Schedule.NAG_SOON_MAX}")
+        }
+        // 那件事一直挂在正日子上；沙漏写下一个先提一下的日子，到了那天写几点提（收尾时刻）
+        if (r.phase == Phase.NUDGE) add {
+            HourglassIcon(tint = colors.muted)
+            val d = dateOf(r.nextTriggerAt, zone)
+            Note(if (d == today) "今天 ${Format.clock(r.nextTriggerAt)}" else "${d.monthValue}月${d.dayOfMonth}日")
         }
     }
+    if (parts.isNotEmpty()) NoteRow(parts)
     if (!armed) {
         Text(
             "没排上闹钟", style = DaodianType.caption, color = colors.red,
@@ -711,20 +676,31 @@ private fun EntryNotes(r: Reminder, armed: Boolean) {
     }
 }
 
-/** 小字里眼下的那一样：正在催第几次、排着提前提醒 */
-private fun extraOf(r: Reminder): String? {
-    val zone = ZoneId.systemDefault()
-    return listOfNotNull(
-        when {
-            // 钟点头上已经写了，只说第几次；每晚再提的不写：拖着的头上已经是「拖 N 天」
-            r.phase == Phase.NAG && r.nag == Nag.SOON -> "再提 ${r.nagCount}/${Schedule.NAG_SOON_MAX}"
-            r.phase == Phase.NUDGE -> dateOf(r.nextTriggerAt, zone).let { d ->
-                if (d == LocalDate.now(zone)) "今晚先提" else "${d.monthValue}月${d.dayOfMonth}日先提"
-            }
-            else -> null
-        }
-    ).joinToString(" · ").ifEmpty { null }
+/** 今天这几个钟点已经响了几下：排着的那个钟点之前的都响过；正在催、稍后着的，这个钟点自己也响过了 */
+private fun rangToday(r: Reminder, times: List<LocalTime>): Int {
+    val i = times.indexOf(r.slotTime()).takeIf { it >= 0 } ?: return 0
+    return i + if (r.phase == Phase.NAG || r.snoozed) 1 else 0
 }
+
+/** 小字那一行：每一样自己是「图标 + 字」，样与样之间一个「·」 */
+@Composable
+private fun NoteRow(parts: List<@Composable () -> Unit>) {
+    Row(Modifier.padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+        parts.forEachIndexed { i, part ->
+            // 字体里的「·」在小字里只剩一个像素，自己画一个圆点
+            if (i > 0) {
+                Box(
+                    Modifier.padding(horizontal = 6.dp).size(3.dp)
+                        .background(DaodianColors.current.muted, CircleShape)
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) { part() }
+        }
+    }
+}
+
+@Composable
+private fun Note(text: String) = Text(text, style = DaodianType.caption, color = DaodianColors.current.muted)
 
 @Composable
 private fun HollowNode(size: Dp, color: Color, stroke: Dp = 1.2.dp) {
