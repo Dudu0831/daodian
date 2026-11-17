@@ -33,7 +33,7 @@ class SweepWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             val overdue = db.reminderDao().overdue(now)
             overdue.forEach { r ->
                 Log.w(TAG, "发现漏网提醒 id=${r.id}「${r.title}」，迟了 ${(now - r.nextTriggerAt) / 1000}s —— 主闹钟路径可能正在被掐")
-                FireHandler.fire(app, r, FireSource.SWEEP, now)
+                FireHandler.fire(app, r.id, FireSource.SWEEP, now)
             }
 
             // 2. 补排掉了的闹钟

@@ -43,6 +43,8 @@ class ReminderViewModel(app: Application) : AndroidViewModel(app) {
     /** 完成这一次（§4.6）：一次性的办完，重复的排下一次 */
     fun complete(r: Reminder) = viewModelScope.launch { Reminders.complete(getApplication(), r) }
 
+    fun stop(r: Reminder) = viewModelScope.launch { Reminders.stop(getApplication(), r) }
+
     fun delete(r: Reminder) = viewModelScope.launch { Reminders.delete(getApplication(), r) }
 
     fun restore(r: Reminder) = viewModelScope.launch { Reminders.restore(getApplication(), r) }

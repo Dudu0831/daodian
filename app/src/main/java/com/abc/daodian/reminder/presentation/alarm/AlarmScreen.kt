@@ -39,6 +39,7 @@ fun AlarmScreen(
     title: String,
     dateLabel: String,
     clockLabel: String,
+    doneLabel: String,
     onDone: () -> Unit,
     onSnooze: () -> Unit
 ) {
@@ -99,7 +100,7 @@ fun AlarmScreen(
                     .clickable(onClick = onDone),
                 contentAlignment = Alignment.Center
             ) {
-                Text("完成", style = DaodianType.button, color = colors.onSolid)
+                Text(doneLabel, style = DaodianType.button, color = colors.onSolid)
             }
             Box(
                 Modifier

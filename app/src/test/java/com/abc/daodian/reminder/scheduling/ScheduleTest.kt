@@ -230,7 +230,9 @@ class ScheduleTest {
         assertEquals(beat("2026-11-16", null, Phase.NAG, "2026-11-16T21:00:00", 1), Schedule.realign(nag, ms("2026-11-16T20:30:00"), later, zone))
         // 稍后着的、隔 30 分钟催的是绝对时刻，不动
         assertNull(Schedule.realign(main.copy(snoozed = true), ms("2026-11-16T10:00:00"), later, zone))
-        assertNull(Schedule.realign(r("2026-11-16", "08:00", nag = Nag.SOON, phase = Phase.NAG, nagCount = 1), ms("2026-11-16T10:00:00"), later, zone))
+        assertNull(Schedule.realign(r("2026-11-16", "08:00", nag = Nag.SOON, phase = Phase.NAG, nagCount = 1, at = "2026-11-16T10:30:00"), ms("2026-11-16T10:00:00"), later, zone))
+        // 已经到点还没响的不动：闹钟正要响、巡检会补发，挪走就把这一下吞了（11-16 模拟器上跳钟时碰到的）
+        assertNull(Schedule.realign(r("2026-11-16", at = "2026-11-16T09:00:00"), ms("2026-11-16T10:00:00"), later, zone))
         // 有钟点的正点不看收尾时刻
         val meet = r("2026-11-17", "09:00", at = "2026-11-17T09:00:00")
         assertEquals(beat("2026-11-17", "09:00", Phase.MAIN, "2026-11-17T09:00:00"), Schedule.realign(meet, ms("2026-11-16T10:00:00"), later, zone))
@@ -239,11 +241,20 @@ class ScheduleTest {
     @Test
     fun `flying to tokyo keeps eight in the morning local, a fixed meeting keeps its instant`() {
         val tokyo = ZoneId.of("Asia/Tokyo")
-        val pill = r("2026-11-17", "08:00", rrule = "FREQ=DAILY")
+        val pill = r("2026-11-17", "08:00", rrule = "FREQ=DAILY", at = "2026-11-17T08:00:00")
         assertEquals(tokyo, Schedule.zoneOf(pill, tokyo))
         assertEquals(ms("2026-11-17T08:00:00", tokyo), Schedule.realign(pill, ms("2026-11-16T10:00:00"), check, Schedule.zoneOf(pill, tokyo))!!.at)
         val meet = pill.copy(rrule = null, wallClockAnchored = false)
         assertEquals(zone, Schedule.zoneOf(meet, tokyo))
         assertEquals(tokyo, Schedule.zoneOf(r("2026-11-17"), tokyo))
+    }
+
+    @Test
+    fun `fired days late after the next one already came, it does not nag about the old one`() {
+        // 每天 10:00 喝水、要催；手机关了两天，22 号那次 24 号中午才补发 —— 23 号那次早过了，不再为 22 号催
+        val water = r("2026-11-22", "10:00", rrule = "FREQ=DAILY", nag = Nag.SOON, at = "2026-11-22T10:00:00")
+        assertEquals(beat("2026-11-25", "10:00", Phase.MAIN, "2026-11-25T10:00:00"), fired(water, "2026-11-24T12:00:00"))
+        // 晚到一会儿、下一次还没来的，照催
+        assertEquals(Phase.NAG, fired(water, "2026-11-22T10:05:00")!!.phase)
     }
 }

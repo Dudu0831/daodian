@@ -86,8 +86,7 @@ object Notifier {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setContentIntent(open)
-            .addAction(0, "完成", actionIntent(context, reminder, NotificationActionReceiver.ACTION_DONE))
-            .addAction(0, "稍后 10 分钟", actionIntent(context, reminder, NotificationActionReceiver.ACTION_SNOOZE))
+        addButtons(context, builder, reminder)
 
         val body = timedBody(reminder, lateBy)
         if (body.isNotEmpty()) builder.setContentText(body)
@@ -104,6 +103,7 @@ object Notifier {
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         .putExtra(AlarmActivity.EXTRA_REMINDER_ID, reminder.id)
                         .putExtra(AlarmActivity.EXTRA_TITLE, reminder.title)
+                        .putExtra(AlarmActivity.EXTRA_DONE_LABEL, buttonsOf(reminder).first().label)
                 ),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
@@ -191,8 +191,7 @@ object Notifier {
     }
 
     /**
-     * 和响铃那一档比，少四样：全屏 intent、[Notification.FLAG_INSISTENT]、闹钟音量、「完成」按钮。
-     * 它不等人确认，送到了就算完（FireHandler）；重复的点「完成」还会把整条停掉，留着是坑。只留「稍后 10 分钟」。
+     * 和响铃那一档比，少三样：全屏 intent、[Notification.FLAG_INSISTENT]、闹钟音量。按钮照 [buttonsOf]。
      * 别的照旧 —— 一样准点（排期不分档）、补发一样写在脸上。点开进列表。
      */
     private fun fireGentle(context: Context, reminder: Reminder, lateBy: Long): Boolean {
@@ -212,7 +211,7 @@ object Notifier {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setContentIntent(openList(context))
-            .addAction(0, "稍后 10 分钟", actionIntent(context, reminder, NotificationActionReceiver.ACTION_SNOOZE))
+        addButtons(context, builder, reminder)
         val body = timedBody(reminder, lateBy)
         if (body.isNotEmpty()) builder.setContentText(body)
 
@@ -252,7 +251,7 @@ object Notifier {
     }
 
     /**
-     * 不定钟点的、只发通知的：每条一个通知（各带自己的「完成」），挂在同一组下面；只有组头出声 ——
+     * 不定钟点的、只发通知的：每条一个通知（各带自己的按钮），挂在同一组下面；只有组头出声 ——
      * 收尾时刻几条同时到点，响一下就够了，不是一条响一下。
      */
     private fun fireDayTask(context: Context, reminder: Reminder, lateBy: Long): Boolean {
@@ -276,7 +275,7 @@ object Notifier {
             .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
             .setAutoCancel(true)
             .setContentIntent(openList(context))
-            .addAction(0, "完成", actionIntent(context, reminder, NotificationActionReceiver.ACTION_DONE))
+            .also { addButtons(context, it, reminder) }
             .build()
         return post(context, reminder, child, "当天", summary = true)
     }
@@ -386,6 +385,13 @@ object Notifier {
             Launch.intent(context, route = ReminderRoutes.LIST),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+
+    private fun addButtons(context: Context, builder: NotificationCompat.Builder, reminder: Reminder) {
+        buttonsOf(reminder).forEach { b ->
+            val action = if (b == Button.SNOOZE) NotificationActionReceiver.ACTION_SNOOZE else NotificationActionReceiver.ACTION_DONE
+            builder.addAction(0, b.label, actionIntent(context, reminder, action))
+        }
+    }
 
     /** 按钮上记着这一下是哪一次的（[Fired]）：按回来时这条往往已经排到别的次了 */
     private fun actionIntent(context: Context, reminder: Reminder, action: String): PendingIntent {

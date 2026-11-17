@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.abc.daodian.reminder.data.Nag
+import com.abc.daodian.reminder.data.ReminderStatus
 import com.abc.daodian.reminder.data.Ring
 import com.abc.daodian.reminder.data.clockTimes
 import com.abc.daodian.reminder.data.gentle
@@ -318,7 +319,18 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
                         GroupLabel("依据")
                         Text(it, style = DaodianType.basis, color = colors.muted, modifier = Modifier.padding(horizontal = 4.dp))
                     }
-                    Box(Modifier.fillMaxWidth().padding(top = 28.dp), contentAlignment = Alignment.Center) {
+                    // 「不再提醒」（§4.6）：整串停掉、记录留着；「完成」只算这一次。还排着的才有
+                    if (existing.status == ReminderStatus.SCHEDULED) {
+                        Box(Modifier.fillMaxWidth().padding(top = 28.dp), contentAlignment = Alignment.Center) {
+                            Text(
+                                "不再提醒", style = DaodianType.bodySmall, color = colors.ink2,
+                                modifier = Modifier
+                                    .clickable { vm.stop(existing); onBack() }
+                                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                            )
+                        }
+                    }
+                    Box(Modifier.fillMaxWidth().padding(top = if (existing.status == ReminderStatus.SCHEDULED) 0.dp else 28.dp), contentAlignment = Alignment.Center) {
                         Text(
                             "删掉这条", style = DaodianType.bodySmall, color = colors.red,
                             modifier = Modifier

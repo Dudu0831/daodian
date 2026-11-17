@@ -9,6 +9,7 @@ import com.abc.daodian.shared.navigation.Launch
 import com.abc.daodian.reminder.data.ReminderDatabase
 import com.abc.daodian.reminder.data.Reminder
 import java.time.LocalTime
+import kotlinx.coroutines.sync.withLock
 import java.time.ZoneId
 
 /**
@@ -84,7 +85,7 @@ class Rescheduler(private val context: Context) {
      * 时区变了、收尾时刻改了：排着的每一下按新的重新落（[Schedule.realign]）。
      * 跟着人走的「每天早上 8 点」到了新时区还得是当地 8 点；固定那一瞬间的不动。见设计文档 §7.1、§4.6
      */
-    suspend fun realignAll(check: LocalTime): Int {
+    suspend fun realignAll(check: LocalTime): Int = FireHandler.lock.withLock {
         val here = ZoneId.systemDefault()
         val now = System.currentTimeMillis()
         var changed = 0
@@ -98,7 +99,7 @@ class Rescheduler(private val context: Context) {
         Log.i(TAG, "重新落：$changed 条挪了，时区=$here，收尾时刻=$check")
         // 没挪的时间戳没变，但闹钟可能已经掉了，一并重排
         rescheduleAll()
-        return changed
+        changed
     }
 
     private fun alarmIntent(reminder: Reminder): PendingIntent? =

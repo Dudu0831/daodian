@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import com.abc.daodian.reminder.delivery.Button
 import com.abc.daodian.reminder.delivery.FireProbe
 import com.abc.daodian.reminder.delivery.Fired
 import com.abc.daodian.reminder.delivery.NotificationActionReceiver
@@ -12,7 +13,7 @@ import com.abc.daodian.reminder.delivery.NotificationActionReceiver
  * 到点全屏页 —— 到点了真正弹出来的那个屏幕，不是 MainActivity。
  * 见 DESIGN.md §08 界面、视觉稿的 Alarm / AlarmDark 两块画板。
  *
- * 「完成」「稍后 10 分钟」直接复用 NotificationActionReceiver 的逻辑（发同样的广播，带上是哪一下 [Fired]），
+ * 「完成」（不催的叫「知道了」）「稍后 10 分钟」直接复用 NotificationActionReceiver 的逻辑（发同样的广播，带上是哪一下 [Fired]），
  * 不重复一份 DB/Rescheduler 代码。
  */
 class AlarmActivity : ComponentActivity() {
@@ -22,6 +23,7 @@ class AlarmActivity : ComponentActivity() {
 
         val reminderId = intent.getLongExtra(EXTRA_REMINDER_ID, -1L)
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "到点了"
+        val doneLabel = intent.getStringExtra(EXTRA_DONE_LABEL) ?: Button.DONE.label
         val now = System.currentTimeMillis()
         // 转屏、切深色重建时不再记一遍
         if (savedInstanceState == null) FireProbe.shown(this, reminderId)
@@ -35,6 +37,7 @@ class AlarmActivity : ComponentActivity() {
                     title = title,
                     dateLabel = chineseDate(now),
                     clockLabel = com.abc.daodian.shared.format.Format.clock(now),
+                    doneLabel = doneLabel,
                     onDone = { act(NotificationActionReceiver.ACTION_DONE, reminderId) },
                     onSnooze = { act(NotificationActionReceiver.ACTION_SNOOZE, reminderId) }
                 )
@@ -55,5 +58,7 @@ class AlarmActivity : ComponentActivity() {
     companion object {
         const val EXTRA_REMINDER_ID = "reminder_id"
         const val EXTRA_TITLE = "title"
+        /** 左边那颗写什么：设了催是「完成」，不催是「知道了」（[com.abc.daodian.reminder.delivery.buttonsOf]） */
+        const val EXTRA_DONE_LABEL = "done_label"
     }
 }

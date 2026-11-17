@@ -4,27 +4,51 @@ import android.content.Context
 import android.util.Log
 import com.abc.daodian.reminder.data.FireLog
 import com.abc.daodian.reminder.data.FireSource
-import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase
 import com.abc.daodian.reminder.data.ReminderStatus
 import com.abc.daodian.reminder.delivery.Notifier
 import com.abc.daodian.reminder.widget.WidgetUpdater
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * 「一条提醒响了」之后要做的全部事情。
  * AlarmReceiver 和 SweepWorker 共用这一段，保证补发和正常触发走完全相同的逻辑。
+ *
+ * 同一时刻可能有几路在动同一条：到点的闹钟、巡检补发、改时间 / 时区 / 收尾时刻的重算（[Rescheduler.realignAll]）。
+ * 都排进 [lock] 一个一个来，轮到了再读库 —— 11-16 模拟器上往前跳两天：重算先把吃药挪到明天，
+ * 留在 AlarmManager 里的旧闹钟随后照响，读到的是挪过之后的那一行，把明天那次提前五个小时响掉了；
+ * 闹钟和巡检同时补发洛杉矶那条，响了两遍。
  */
 object FireHandler {
 
     private const val TAG = "Daodian/Fire"
 
+    /** 排期的读改写都在这把锁里（不可重入：拿着锁的地方别再调别的拿锁的） */
+    val lock = Mutex()
+
+    /** 闹钟早到这么多以内照响；这条的下一下比这还晚，说明已经被挪走了，这个闹钟是旧的 */
+    private const val EARLY_MS = 60_000L
+
     suspend fun fire(
         context: Context,
-        reminder: Reminder,
+        reminderId: Long,
         source: FireSource,
         firedAt: Long = System.currentTimeMillis()
-    ) {
+    ) = lock.withLock {
         val db = ReminderDatabase.get(context)
+        val reminder = db.reminderDao().byId(reminderId)
+        when {
+            reminder == null -> {
+                Log.w(TAG, "闹钟指向一条已不存在的提醒 id=$reminderId"); return@withLock
+            }
+            reminder.status != ReminderStatus.SCHEDULED -> {
+                Log.w(TAG, "提醒 id=$reminderId 状态是 ${reminder.status}，跳过"); return@withLock
+            }
+            reminder.nextTriggerAt > firedAt + EARLY_MS -> {
+                Log.w(TAG, "id=$reminderId 已经排到 ${reminder.nextTriggerAt}，这个闹钟是挪走之前的，跳过"); return@withLock
+            }
+        }
 
         // 1. 先写日志。即使后面崩了也留下证据 —— 这是 M1 验收的唯一依据
         db.fireLogDao().insert(

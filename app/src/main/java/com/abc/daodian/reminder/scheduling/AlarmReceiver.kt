@@ -4,9 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import com.abc.daodian.reminder.data.ReminderDatabase
 import com.abc.daodian.reminder.data.FireSource
-import com.abc.daodian.reminder.data.ReminderStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -31,15 +29,7 @@ class AlarmReceiver : BroadcastReceiver() {
 
         CoroutineScope(Dispatchers.Default).launch {
             try {
-                val reminder = ReminderDatabase.get(app).reminderDao().byId(reminderId)
-                when {
-                    reminder == null ->
-                        Log.w(TAG, "闹钟指向一条已不存在的提醒 id=$reminderId")
-                    reminder.status != ReminderStatus.SCHEDULED ->
-                        Log.w(TAG, "提醒 id=$reminderId 状态是 ${reminder.status}，跳过")
-                    else ->
-                        FireHandler.fire(app, reminder, FireSource.ALARM, firedAt)
-                }
+                FireHandler.fire(app, reminderId, FireSource.ALARM, firedAt)
             } catch (t: Throwable) {
                 Log.e(TAG, "触发失败 id=$reminderId", t)
             } finally {

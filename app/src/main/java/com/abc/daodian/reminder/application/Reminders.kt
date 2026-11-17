@@ -13,6 +13,7 @@ import com.abc.daodian.reminder.domain.ReminderPlan
 import com.abc.daodian.reminder.domain.ReminderSpec
 import com.abc.daodian.reminder.domain.toSpec
 import com.abc.daodian.reminder.scheduling.CheckTime
+import com.abc.daodian.reminder.scheduling.FireHandler
 import com.abc.daodian.reminder.scheduling.Rescheduler
 import com.abc.daodian.reminder.scheduling.Schedule
 import com.abc.daodian.reminder.widget.WidgetUpdater
@@ -22,6 +23,7 @@ import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -140,11 +142,14 @@ object Reminders {
      * [fired] 是通知上那一下属于哪一次：这条已经翻到别的次了（重复的响完就翻过去），只收通知，不把下一次也算掉。
      * 先撤闹钟再改状态 —— 反了会留下一个指向 DONE 记录的闹钟，到点照响。
      */
-    suspend fun complete(context: Context, r: Reminder, fired: Fired? = null) {
+    suspend fun complete(context: Context, reminder: Reminder, fired: Fired? = null) {
         val app = context.applicationContext
-        Notifier.cancel(app, r.id)
-        if (fired == null || fired.sameOccurrence(r)) {
-            val dao = ReminderDatabase.get(app).reminderDao()
+        Notifier.cancel(app, reminder.id)
+        val dao = ReminderDatabase.get(app).reminderDao()
+        // 和到点、重算排成一队（FireHandler.lock），手上这份可能是旧的，轮到了再读一遍
+        FireHandler.lock.withLock {
+            val r = dao.byId(reminder.id) ?: return@withLock
+            if (fired != null && !fired.sameOccurrence(r)) return@withLock
             val rescheduler = Rescheduler(app)
             val now = System.currentTimeMillis()
             when (r.status) {
@@ -172,8 +177,8 @@ object Reminders {
         val app = context.applicationContext
         Notifier.cancel(app, id)
         val dao = ReminderDatabase.get(app).reminderDao()
-        val r = dao.byId(id)
-        if (r != null) {
+        FireHandler.lock.withLock {
+            val r = dao.byId(id) ?: return@withLock
             val now = System.currentTimeMillis()
             val at = now + SNOOZE_MS
             val beat = fired ?: Fired.of(r)
@@ -185,6 +190,20 @@ object Reminders {
                 dao.snooze(id, beat.day, beat.slot, phase, beat.nagCount, at, now)
                 dao.byId(id)?.let { rescheduler.schedule(it) }
             }
+        }
+        WidgetUpdater.refresh(app)
+    }
+
+    /**
+     * 「不再提醒」（§4.6）：整串停掉，记录留着，在提醒页落成划掉的过去一行。
+     * 和「完成」分开：完成只算这一次。先撤闹钟再改状态，理由同 [complete]
+     */
+    suspend fun stop(context: Context, r: Reminder) {
+        val app = context.applicationContext
+        Notifier.cancel(app, r.id)
+        FireHandler.lock.withLock {
+            Rescheduler(app).cancel(r.id)
+            ReminderDatabase.get(app).reminderDao().setStatus(r.id, ReminderStatus.CANCELLED, System.currentTimeMillis())
         }
         WidgetUpdater.refresh(app)
     }

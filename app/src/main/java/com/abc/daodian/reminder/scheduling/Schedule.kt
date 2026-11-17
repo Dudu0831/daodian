@@ -95,10 +95,12 @@ object Schedule {
         firstBeat(r, occurrences(r, Occ(r.day, r.slotTime()), check, zone).drop(1), now, check, zone)
 
     /**
-     * 改了收尾时刻、换了时区：这一下重新落在哪。null = 不用动（稍后着的、隔 30 分钟催的是绝对时刻；排不出来的留给巡检）。
+     * 改了收尾时刻、换了时区：这一下重新落在哪。null = 不用动（稍后着的、隔 30 分钟催的是绝对时刻；排不出来的留给巡检；
+     * 已经到点还没响的也不动 —— 它的闹钟正要响或者巡检会补发，这里挪走就把这一下悄悄吞了）。
      * 每天再提的挪到下一个收尾时刻 —— 今晚提过了、又把收尾时刻往后改，今晚会按新钟点再提一次，改设置的人要的就是这个
      */
     fun realign(r: Reminder, now: Long, check: LocalTime, zone: ZoneId): Beat? = when {
+        r.nextTriggerAt <= now -> null
         r.snoozed -> null
         r.phase == Phase.NAG && r.nag == Nag.SOON -> null
         r.phase == Phase.NAG -> Beat(r.day, r.slotTime(), Phase.NAG, r.nagCount, checkAfter(now, check, zone))
@@ -111,22 +113,33 @@ object Schedule {
     private fun afterMain(r: Reminder, here: Occ, firedAt: Long, check: LocalTime, zone: ZoneId): Beat? {
         // 稍后过的、补发晚到的，从真响的那一刻往后算
         val base = maxOf(firedAt, mainAt(here, check, zone))
-        val nag = when (r.nag) {
-            Nag.NONE -> null
-            Nag.SOON -> Beat(here.day, here.slot, Phase.NAG, 1, base + NAG_SOON_MS)
-            Nag.DAILY -> Beat(here.day, here.slot, Phase.NAG, 1, checkAfter(base, check, zone))
+        val nag = when {
+            overtaken(r, here, firedAt, check, zone) -> null
+            r.nag == Nag.NONE -> null
+            r.nag == Nag.SOON -> Beat(here.day, here.slot, Phase.NAG, 1, base + NAG_SOON_MS)
+            else -> Beat(here.day, here.slot, Phase.NAG, 1, checkAfter(base, check, zone))
         }
         return earlier(nag, nextOccurrence(r, here, firedAt, check, zone))
     }
 
     private fun afterNag(r: Reminder, here: Occ, firedAt: Long, check: LocalTime, zone: ZoneId): Beat? {
         val base = maxOf(firedAt, r.nextTriggerAt)
-        val nag = when (r.nag) {
-            Nag.NONE -> null
-            Nag.SOON -> if (r.nagCount < NAG_SOON_MAX) Beat(here.day, here.slot, Phase.NAG, r.nagCount + 1, base + NAG_SOON_MS) else null
-            Nag.DAILY -> Beat(here.day, here.slot, Phase.NAG, r.nagCount + 1, checkAfter(base, check, zone))
+        val nag = when {
+            overtaken(r, here, firedAt, check, zone) -> null
+            r.nag == Nag.NONE -> null
+            r.nag == Nag.SOON -> if (r.nagCount < NAG_SOON_MAX) Beat(here.day, here.slot, Phase.NAG, r.nagCount + 1, base + NAG_SOON_MS) else null
+            else -> Beat(here.day, here.slot, Phase.NAG, r.nagCount + 1, checkAfter(base, check, zone))
         }
         return earlier(nag, nextOccurrence(r, here, firedAt, check, zone))
+    }
+
+    /**
+     * 下一次（连它的提前提醒）在这一下响之前就已经到了：手机关了几天、补发晚到时会这样。
+     * 这一次不再催 —— 催到下一次来了就停，下一次早来过了
+     */
+    private fun overtaken(r: Reminder, here: Occ, firedAt: Long, check: LocalTime, zone: ZoneId): Boolean {
+        val next = occurrences(r, here, check, zone).drop(1).firstOrNull() ?: return false
+        return beatsOf(r, next, check, zone).first().at <= firedAt
     }
 
     /** 催到下一次（或下一次的提前提醒）来了就停 */
