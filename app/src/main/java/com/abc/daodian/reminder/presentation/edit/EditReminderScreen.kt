@@ -36,6 +36,7 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,6 +68,11 @@ import com.abc.daodian.shared.ui.PaperGroup
 import com.abc.daodian.shared.ui.PaperSwitch
 import com.abc.daodian.shared.ui.RepeatBadge
 import com.abc.daodian.shared.ui.ScreenTopBar
+import com.abc.daodian.shared.ui.UndoBar
+import com.abc.daodian.reminder.data.ReminderItem
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flowOf
+import com.abc.daodian.reminder.domain.Checklist
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -124,6 +130,17 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
     val checkTime by vm.checkTime.collectAsState()
     val today = remember { LocalDate.now() }
 
+    // 清单（§4.5）：已有的一条当场存进库；新建的先攒在这页上（key 用负数），跟着「记下」一起存
+    val savedItems by remember(existing?.id) { existing?.let { vm.items(it.id) } ?: flowOf(emptyList()) }
+        .collectAsState(emptyList())
+    val draftItems = remember { mutableStateListOf<CheckLine>() }
+    var draftKey by remember { mutableStateOf(-1L) }
+    val checkLines = if (existing != null) savedItems.map { CheckLine(it.id, it.text, it.done) } else draftItems.toList()
+    fun itemOf(line: CheckLine): ReminderItem? = savedItems.firstOrNull { it.id == line.key }
+    // 左滑删了一样：5 秒「撤销」
+    var undoItem by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
+    LaunchedEffect(undoItem) { if (undoItem != null) { delay(5000); undoItem = null } }
+
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimeSheet by remember { mutableStateOf(false) }
     var showRepeatSheet by remember { mutableStateOf(false) }
@@ -158,6 +175,8 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
     }
 
     fun save() {
+        // 先放掉焦点：正在改的那一样（或「加一样」里打了没回车的字）这一下存进来
+        focusManager.clearFocus()
         vm.upsertManual(
             existing?.id,
             ReminderSpec(
@@ -171,7 +190,8 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
                 nag = effectiveNag,
                 // 不定钟点的一律按当地（§4.6）
                 wallClockAnchored = times.isEmpty() || wallClockAnchored
-            )
+            ),
+            newItems = if (existing == null) draftItems.map { it.text to it.done } else emptyList()
         )
         onBack()
     }
@@ -182,173 +202,212 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
     Column(Modifier.fillMaxSize().background(colors.paper)) {
         ScreenTopBar(title = if (existing == null) "新建提醒" else "改一下", onBack = onBack)
 
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+        Box(Modifier.weight(1f)) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
 
-            // ---- 标题 + 人话复述 ----
-            Column(Modifier.padding(horizontal = 24.dp)) {
-                Box(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 10.dp)) {
-                    if (title.isEmpty()) Text("要提醒什么", style = DaodianType.editTitle, color = colors.hint)
-                    BasicTextField(
-                        value = title, onValueChange = { title = it },
-                        textStyle = DaodianType.editTitle.copy(color = colors.ink),
-                        cursorBrush = SolidColor(colors.accent),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                Box(Modifier.fillMaxWidth().height(1.dp).background(if (title.isEmpty()) colors.rule2 else colors.rule))
-                Spacer(Modifier.height(12.dp))
-                Summary(date = date, times = times, checkTime = checkTime, repeatLabel = repeatLabel.takeIf { repeat != RepeatChoice.NONE })
-            }
-
-            Column(Modifier.padding(horizontal = 20.dp)) {
-
-                // 快捷钟点只在新建时给 —— 改一条已有的，多半是改一点点，不是整个换掉
-                if (existing == null) {
-                    Row(
-                        Modifier.padding(top = 18.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        quickPicks().forEach { q ->
-                            val picked = listOfNotNull(q.time)
-                            Chip(q.label, selected = date == q.date && times == picked) {
-                                date = q.date; timesText = timesColumn(picked).orEmpty()
-                                followDefaults(picked, repeat)
-                            }
-                        }
-                    }
-                }
-
-                // ---- 什么时候 ----
-                GroupLabel("什么时候")
-                PaperGroup {
-                    FormRow(
-                        title = if (repeat == RepeatChoice.NONE) "哪天" else "从哪天起",
-                        onClick = { sheet { showDatePicker = true } }
-                    ) { Value("${relativeDay(date)?.let { "$it · " } ?: ""}${Format.humanDay(date)}") }
-                    GroupRule()
-                    FormRow(
-                        title = "几点",
-                        note = if (times.isEmpty()) "那天 ${clock(checkTime)} 提醒" else null,
-                        onClick = { sheet { showTimeSheet = true } }
-                    ) {
-                        Value(
-                            when {
-                                times.isEmpty() -> "不定"
-                                times.size <= 4 -> times.joinToString("、") { clock(it) }
-                                else -> "${times.size} 个钟点"
-                            }
-                        )
-                    }
-                    GroupRule()
-                    FormRow(title = "重复", onClick = { sheet { showRepeatSheet = true } }) { Value(repeatLabel) }
-                }
-
-                // ---- 怎么提醒 ----
-                GroupLabel("怎么提醒")
-                PaperGroup {
-                    if (gap != null && gap <= 1) {
-                        FormRow(title = "提前提醒", note = "每天都有的，提前不了", dim = true) {
-                            Text("不提前", style = DaodianType.axisTime, color = colors.hint)
-                        }
-                    } else {
-                        FormRow(title = "提前提醒", onClick = { sheet { showNudgeSheet = true } }) {
-                            Value(
-                                when {
-                                    before.isEmpty() -> "不提前"
-                                    before.size <= 3 -> "提前 ${before.joinToString("、")} 天"
-                                    else -> "${before.size} 次"
-                                }
-                            )
-                        }
-                        val nudges = before.map { date.minusDays(it.toLong()) }.filter { it.isAfter(today) }.sorted()
-                        if (nudges.isNotEmpty()) NudgeStrip(today, date, nudges)
-                    }
-                    // 不定钟点的一律只发通知（收在收尾时刻那一组里，§4.6），没得选，这一行不出。
-                    // 名字是用户定的（10-11）：标题只叫「轻提醒」，它是什么写在底下两行小字里，开着关着都是这两行。
-                    // 第二行不能再长：真机上一行放 20 个字，多了会把最后一两个字单独甩下去（§5.6）
-                    if (times.isNotEmpty()) GroupRule()
-                    if (times.isNotEmpty()) FormRow(
-                        title = "轻提醒",
-                        note = "到点只发一条通知，不响铃、不弹全屏。\n响一声、震一下，声音跟通知音量走。",
-                        onClick = { ring = if (ring == Ring.NOTICE) Ring.ALARM else Ring.NOTICE; ringTouched = true }
-                    ) {
-                        PaperSwitch(checked = ring == Ring.NOTICE, onCheckedChange = { ring = if (it) Ring.NOTICE else Ring.ALARM; ringTouched = true })
-                    }
-                    GroupRule()
-                    FormRow(title = "没点完成", onClick = { sheet { showNagSheet = true } }) {
-                        Value(
-                            when (effectiveNag) {
-                                Nag.NONE -> "不催"
-                                Nag.SOON -> "过一会儿再提"
-                                Nag.DAILY -> "每晚再提"
-                            }
-                        )
-                    }
-                    // 不定钟点的一律按当地，这一行对它没意义
-                    if (times.isNotEmpty()) {
-                        GroupRule()
-                        FormRow(
-                            title = "跟着我所在时区走",
-                            note = if (wallClockAnchored) "飞到哪儿都是当地这个点"
-                            else "固定那一瞬间，适合「${Format.humanDay(date)} ${clock(times.first())} 的航班」",
-                            onClick = { wallClockAnchored = !wallClockAnchored }
-                        ) { PaperSwitch(checked = wallClockAnchored, onCheckedChange = { wallClockAnchored = it }) }
-                    }
-                }
-
-                // ---- 备注 ----
-                GroupLabel("备注")
-                PaperGroup {
-                    Box(Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 18.dp, vertical = 14.dp)) {
-                        if (note.isEmpty()) Text("补充说明，可以不填", style = DaodianType.body, color = colors.hint)
+                // ---- 标题 + 人话复述 ----
+                Column(Modifier.padding(horizontal = 24.dp)) {
+                    Box(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 10.dp)) {
+                        if (title.isEmpty()) Text("要提醒什么", style = DaodianType.editTitle, color = colors.hint)
                         BasicTextField(
-                            value = note, onValueChange = { note = it },
-                            textStyle = DaodianType.body.copy(color = colors.ink),
+                            value = title, onValueChange = { title = it },
+                            textStyle = DaodianType.editTitle.copy(color = colors.ink),
                             cursorBrush = SolidColor(colors.accent),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(if (title.isEmpty()) colors.rule2 else colors.rule))
+                    Spacer(Modifier.height(12.dp))
+                    Summary(date = date, times = times, checkTime = checkTime, repeatLabel = repeatLabel.takeIf { repeat != RepeatChoice.NONE })
                 }
 
-                if (existing != null) {
-                    // 原话：这条当初是怎么说的。只有模型建的才有（parsedBy 非空）——
-                    // 手动建的 rawInput 存的就是标题，摆出来是把标题再念一遍
-                    if (existing.parsedBy != null && existing.rawInput.isNotBlank()) {
-                        GroupLabel("原话")
-                        Text(
-                            "「${existing.rawInput}」", style = DaodianType.basis, color = colors.muted,
-                            modifier = Modifier.padding(horizontal = 4.dp)
-                        )
+                Column(Modifier.padding(horizontal = 20.dp)) {
+
+                    // ---- 清单：这件事本身的内容，排在所有设置上面（方向甲） ----
+                    ChecklistGroup(
+                        lines = checkLines,
+                        beforeEdit = { focusManager.clearFocus() },
+                        onAdd = { text ->
+                            if (existing != null) vm.addItem(existing.id, text)
+                            else draftItems += CheckLine(draftKey--, text, false)
+                        },
+                        onToggle = { line ->
+                            if (existing != null) itemOf(line)?.let { vm.setItemDone(it, !it.done) }
+                            else draftItems.replaceAll { if (it.key == line.key) it.copy(done = !it.done) else it }
+                        },
+                        onRename = { line, text ->
+                            if (existing != null) itemOf(line)?.let { vm.renameItem(it, text) }
+                            else Checklist.clean(text).let { t ->
+                                if (t == null) draftItems.removeAll { it.key == line.key }
+                                else draftItems.replaceAll { if (it.key == line.key) it.copy(text = t) else it }
+                            }
+                        },
+                        onRemove = { line ->
+                            if (existing != null) {
+                                itemOf(line)?.let { item -> vm.removeItem(item); undoItem = "已删掉「${item.text}」" to { vm.restoreItem(item) } }
+                            } else {
+                                val at = draftItems.indexOfFirst { it.key == line.key }
+                                if (at >= 0) {
+                                    draftItems.removeAt(at)
+                                    undoItem = "已删掉「${line.text}」" to { draftItems.add(at.coerceAtMost(draftItems.size), line) }
+                                }
+                            }
+                        }
+                    )
+
+                    // 快捷钟点只在新建时给 —— 改一条已有的，多半是改一点点，不是整个换掉
+                    if (existing == null) {
+                        Row(
+                            Modifier.padding(top = 18.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            quickPicks().forEach { q ->
+                                val picked = listOfNotNull(q.time)
+                                Chip(q.label, selected = date == q.date && times == picked) {
+                                    date = q.date; timesText = timesColumn(picked).orEmpty()
+                                    followDefaults(picked, repeat)
+                                }
+                            }
+                        }
                     }
-                    // 依据：模型当初怎么算出这个时间的。模型算歪的时候，这是唯一能看出哪步歪了的线索
-                    var basis by remember(existing.id) { mutableStateOf<String?>(null) }
-                    LaunchedEffect(existing.id) { basis = vm.basisOf(existing.id) }
-                    basis?.let {
-                        GroupLabel("依据")
-                        Text(it, style = DaodianType.basis, color = colors.muted, modifier = Modifier.padding(horizontal = 4.dp))
+
+                    // ---- 什么时候 ----
+                    GroupLabel("什么时候")
+                    PaperGroup {
+                        FormRow(
+                            title = if (repeat == RepeatChoice.NONE) "哪天" else "从哪天起",
+                            onClick = { sheet { showDatePicker = true } }
+                        ) { Value("${relativeDay(date)?.let { "$it · " } ?: ""}${Format.humanDay(date)}") }
+                        GroupRule()
+                        FormRow(
+                            title = "几点",
+                            note = if (times.isEmpty()) "那天 ${clock(checkTime)} 提醒" else null,
+                            onClick = { sheet { showTimeSheet = true } }
+                        ) {
+                            Value(
+                                when {
+                                    times.isEmpty() -> "不定"
+                                    times.size <= 4 -> times.joinToString("、") { clock(it) }
+                                    else -> "${times.size} 个钟点"
+                                }
+                            )
+                        }
+                        GroupRule()
+                        FormRow(title = "重复", onClick = { sheet { showRepeatSheet = true } }) { Value(repeatLabel) }
                     }
-                    // 「不再提醒」（§4.6）：整串停掉、记录留着；「完成」只算这一次。还排着的才有
-                    if (existing.status == ReminderStatus.SCHEDULED) {
-                        Box(Modifier.fillMaxWidth().padding(top = 28.dp), contentAlignment = Alignment.Center) {
+
+                    // ---- 怎么提醒 ----
+                    GroupLabel("怎么提醒")
+                    PaperGroup {
+                        if (gap != null && gap <= 1) {
+                            FormRow(title = "提前提醒", note = "每天都有的，提前不了", dim = true) {
+                                Text("不提前", style = DaodianType.axisTime, color = colors.hint)
+                            }
+                        } else {
+                            FormRow(title = "提前提醒", onClick = { sheet { showNudgeSheet = true } }) {
+                                Value(
+                                    when {
+                                        before.isEmpty() -> "不提前"
+                                        before.size <= 3 -> "提前 ${before.joinToString("、")} 天"
+                                        else -> "${before.size} 次"
+                                    }
+                                )
+                            }
+                            val nudges = before.map { date.minusDays(it.toLong()) }.filter { it.isAfter(today) }.sorted()
+                            if (nudges.isNotEmpty()) NudgeStrip(today, date, nudges)
+                        }
+                        // 不定钟点的一律只发通知（收在收尾时刻那一组里，§4.6），没得选，这一行不出。
+                        // 名字是用户定的（10-11）：标题只叫「轻提醒」，它是什么写在底下两行小字里，开着关着都是这两行。
+                        // 第二行不能再长：真机上一行放 20 个字，多了会把最后一两个字单独甩下去（§5.6）
+                        if (times.isNotEmpty()) GroupRule()
+                        if (times.isNotEmpty()) FormRow(
+                            title = "轻提醒",
+                            note = "到点只发一条通知，不响铃、不弹全屏。\n响一声、震一下，声音跟通知音量走。",
+                            onClick = { ring = if (ring == Ring.NOTICE) Ring.ALARM else Ring.NOTICE; ringTouched = true }
+                        ) {
+                            PaperSwitch(checked = ring == Ring.NOTICE, onCheckedChange = { ring = if (it) Ring.NOTICE else Ring.ALARM; ringTouched = true })
+                        }
+                        GroupRule()
+                        FormRow(title = "没点完成", onClick = { sheet { showNagSheet = true } }) {
+                            Value(
+                                when (effectiveNag) {
+                                    Nag.NONE -> "不催"
+                                    Nag.SOON -> "过一会儿再提"
+                                    Nag.DAILY -> "每晚再提"
+                                }
+                            )
+                        }
+                        // 不定钟点的一律按当地，这一行对它没意义
+                        if (times.isNotEmpty()) {
+                            GroupRule()
+                            FormRow(
+                                title = "跟着我所在时区走",
+                                note = if (wallClockAnchored) "飞到哪儿都是当地这个点"
+                                else "固定那一瞬间，适合「${Format.humanDay(date)} ${clock(times.first())} 的航班」",
+                                onClick = { wallClockAnchored = !wallClockAnchored }
+                            ) { PaperSwitch(checked = wallClockAnchored, onCheckedChange = { wallClockAnchored = it }) }
+                        }
+                    }
+
+                    // ---- 备注 ----
+                    GroupLabel("备注")
+                    PaperGroup {
+                        Box(Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 18.dp, vertical = 14.dp)) {
+                            if (note.isEmpty()) Text("补充说明，可以不填", style = DaodianType.body, color = colors.hint)
+                            BasicTextField(
+                                value = note, onValueChange = { note = it },
+                                textStyle = DaodianType.body.copy(color = colors.ink),
+                                cursorBrush = SolidColor(colors.accent),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+
+                    if (existing != null) {
+                        // 原话：这条当初是怎么说的。只有模型建的才有（parsedBy 非空）——
+                        // 手动建的 rawInput 存的就是标题，摆出来是把标题再念一遍
+                        if (existing.parsedBy != null && existing.rawInput.isNotBlank()) {
+                            GroupLabel("原话")
                             Text(
-                                "不再提醒", style = DaodianType.bodySmall, color = colors.ink2,
+                                "「${existing.rawInput}」", style = DaodianType.basis, color = colors.muted,
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+                        }
+                        // 依据：模型当初怎么算出这个时间的。模型算歪的时候，这是唯一能看出哪步歪了的线索
+                        var basis by remember(existing.id) { mutableStateOf<String?>(null) }
+                        LaunchedEffect(existing.id) { basis = vm.basisOf(existing.id) }
+                        basis?.let {
+                            GroupLabel("依据")
+                            Text(it, style = DaodianType.basis, color = colors.muted, modifier = Modifier.padding(horizontal = 4.dp))
+                        }
+                        // 「不再提醒」（§4.6）：整串停掉、记录留着；「完成」只算这一次。还排着的才有
+                        if (existing.status == ReminderStatus.SCHEDULED) {
+                            Box(Modifier.fillMaxWidth().padding(top = 28.dp), contentAlignment = Alignment.Center) {
+                                Text(
+                                    "不再提醒", style = DaodianType.bodySmall, color = colors.ink2,
+                                    modifier = Modifier
+                                        .clickable { vm.stop(existing); onBack() }
+                                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                                )
+                            }
+                        }
+                        Box(Modifier.fillMaxWidth().padding(top = if (existing.status == ReminderStatus.SCHEDULED) 0.dp else 28.dp), contentAlignment = Alignment.Center) {
+                            Text(
+                                "删掉这条", style = DaodianType.bodySmall, color = colors.red,
                                 modifier = Modifier
-                                    .clickable { vm.stop(existing); onBack() }
+                                    .clickable { askDelete = true }
                                     .padding(horizontal = 16.dp, vertical = 10.dp)
                             )
                         }
                     }
-                    Box(Modifier.fillMaxWidth().padding(top = if (existing.status == ReminderStatus.SCHEDULED) 0.dp else 28.dp), contentAlignment = Alignment.Center) {
-                        Text(
-                            "删掉这条", style = DaodianType.bodySmall, color = colors.red,
-                            modifier = Modifier
-                                .clickable { askDelete = true }
-                                .padding(horizontal = 16.dp, vertical = 10.dp)
-                        )
-                    }
+                    Spacer(Modifier.height(32.dp))
                 }
-                Spacer(Modifier.height(32.dp))
             }
+            UndoBar(
+                label = undoItem?.first,
+                onUndo = { undoItem?.second?.invoke(); undoItem = null },
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
         }
 
         // 「记下」钉在底部，键盘弹起时跟着上来。inset 只从这一处来，见 CLAUDE.md「踩过的坑 · 键盘 inset」

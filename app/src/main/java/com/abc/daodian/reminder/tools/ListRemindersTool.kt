@@ -1,6 +1,7 @@
 package com.abc.daodian.reminder.tools
 
 import com.abc.daodian.reminder.data.Reminder
+import com.abc.daodian.reminder.data.ReminderItem
 import com.abc.daodian.reminder.data.ReminderStatus
 import com.abc.daodian.reminder.data.Nag
 import com.abc.daodian.reminder.data.Ring
@@ -38,7 +39,7 @@ class ListRemindersTool(
 
     override val description =
         "查用户手机上已有的提醒。他问「明天有什么提醒」「我设过喝水的提醒吗」，或者你要改、删某条之前先查它的 # 编号和现在的样子，都用它。" +
-            "默认只列还没响的；他问以前的、响过的才把 include_finished 设成 true。"
+            "默认只列还没响的；他问以前的、响过的才把 include_finished 设成 true。有清单的，清单另起一行，[x] 是勾了的。"
 
     override val parameters: Map<String, Any?> = mapOf(
         "type" to "object",
@@ -79,8 +80,9 @@ class ListRemindersTool(
             return ToolOutcome(if (withFinished) "没有符合条件的提醒。" else "没有符合条件的、还没响的提醒。", ok = true)
         }
         val shown = hits.take(limit)
+        val items = desk.items().groupBy { it.reminderId }
         val out = "共 ${hits.size} 条" + (if (hits.size > shown.size) "，列了前 ${shown.size} 条" else "") + "：\n" +
-            shown.joinToString("\n") { line(it, zone, today) }
+            shown.joinToString("\n") { line(it, zone, today) + checklist(items[it.id].orEmpty()) }
         return ToolOutcome(out, ok = true)
     }
 
@@ -121,6 +123,12 @@ class ListRemindersTool(
                 "remindBefore=[${spec.remindBefore.joinToString(",")}] ring=${spec.ring.name.lowercase()} nag=${spec.nag.name.lowercase()} " +
                 "wallClockAnchored=${spec.wallClockAnchored}"
         }
+
+        /**
+         * 清单另起一行，带号（`change_checklist` 按号改）：「  清单：1[ ]护照签证 2[x]转换插头」。没有清单是空的
+         */
+        fun checklist(items: List<ReminderItem>): String =
+            if (items.isEmpty()) "" else "\n  清单：" + items.mapIndexed { i, it -> "${i + 1}[${if (it.done) "x" else " "}]${it.text}" }.joinToString(" ")
 
         /** 重复的从 [from] 往后数，头一个不早于 [today] 的；不重复（或规则排不出下一次）的就是 [today] */
         private fun nextOnOrAfter(rrule: String?, from: LocalDate, today: LocalDate, zone: ZoneId): LocalDate {

@@ -66,6 +66,8 @@ import androidx.compose.ui.unit.sp
 import com.abc.daodian.reminder.data.Nag
 import com.abc.daodian.reminder.data.Phase
 import com.abc.daodian.reminder.data.Reminder
+import com.abc.daodian.reminder.data.ReminderItem
+import com.abc.daodian.reminder.domain.Checklist
 import com.abc.daodian.reminder.data.ReminderStatus
 import com.abc.daodian.reminder.data.Ring
 import com.abc.daodian.reminder.data.clockTimes
@@ -82,6 +84,7 @@ import com.abc.daodian.shared.ui.CheckIcon
 import com.abc.daodian.shared.ui.ChevronRightIcon
 import com.abc.daodian.shared.ui.PlusIcon
 import com.abc.daodian.shared.ui.BeatIcon
+import com.abc.daodian.shared.ui.BoxIcon
 import com.abc.daodian.shared.ui.BellIcon
 import com.abc.daodian.shared.ui.BellOffIcon
 import com.abc.daodian.shared.ui.HourglassIcon
@@ -128,6 +131,8 @@ fun ReminderListScreen(
 ) {
     val colors = DaodianColors.current
     val reminders by vm.reminders.collectAsState()
+    val allItems by vm.allItems.collectAsState()
+    val itemsBy = remember(allItems) { allItems.groupBy { it.reminderId } }
 
     // 「还有多久」「过点多久」和现在线的位置都跟着钟走
     val now by produceState(System.currentTimeMillis()) {
@@ -247,6 +252,7 @@ fun ReminderListScreen(
                                 EntryRow(
                                     e = line,
                                     now = now,
+                                    items = itemsBy[line.r.id].orEmpty(),
                                     onClick = { onEdit(line.r.id) },
                                     onComplete = {
                                         vm.complete(line.r)
@@ -521,7 +527,7 @@ private fun Stamp(text: String, color: Color) {
 }
 
 @Composable
-private fun EntryRow(e: Line.Entry, now: Long, onClick: () -> Unit, onComplete: () -> Unit) {
+private fun EntryRow(e: Line.Entry, now: Long, items: List<ReminderItem>, onClick: () -> Unit, onComplete: () -> Unit) {
     val colors = DaodianColors.current
     val r = e.r
     val zone = ZoneId.systemDefault()
@@ -573,7 +579,7 @@ private fun EntryRow(e: Line.Entry, now: Long, onClick: () -> Unit, onComplete: 
             Column(Modifier.padding(top = 9.dp, bottom = 16.dp)) {
                 Stamp(stamp(dateOf(at, zone), clock) + " · " + Format.span(at - now) + "后", colors.ink)
                 Text(r.title, style = DaodianType.cardTitle, color = colors.ink)
-                EntryNotes(r, armed = e.armed)
+                EntryNotes(r, armed = e.armed, items = items)
             }
         }
 
@@ -601,7 +607,7 @@ private fun EntryRow(e: Line.Entry, now: Long, onClick: () -> Unit, onComplete: 
                             modifier = Modifier.padding(top = 3.dp)
                         )
                     }
-                    EntryNotes(r, armed = e.armed)
+                    EntryNotes(r, armed = e.armed, items = items)
                 }
             }
         }
@@ -624,7 +630,7 @@ private fun EntryRow(e: Line.Entry, now: Long, onClick: () -> Unit, onComplete: 
                             modifier = Modifier.padding(top = 3.dp)
                         )
                     }
-                    EntryNotes(r, armed = e.armed)
+                    EntryNotes(r, armed = e.armed, items = items)
                 }
             }
         }
@@ -634,11 +640,11 @@ private fun EntryRow(e: Line.Entry, now: Long, onClick: () -> Unit, onComplete: 
 /**
  * 标题下面那一行小字，能用图标的就用图标（用户 11-16、11-17 要的，设计稿 https://claude.ai/artifact/4tbtHzfLzinrLqSeJMbA8N），
  * 一样一个图标，样与样之间一个圆点：↻ 每天（重复，只管哪几天）· 钟面 2/4（一天几次）· 叶子（轻提醒）·
- * 铃 1/3（正在再提第几次）· 沙漏 12月13日（下一个提前提醒的日子）。
+ * 铃 1/3（正在再提第几次）· 方框 还剩 5 样（清单）· 沙漏 12月13日（下一个提前提醒的日子）。
  * 只写和默认不一样的，都没有就什么也不画。没排上闹钟另起一行红字。
  */
 @Composable
-private fun EntryNotes(r: Reminder, armed: Boolean) {
+private fun EntryNotes(r: Reminder, armed: Boolean, items: List<ReminderItem>) {
     val colors = DaodianColors.current
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now(zone)
@@ -659,6 +665,12 @@ private fun EntryNotes(r: Reminder, armed: Boolean) {
         if (r.phase == Phase.NAG && r.nag == Nag.SOON) add {
             BellIcon(tint = colors.muted)
             Note("${r.nagCount}/${Schedule.NAG_SOON_MAX}")
+        }
+        // 清单（§4.5）：只写还剩几样，不展开；点进编辑页去勾
+        if (items.isNotEmpty()) add {
+            val left = Checklist.left(items)
+            BoxIcon(tint = colors.muted, checked = left == 0, mark = colors.paper)
+            Note(if (left == 0) "都勾完了" else "还剩 $left 样")
         }
         // 那件事一直挂在正日子上；沙漏写下一个先提一下的日子，到了那天写几点提（收尾时刻）
         if (r.phase == Phase.NUDGE) add {

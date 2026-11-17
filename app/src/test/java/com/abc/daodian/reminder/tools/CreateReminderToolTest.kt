@@ -29,7 +29,7 @@ class CreateReminderToolTest {
 
     private suspend fun create(arguments: String): Pair<Boolean, ReminderSpec?> {
         var got: ReminderSpec? = null
-        val out = CreateReminderTool { spec, _ -> got = spec; 7L }.execute(arguments, ToolContext(now, ""))
+        val out = CreateReminderTool({ spec, _, _ -> got = spec; 7L }).execute(arguments, ToolContext(now, ""))
         return out.ok to got
     }
 
@@ -55,7 +55,7 @@ class CreateReminderToolTest {
 
     @Test
     fun `the model hears back all six things`() = runBlocking {
-        val out = CreateReminderTool { _, _ -> 7L }
+        val out = CreateReminderTool({ _, _, _ -> 7L })
             .execute(args(day = "2027-02-13", before = "30,1", ring = "notice", nag = "daily", title = "牛奶过期"), ToolContext(now, ""))
         assertEquals(
             "已建好（id=7）：「牛奶过期」，2027-02-13 不定钟点（那天晚上收尾时刻提醒），不重复，提前 30、1 天提一下，只发通知，没点完成每晚再提。",
@@ -65,7 +65,7 @@ class CreateReminderToolTest {
 
     @Test
     fun `missing ring or nag is not a plan`() = runBlocking {
-        val out = CreateReminderTool { _, _ -> 7L }.execute("""{"title":"喝水","day":"2026-11-16","times":[]}""", ToolContext(now, ""))
+        val out = CreateReminderTool({ _, _, _ -> 7L }).execute("""{"title":"喝水","day":"2026-11-16","times":[]}""", ToolContext(now, ""))
         assertFalse(out.ok)
         assertTrue(out.output.startsWith("没建。参数不是合法的 JSON 或缺字段"))
     }

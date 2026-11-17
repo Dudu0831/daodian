@@ -9,6 +9,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -232,6 +233,36 @@ fun LeafIcon(modifier: Modifier = Modifier, size: Dp = 11.dp, tint: Color, strok
         val sw = strokeOf(strokeWidth.toPx())
         drawPath(leaf, tint, style = sw)
         drawLine(tint, Offset(1.4f * k, 10.6f * k), Offset(7.6f * k, 4.4f * k), strokeWidth = strokeWidth.toPx(), cap = StrokeCap.Round)
+    }
+}
+
+/**
+ * 清单的方框（§4.5）：空框；[checked] 时填满 [tint]，里面一道 [mark] 色的勾。
+ * 编辑页一行前面那个（16dp），提醒页小字里那个（11dp）
+ */
+@Composable
+fun BoxIcon(
+    modifier: Modifier = Modifier, size: Dp = 11.dp, tint: Color, checked: Boolean = false,
+    mark: Color = Color.Transparent, dashed: Boolean = false, strokeWidth: Dp = 1.1.dp
+) {
+    Canvas(modifier.size(size)) {
+        val k = this.size.width / 12f
+        val sw = strokeWidth.toPx()
+        val r = CornerRadius(2f * k)
+        val inset = 1f * k
+        val box = Size(10f * k, 10f * k)
+        if (checked) {
+            drawRoundRect(tint, topLeft = Offset(inset, inset), size = box, cornerRadius = r)
+            drawPath(
+                Path().apply { moveTo(3.6f * k, 6.2f * k); lineTo(5.3f * k, 7.9f * k); lineTo(8.5f * k, 4.4f * k) },
+                mark, style = strokeOf(sw * 1.2f)
+            )
+        } else {
+            drawRoundRect(
+                tint, topLeft = Offset(inset, inset), size = box, cornerRadius = r,
+                style = Stroke(width = sw, pathEffect = if (dashed) PathEffect.dashPathEffect(floatArrayOf(2f * k, 1.6f * k)) else null)
+            )
+        }
     }
 }
 

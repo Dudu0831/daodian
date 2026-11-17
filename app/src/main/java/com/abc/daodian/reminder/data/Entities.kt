@@ -115,7 +115,7 @@ fun remindBeforeColumn(days: List<Int>): String? =
     days.filter { it > 0 }.distinct().sortedDescending().takeIf { it.isNotEmpty() }?.joinToString(",")
 
 /**
- * 清单里的一样（§4.5），挂在一条提醒底下。v5 先把表建好，读写在清单那一步接上。
+ * 清单里的一样（§4.5），挂在一条提醒底下。一条最多 [com.abc.daodian.reminder.domain.Checklist.MAX_ITEMS] 样。
  * 不用外键级联：提醒页左滑删了还能撤销，清单得跟着回来，删由代码管
  */
 @Entity(tableName = "reminder_items", indices = [Index("reminderId")])

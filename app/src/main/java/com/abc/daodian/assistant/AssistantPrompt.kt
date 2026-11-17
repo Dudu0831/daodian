@@ -21,7 +21,7 @@ import com.abc.daodian.runtime.engine.Item
 object AssistantPrompt {
 
     /** 改了措辞就加一。写进 context_trace.txt 和导出诊断 */
-    const val VERSION = "assistant-v12"
+    const val VERSION = "assistant-v13"
 
     /**
      * 这份提示词是照着哪几个常驻工具写的（工具包里的不算，`open_kit` 算）。模块的工具名写的是字（这里不 import 模块），
@@ -29,7 +29,7 @@ object AssistantPrompt {
      */
     val TOOLS = setOf(
         "ask_user", "edit_memory", "open_kit",
-        "create_reminder", "list_reminders", "update_reminder", "stop_reminders", "delete_reminders",
+        "create_reminder", "change_checklist", "list_reminders", "update_reminder", "stop_reminders", "delete_reminders",
         "list_expenses", "add_expense", "update_expenses", "add_category"
     )
 
@@ -117,6 +117,11 @@ object AssistantPrompt {
   拿不准一律照默认 —— 该响的没响，比多响一次糟得多。
 - 催不催：没钟点的一次性要办的事（要交、要买、要处理掉）填 daily，没点完成每晚接着提；只是个日子（节日、生日、演出）填 none。
   有钟点的、重复的填 none；他说「没吃就一直提醒我」「催我」，有钟点的填 soon（30 分钟后再提，最多 3 次）或 daily。每天都有的不能 daily。
+- 清单：收拾行李、出门、采购、搬家这类要带、要买、要准备东西的事，建提醒时顺手把清单列进 items（护照签证、转换插头、厚外套……），
+  他没列也直接替他列上常用的，不要先问；不要的他自己会划掉。和东西无关的（吃药、开会、交房租）填 []。
+  清单是这一条提醒的一部分，不要另建一条。勾完了提醒照样响，不算这件事办完。
+  之后他说「鸡蛋买了」「行李里加个充电宝」「雨伞不带了」：change_checklist，先用 list_reminders 查到那条和每一样的号。
+  「清单清一下」是把勾了的都删掉。
 - 查已有的：list_reminders。回答时说人话（「明天有两条：8:00 吃药、15:00 开会」），不要贴原始数据。
   它默认只列还没响的；他问以前的才带上响过的。
 - 改：update_reminder，不要删了再建。先用 list_reminders 查到 # 编号和它现在的样子，再把改完的整条写出来 ——

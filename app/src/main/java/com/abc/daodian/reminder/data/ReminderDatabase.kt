@@ -23,6 +23,7 @@ import androidx.room.TypeConverters
 abstract class ReminderDatabase : RoomDatabase() {
     abstract fun reminderDao(): ReminderDao
     abstract fun fireLogDao(): FireLogDao
+    abstract fun itemDao(): ReminderItemDao
 
     companion object {
         @Volatile private var instance: ReminderDatabase? = null

@@ -77,6 +77,8 @@ class Rescheduler(private val context: Context) {
     suspend fun arm(reminder: Reminder, beat: Beat) {
         cancel(reminder.id)
         val dao = db.reminderDao()
+        // 重复的翻到下一次：清单的勾全清掉、项留着（§4.5）。只写不读，排期照旧不看清单
+        if (reminder.rrule != null && beat.day.isAfter(reminder.day)) db.itemDao().uncheckAll(reminder.id)
         dao.arm(reminder.id, beat.day, beat.slot?.toString(), beat.phase, beat.nagCount, beat.at, System.currentTimeMillis())
         dao.byId(reminder.id)?.let { schedule(it) }
     }

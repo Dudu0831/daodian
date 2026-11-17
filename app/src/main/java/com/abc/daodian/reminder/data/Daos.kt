@@ -54,6 +54,38 @@ interface ReminderDao {
     suspend fun snooze(id: Long, day: LocalDate, slot: String?, phase: Phase, nagCount: Int, at: Long, now: Long)
 }
 
+/** 清单（§4.5）。排期不读这张表，闹钟只看提醒本身 */
+@Dao
+interface ReminderItemDao {
+
+    @Query("SELECT * FROM reminder_items WHERE reminderId = :reminderId ORDER BY position ASC, id ASC")
+    fun observe(reminderId: Long): Flow<List<ReminderItem>>
+
+    @Query("SELECT * FROM reminder_items WHERE reminderId = :reminderId ORDER BY position ASC, id ASC")
+    suspend fun of(reminderId: Long): List<ReminderItem>
+
+    /** 提醒页每一行的「还剩几样」、模型查提醒时一起列 */
+    @Query("SELECT * FROM reminder_items ORDER BY reminderId ASC, position ASC, id ASC")
+    fun observeAll(): Flow<List<ReminderItem>>
+
+    @Query("SELECT * FROM reminder_items ORDER BY reminderId ASC, position ASC, id ASC")
+    suspend fun all(): List<ReminderItem>
+
+    @Insert suspend fun insert(item: ReminderItem): Long
+    @Insert suspend fun insertAll(items: List<ReminderItem>)
+    @Update suspend fun update(item: ReminderItem)
+
+    @Query("DELETE FROM reminder_items WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    @Query("DELETE FROM reminder_items WHERE reminderId = :reminderId")
+    suspend fun deleteOf(reminderId: Long)
+
+    /** 重复的翻到下一次：勾全清掉，项都留着（用户 11-16 定的） */
+    @Query("UPDATE reminder_items SET done = 0 WHERE reminderId = :reminderId")
+    suspend fun uncheckAll(reminderId: Long)
+}
+
 @Dao
 interface FireLogDao {
     @Insert suspend fun insert(log: FireLog): Long

@@ -65,7 +65,7 @@ object FireHandler {
 
         // 2. 发通知。送不到要大声记一笔 —— 「日志说响了但用户没看见」是最坏的一种失败，
         //    它会让投递日志变成假证据。
-        val delivered = Notifier.fire(context, reminder, lateBy = drift)
+        val delivered = Notifier.fire(context, reminder, lateBy = drift, items = db.itemDao().of(reminder.id))
         if (!delivered) {
             Log.e(TAG, "id=${reminder.id}「${reminder.title}」已触发但通知未送达用户 —— 去「体检」页查通知权限")
         }

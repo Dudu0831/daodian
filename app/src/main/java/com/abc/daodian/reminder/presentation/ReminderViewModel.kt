@@ -7,12 +7,14 @@ import com.abc.daodian.assistant.plugin.CallHistory
 import com.abc.daodian.reminder.application.Reminders
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase
+import com.abc.daodian.reminder.data.ReminderItem
 import com.abc.daodian.reminder.domain.ReminderSpec
 import com.abc.daodian.reminder.scheduling.CheckTime
 import com.abc.daodian.reminder.scheduling.Rescheduler
 import com.abc.daodian.reminder.tools.CreateReminderTool
 import com.abc.daodian.reminder.tools.UpdateReminderTool
 import java.time.LocalTime
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -29,6 +31,10 @@ class ReminderViewModel(app: Application) : AndroidViewModel(app) {
     val reminders = db.reminderDao().observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /** 全部清单，提醒页每一行的「还剩几样」 */
+    val allItems = db.itemDao().observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val logs = db.fireLogDao().observeRecent()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -38,16 +44,29 @@ class ReminderViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setCheckTime(time: LocalTime) = viewModelScope.launch { Reminders.setCheckTime(getApplication(), time) }
 
-    fun upsertManual(id: Long?, spec: ReminderSpec) = viewModelScope.launch { Reminders.upsertManual(getApplication(), id, spec) }
+    /** [newItems]：新建时打的清单（字、勾没勾），跟着「记下」一起存 */
+    fun upsertManual(id: Long?, spec: ReminderSpec, newItems: List<Pair<String, Boolean>> = emptyList()) =
+        viewModelScope.launch { Reminders.upsertManual(getApplication(), id, spec, newItems) }
+
+    // 清单（§4.5）：改已有的那一条时当场存，不等「记下改动」
+    fun items(reminderId: Long): Flow<List<ReminderItem>> = db.itemDao().observe(reminderId)
+    fun addItem(reminderId: Long, text: String) = viewModelScope.launch { Reminders.addItems(getApplication(), reminderId, listOf(text to false)) }
+    fun setItemDone(item: ReminderItem, done: Boolean) = viewModelScope.launch { Reminders.setItemDone(getApplication(), item, done) }
+    fun renameItem(item: ReminderItem, text: String) = viewModelScope.launch { Reminders.renameItem(getApplication(), item, text) }
+    fun removeItem(item: ReminderItem) = viewModelScope.launch { Reminders.removeItem(getApplication(), item) }
+    fun restoreItem(item: ReminderItem) = viewModelScope.launch { Reminders.restoreItem(getApplication(), item) }
+
+    /** 提醒页左滑删掉的那几条的清单，「撤销」时连它一起放回去 */
+    private val deletedItems = mutableMapOf<Long, List<ReminderItem>>()
 
     /** 完成这一次（§4.6）：一次性的办完，重复的排下一次 */
     fun complete(r: Reminder) = viewModelScope.launch { Reminders.complete(getApplication(), r) }
 
     fun stop(r: Reminder) = viewModelScope.launch { Reminders.stop(getApplication(), r) }
 
-    fun delete(r: Reminder) = viewModelScope.launch { Reminders.delete(getApplication(), r) }
+    fun delete(r: Reminder) = viewModelScope.launch { deletedItems[r.id] = Reminders.delete(getApplication(), r) }
 
-    fun restore(r: Reminder) = viewModelScope.launch { Reminders.restore(getApplication(), r) }
+    fun restore(r: Reminder) = viewModelScope.launch { Reminders.restore(getApplication(), r, deletedItems.remove(r.id).orEmpty()) }
 
     fun rescheduleAll() = viewModelScope.launch { Reminders.rescheduleAll(getApplication()) }
 

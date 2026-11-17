@@ -23,6 +23,7 @@ class AlarmActivity : ComponentActivity() {
 
         val reminderId = intent.getLongExtra(EXTRA_REMINDER_ID, -1L)
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "到点了"
+        val items = intent.getStringExtra(EXTRA_ITEMS)
         val doneLabel = intent.getStringExtra(EXTRA_DONE_LABEL) ?: Button.DONE.label
         val now = System.currentTimeMillis()
         // 转屏、切深色重建时不再记一遍
@@ -35,6 +36,7 @@ class AlarmActivity : ComponentActivity() {
             com.abc.daodian.shared.theme.DaodianTheme(darkTheme = true) {
                 AlarmScreen(
                     title = title,
+                    items = items,
                     dateLabel = chineseDate(now),
                     clockLabel = com.abc.daodian.shared.format.Format.clock(now),
                     doneLabel = doneLabel,
@@ -58,6 +60,8 @@ class AlarmActivity : ComponentActivity() {
     companion object {
         const val EXTRA_REMINDER_ID = "reminder_id"
         const val EXTRA_TITLE = "title"
+        /** 清单没勾的那几样（§4.5）：「还剩 2 样：护照、充电宝」，最多 4 样；没有清单不带 */
+        const val EXTRA_ITEMS = "items"
         /** 左边那颗写什么：设了催是「完成」，不催是「知道了」（[com.abc.daodian.reminder.delivery.buttonsOf]） */
         const val EXTRA_DONE_LABEL = "done_label"
     }

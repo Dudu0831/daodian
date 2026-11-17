@@ -1,6 +1,8 @@
 package com.abc.daodian.reminder.tools
 
 import com.abc.daodian.reminder.data.Reminder
+import com.abc.daodian.reminder.data.ReminderItem
+import com.abc.daodian.reminder.domain.ChecklistEdit
 import com.abc.daodian.reminder.data.ReminderStatus
 import com.abc.daodian.reminder.data.remindBeforeColumn
 import com.abc.daodian.reminder.data.timesColumn
@@ -17,15 +19,42 @@ class FakeReminderDesk(
 ) : ReminderDesk {
 
     val reminders = seed.toMutableList()
+    val checklist = mutableListOf<ReminderItem>()
     val updates = mutableListOf<Pair<Long, ReminderSpec>>()
 
     override suspend fun all(): List<Reminder> = reminders.toList()
 
-    override suspend fun create(spec: ReminderSpec, context: ToolContext): Long {
+    override suspend fun create(spec: ReminderSpec, items: List<String>, context: ToolContext): Long {
         commit?.let { return it(spec, context) }
         val id = (reminders.maxOfOrNull { it.id } ?: 0L) + 1
         reminders += Reminder(id = id, title = spec.title, nextTriggerAt = 0, zoneId = zone.id, day = spec.day, createdAt = 0, updatedAt = 0).with(spec)
+        items.forEach { add(id, it) }
         return id
+    }
+
+    /** 往 [reminderId] 的清单末尾加一样 */
+    fun add(reminderId: Long, text: String, done: Boolean = false) {
+        checklist += ReminderItem(
+            id = (checklist.maxOfOrNull { it.id } ?: 0L) + 1, reminderId = reminderId, text = text, done = done,
+            position = checklist.count { it.reminderId == reminderId }
+        )
+    }
+
+    override suspend fun items(): List<ReminderItem> = checklist.sortedWith(compareBy({ it.reminderId }, { it.position }))
+
+    override suspend fun editItems(id: Long, edit: ChecklistEdit): Pair<ChecklistEdit.Plan, List<ReminderItem>>? {
+        if (reminders.none { it.id == id }) return null
+        val plan = edit.plan(items().filter { it.reminderId == id })
+        checklist.replaceAll { item ->
+            when (item) {
+                in plan.checked -> item.copy(done = true)
+                in plan.unchecked -> item.copy(done = false)
+                else -> item
+            }
+        }
+        checklist.removeAll(plan.removed)
+        plan.added.forEach { add(id, it) }
+        return plan to items().filter { it.reminderId == id }
     }
 
     override suspend fun update(id: Long, spec: ReminderSpec, context: ToolContext): Reminder? {

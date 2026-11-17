@@ -1,6 +1,8 @@
 package com.abc.daodian.reminder.tools
 
 import com.abc.daodian.reminder.data.Reminder
+import com.abc.daodian.reminder.data.ReminderItem
+import com.abc.daodian.reminder.domain.ChecklistEdit
 import com.abc.daodian.reminder.domain.ReminderSpec
 import com.abc.daodian.runtime.tool.ToolContext
 
@@ -13,8 +15,14 @@ interface ReminderDesk {
     /** 库里全部提醒（不分状态） */
     suspend fun all(): List<Reminder>
 
-    /** 过了闸门的一条，落库排期，返回新 id */
-    suspend fun create(spec: ReminderSpec, context: ToolContext): Long
+    /** 过了闸门的一条，落库排期，清单 [items] 一起存（§4.5），返回新 id */
+    suspend fun create(spec: ReminderSpec, items: List<String>, context: ToolContext): Long
+
+    /** 全部清单（各条提醒底下的几样），按提醒、顺序排 */
+    suspend fun items(): List<ReminderItem>
+
+    /** 改 [id] 的清单（`change_checklist`）。没有这一条是 null；返回改了什么和改完的整份 */
+    suspend fun editItems(id: Long, edit: ChecklistEdit): Pair<ChecklistEdit.Plan, List<ReminderItem>>?
 
     /** 把 [id] 整条换成 [spec]（过了闸门的），重新排期。没有这一条是 null，改好了返回改完的 */
     suspend fun update(id: Long, spec: ReminderSpec, context: ToolContext): Reminder?

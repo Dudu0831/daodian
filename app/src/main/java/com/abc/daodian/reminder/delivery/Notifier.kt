@@ -16,6 +16,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.abc.daodian.reminder.data.Reminder
+import com.abc.daodian.reminder.data.ReminderItem
+import com.abc.daodian.reminder.domain.Checklist
 import com.abc.daodian.reminder.data.Phase
 import com.abc.daodian.reminder.data.Nag
 import com.abc.daodian.reminder.data.Ring
@@ -65,17 +67,19 @@ object Notifier {
      *
      * 收尾时刻那一下（提前提醒、不定钟点、每晚再提）一律进当天那一组通知，组头只响一声（§4.6，用户 11-16 定的）：
      * 不弹全屏，免得一晚上几条各弹各的。只有定了钟点的正点、过一会儿再提、稍后才看 [Reminder.ring]
+     *
+     * [items] 是它的清单（§4.5）：到点那条写还剩哪几样，提前提醒那条只写还剩几样，全屏页标题下多一行
      */
-    fun fire(context: Context, reminder: Reminder, lateBy: Long): Boolean = when {
-        reminder.phase == Phase.NUDGE -> fireNudge(context, reminder, lateBy)
-        reminder.untimed -> fireDayTask(context, reminder, lateBy)
-        reminder.phase == Phase.NAG && reminder.nag == Nag.DAILY -> fireDayTask(context, reminder, lateBy)
-        reminder.ring == Ring.ALARM -> fireAlarm(context, reminder, lateBy)
-        else -> fireGentle(context, reminder, lateBy)
+    fun fire(context: Context, reminder: Reminder, lateBy: Long, items: List<ReminderItem> = emptyList()): Boolean = when {
+        reminder.phase == Phase.NUDGE -> fireNudge(context, reminder, lateBy, items)
+        reminder.untimed -> fireDayTask(context, reminder, lateBy, items)
+        reminder.phase == Phase.NAG && reminder.nag == Nag.DAILY -> fireDayTask(context, reminder, lateBy, items)
+        reminder.ring == Ring.ALARM -> fireAlarm(context, reminder, lateBy, items)
+        else -> fireGentle(context, reminder, lateBy, items)
     }
 
     /** 响铃：全屏 + 闹钟铃声循环，直到点掉 */
-    private fun fireAlarm(context: Context, reminder: Reminder, lateBy: Long): Boolean {
+    private fun fireAlarm(context: Context, reminder: Reminder, lateBy: Long, items: List<ReminderItem>): Boolean {
         ensureChannel(context)
 
         val open = PendingIntent.getActivity(
@@ -95,8 +99,8 @@ object Notifier {
             .setContentIntent(open)
         addButtons(context, builder, reminder)
 
-        val body = timedBody(reminder, lateBy)
-        if (body.isNotEmpty()) builder.setContentText(body)
+        val body = timedBody(reminder, lateBy, items)
+        if (body.isNotEmpty()) builder.setContentText(body).setStyle(NotificationCompat.BigTextStyle().bigText(body))
 
         // Android 14+ 收紧了全屏 intent，拿不到就安静降级成 heads-up，不要崩。13 上声明了就有（决策 3.2）。
         // 全屏页是独立的 AlarmActivity（响铃屏），不是打开 app 本体的那个宿主 Activity。
@@ -110,6 +114,7 @@ object Notifier {
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         .putExtra(AlarmActivity.EXTRA_REMINDER_ID, reminder.id)
                         .putExtra(AlarmActivity.EXTRA_TITLE, reminder.title)
+                        .putExtra(AlarmActivity.EXTRA_ITEMS, Checklist.remaining(items, atMost = 4))
                         .putExtra(AlarmActivity.EXTRA_DONE_LABEL, buttonsOf(reminder).first().label)
                 ),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
@@ -156,10 +161,11 @@ object Notifier {
      * 视觉稿的通知形态：标题是提醒本身，副行交代「什么时候的事」。
      * 迟到必须写在脸上 —— 补发假装准时，用户下次就不敢信这个 app 了。
      */
-    private fun timedBody(reminder: Reminder, lateBy: Long): String = buildString {
+    private fun timedBody(reminder: Reminder, lateBy: Long, items: List<ReminderItem>): String = buildString {
         // 催的那几次：先说清楚是哪一次的事、催到第几次了
         if (reminder.phase == Phase.NAG) append("还没点完成 · 第 ${reminder.nagCount} 次提醒")
         reminder.note?.let { if (isNotEmpty()) append(" · "); append(it) }
+        Checklist.remaining(items)?.let { if (isNotEmpty()) append(" · "); append(it) }
         if (isEmpty()) {
             if (lateBy > 60_000) append("应在 ${Format.clock(reminder.nextTriggerAt)}")
             else append(Format.humanDateTime(reminder.nextTriggerAt))
@@ -201,7 +207,7 @@ object Notifier {
      * 和响铃那一档比，少三样：全屏 intent、[Notification.FLAG_INSISTENT]、闹钟音量。按钮照 [buttonsOf]。
      * 别的照旧 —— 一样准点（排期不分档）、补发一样写在脸上。点开进列表。
      */
-    private fun fireGentle(context: Context, reminder: Reminder, lateBy: Long): Boolean {
+    private fun fireGentle(context: Context, reminder: Reminder, lateBy: Long, items: List<ReminderItem>): Boolean {
         ensureGentleChannel(context)
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED
@@ -219,8 +225,8 @@ object Notifier {
             .setAutoCancel(true)
             .setContentIntent(openList(context))
         addButtons(context, builder, reminder)
-        val body = timedBody(reminder, lateBy)
-        if (body.isNotEmpty()) builder.setContentText(body)
+        val body = timedBody(reminder, lateBy, items)
+        if (body.isNotEmpty()) builder.setContentText(body).setStyle(NotificationCompat.BigTextStyle().bigText(body))
 
         val sent = try {
             NotificationManagerCompat.from(context).notify(reminder.id.toInt(), builder.build())
@@ -261,7 +267,7 @@ object Notifier {
      * 不定钟点的、只发通知的：每条一个通知（各带自己的按钮），挂在同一组下面；只有组头出声 ——
      * 收尾时刻几条同时到点，响一下就够了，不是一条响一下。
      */
-    private fun fireDayTask(context: Context, reminder: Reminder, lateBy: Long): Boolean {
+    private fun fireDayTask(context: Context, reminder: Reminder, lateBy: Long, items: List<ReminderItem>): Boolean {
         if (!canPostDay(context, reminder)) return false
         val today = LocalDate.now()
         val carried = ChronoUnit.DAYS.between(reminder.day, today)
@@ -271,12 +277,14 @@ object Notifier {
                 else "今天的事，还没做"
             )
             reminder.note?.let { append(" · ").append(it) }
+            Checklist.remaining(items)?.let { append(" · ").append(it) }
             if (lateBy > 60_000) append(" · 补发，迟了 ${lateBy / 60_000} 分钟")
         }
         val child = NotificationCompat.Builder(context, DAY_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(reminder.title)
             .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setGroup(DAY_GROUP)
             .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
@@ -291,7 +299,7 @@ object Notifier {
      * 提前提醒（§4.6）：那天还没到，只是提一下 —— 不说「还没做」，不挂按钮。
      * 和当天的事进同一组，收尾时刻只响一声
      */
-    private fun fireNudge(context: Context, reminder: Reminder, lateBy: Long): Boolean {
+    private fun fireNudge(context: Context, reminder: Reminder, lateBy: Long, items: List<ReminderItem>): Boolean {
         if (!canPostDay(context, reminder)) return false
         val today = LocalDate.now()
         val day = reminder.day
@@ -300,6 +308,7 @@ object Notifier {
             reminder.slotTime()?.let { append(" ").append(it.toString()) }
             append(" 的事，提一下")
             reminder.note?.let { append(" · ").append(it) }
+            Checklist.count(items)?.let { append(" · ").append(it) }
             if (lateBy > 60_000) append(" · 补发，迟了 ${lateBy / 60_000} 分钟")
         }
         val child = NotificationCompat.Builder(context, DAY_CHANNEL_ID)

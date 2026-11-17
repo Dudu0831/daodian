@@ -1,5 +1,6 @@
 package com.abc.daodian.reminder.tools
 
+import com.abc.daodian.reminder.domain.Checklist
 import com.abc.daodian.reminder.domain.PlanValidator
 import com.abc.daodian.reminder.domain.ReminderPlan
 import com.abc.daodian.reminder.domain.ReminderSpec
@@ -18,11 +19,14 @@ import com.fasterxml.jackson.databind.ObjectMapper
  *
  * 落库不在这里写死：工具不碰 Context，由接线的一方传入（助手是 `Reminders.commitPlan`，提醒子代理另写来源）。
  *
- * 参数就是一条提醒的六件事（DESIGN.md §4.6），成功时 [ToolOutcome.payload] 是 [Created]。
+ * 参数就是一条提醒的六件事（DESIGN.md §4.6），[withItems] 时多一份清单（§4.5），成功时 [ToolOutcome.payload] 是 [Created]。
  */
-class CreateReminderTool(private val commit: suspend (ReminderSpec, ToolContext) -> Long) : Tool {
+class CreateReminderTool(
+    private val commit: suspend (ReminderSpec, List<String>, ToolContext) -> Long,
+    private val withItems: Boolean = true
+) : Tool {
 
-    data class Created(val reminderId: Long, val spec: ReminderSpec)
+    data class Created(val reminderId: Long, val spec: ReminderSpec, val items: List<String> = emptyList())
 
     override val name = NAME
 
@@ -34,8 +38,8 @@ class CreateReminderTool(private val commit: suspend (ReminderSpec, ToolContext)
 
     override val parameters: Map<String, Any?> = mapOf(
         "type" to "object",
-        "properties" to PLAN_PROPERTIES,
-        "required" to PLAN_PROPERTIES.keys.toList(),
+        "properties" to if (withItems) LinkedHashMap(PLAN_PROPERTIES).apply { put("items", ITEMS_PROPERTY) } else PLAN_PROPERTIES,
+        "required" to PLAN_PROPERTIES.keys.toList() + listOfNotNull("items".takeIf { withItems }),
         "additionalProperties" to false
     )
 
@@ -43,14 +47,18 @@ class CreateReminderTool(private val commit: suspend (ReminderSpec, ToolContext)
         val plan = planOf(arguments)
             ?: return ToolOutcome("没建。参数不是合法的 JSON 或缺字段：${arguments.take(200)}", ok = false)
 
+        val items = if (withItems) itemsOf(arguments) else emptyList()
+        Checklist.problemOf(items)?.let { return ToolOutcome("没建。$it 这是参数填错了，改好再调一次，不用问用户。", ok = false) }
+
         return when (val verdict = PlanValidator.validate(plan, context.now)) {
             is Verdict.Ok -> {
-                val id = commit(verdict.spec, context)
+                val id = commit(verdict.spec, items, context)
                 ToolOutcome(
-                    output = "已建好（id=$id）：${ReminderText.describe(verdict.spec, context.now.toLocalDate())}",
+                    output = "已建好（id=$id）：${ReminderText.describe(verdict.spec, context.now.toLocalDate())}" +
+                        if (items.isEmpty()) "" else "；清单 ${items.size} 样：${items.joinToString("、")}",
                     ok = true,
                     ref = id,
-                    payload = Created(id, verdict.spec)
+                    payload = Created(id, verdict.spec, items)
                 )
             }
             is Verdict.Rejected -> rejected("没建。", verdict)
@@ -112,6 +120,21 @@ class CreateReminderTool(private val commit: suspend (ReminderSpec, ToolContext)
                 "有钟点的才看：重复类（每天早上 8 点）填 true，跟着用户所在时区走；一次性的具体约会（开会、航班）填 false，固定那一瞬间。没钟点的填 true"
             )
         )
+
+        /** 清单（§4.5）：只给建提醒，改清单另有 `change_checklist` —— 整条重写会把勾冲掉 */
+        val ITEMS_PROPERTY = mapOf(
+            "type" to "array",
+            "items" to mapOf("type" to "string"),
+            "description" to "这件事底下要带的、要买的、要准备的几样（清单），一样一项，每项最多 ${Checklist.MAX_CHARS} 个字，最多 ${Checklist.MAX_ITEMS} 样。" +
+                "收拾行李、出门、采购、搬家这类，他没列也直接替他列上常用的（护照、充电器……），不要先问；他说了要哪几样就照他的。" +
+                "和东西无关的事（吃药、开会、交房租）填 []"
+        )
+
+        /** 清单那一项；没填是空的 */
+        fun itemsOf(arguments: String): List<String> = runCatching {
+            mapper.readTree(arguments).path("items").takeIf { it.isArray }
+                ?.mapNotNull { it.asText()?.trim()?.takeIf(String::isNotEmpty) }.orEmpty()
+        }.getOrDefault(emptyList())
 
         /** 参数 JSON → [ReminderPlan]，缺必填字段或不是 JSON 就是 null */
         fun planOf(arguments: String): ReminderPlan? = runCatching {

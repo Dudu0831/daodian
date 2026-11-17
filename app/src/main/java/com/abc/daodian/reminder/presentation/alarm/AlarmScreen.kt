@@ -37,6 +37,8 @@ import com.abc.daodian.shared.theme.DaodianType
 @Composable
 fun AlarmScreen(
     title: String,
+    /** 清单还剩哪几样，标题底下一行；没有清单是 null */
+    items: String?,
     dateLabel: String,
     clockLabel: String,
     doneLabel: String,
@@ -80,6 +82,10 @@ fun AlarmScreen(
                 color = colors.ink,
                 textAlign = TextAlign.Center
             )
+            if (items != null) {
+                Spacer(Modifier.height(12.dp))
+                Text(items, style = DaodianType.body, color = colors.ink2, textAlign = TextAlign.Center)
+            }
             Spacer(Modifier.height(34.dp))
             Hairline()
         }

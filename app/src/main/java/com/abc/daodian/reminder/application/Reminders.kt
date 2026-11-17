@@ -3,6 +3,7 @@ package com.abc.daodian.reminder.application
 import android.content.Context
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderDatabase
+import com.abc.daodian.reminder.data.ReminderItem
 import com.abc.daodian.reminder.data.ReminderStatus
 import com.abc.daodian.reminder.data.Ring
 import com.abc.daodian.reminder.data.Phase
@@ -10,6 +11,8 @@ import com.abc.daodian.reminder.data.remindBeforeColumn
 import com.abc.daodian.reminder.data.timesColumn
 import com.abc.daodian.reminder.delivery.Fired
 import com.abc.daodian.reminder.delivery.Notifier
+import com.abc.daodian.reminder.domain.Checklist
+import com.abc.daodian.reminder.domain.ChecklistEdit
 import com.abc.daodian.reminder.domain.ReminderSpec
 import com.abc.daodian.reminder.scheduling.CheckTime
 import com.abc.daodian.reminder.scheduling.FireHandler
@@ -41,8 +44,9 @@ object Reminders {
      * 模型建出来的一条提醒「落库 → 排闹钟」，返回新提醒的 id。对话页和桌面速记都经由 `create_reminder` 到这里。
      * 桌面上那一行先亮成朱砂的「刚记下」（[WidgetUpdater.announce]），速记记完回到桌面就看得见。
      */
-    suspend fun commitPlan(context: Context, rawInput: String, spec: ReminderSpec, parsedBy: String): Long {
+    suspend fun commitPlan(context: Context, rawInput: String, spec: ReminderSpec, parsedBy: String, items: List<String> = emptyList()): Long {
         val saved = save(context, null, spec, rawInput, parsedBy)!!
+        addItems(context, saved.id, items.map { it to false })
         WidgetUpdater.announce(context.applicationContext, saved.id)
         return saved.id
     }
@@ -57,8 +61,10 @@ object Reminders {
         }
 
     /** 手动建 / 改一条提醒 —— 逃生舱，必须能完全脱离 AI 用。见 DESIGN.md §2.1 */
-    suspend fun upsertManual(context: Context, id: Long?, spec: ReminderSpec) {
-        save(context, id, spec, rawInput = spec.title, parsedBy = null)
+    suspend fun upsertManual(context: Context, id: Long?, spec: ReminderSpec, newItems: List<Pair<String, Boolean>> = emptyList()) {
+        val saved = save(context, id, spec, rawInput = spec.title, parsedBy = null)
+        // 新建还没记下时打的清单跟着「记下」一起存；改已有的，清单早就当场存了
+        if (id == null && saved != null) addItems(context, saved.id, newItems)
         WidgetUpdater.refresh(context.applicationContext)
     }
 
@@ -126,6 +132,7 @@ object Reminders {
             rescheduler.cancel(r.id)
             Notifier.cancel(app, r.id)
             dao.delete(r)
+            ReminderDatabase.get(app).itemDao().deleteOf(r.id)
         }
         if (deleted.isNotEmpty()) WidgetUpdater.refresh(app)
         deleted
@@ -219,12 +226,17 @@ object Reminders {
         return stopped
     }
 
-    suspend fun delete(context: Context, r: Reminder) {
+    /** 删一条，清单一起删。返回删掉的清单，撤销时连它一起放回去（[restore]） */
+    suspend fun delete(context: Context, r: Reminder): List<ReminderItem> {
         val app = context.applicationContext
         Rescheduler(app).cancel(r.id)
         Notifier.cancel(app, r.id)
-        ReminderDatabase.get(app).reminderDao().delete(r)
+        val db = ReminderDatabase.get(app)
+        val items = db.itemDao().of(r.id)
+        db.reminderDao().delete(r)
+        db.itemDao().deleteOf(r.id)
         WidgetUpdater.refresh(app)
+        return items
     }
 
     /**
@@ -232,16 +244,63 @@ object Reminders {
      * 删除是当场真删的（不是等撤销过期再删）—— 进程在这几秒里被杀，结果也只是「删了」，
      * 不会留下一条库里有、闹钟没有的记录。放回来之后照常排闹钟；已经过点的交给巡检补发。
      */
-    suspend fun restore(context: Context, r: Reminder) {
+    suspend fun restore(context: Context, r: Reminder, items: List<ReminderItem> = emptyList()) {
         val app = context.applicationContext
         val dao = ReminderDatabase.get(app).reminderDao()
         if (dao.byId(r.id) != null) dao.update(r) else dao.insert(r)
+        if (items.isNotEmpty()) ReminderDatabase.get(app).itemDao().insertAll(items)
         val rescheduler = Rescheduler(app)
         rescheduler.cancel(r.id)
         if (r.status == ReminderStatus.SCHEDULED && r.nextTriggerAt > System.currentTimeMillis()) {
             rescheduler.schedule(r)
         }
         WidgetUpdater.refresh(app)
+    }
+
+    // ---------------- 清单（§4.5）：改动当场存，不等「记下改动」 ----------------
+
+    private fun itemDao(context: Context) = ReminderDatabase.get(context.applicationContext).itemDao()
+
+    suspend fun itemsOf(context: Context, reminderId: Long): List<ReminderItem> = itemDao(context).of(reminderId)
+
+    suspend fun allItems(context: Context): List<ReminderItem> = itemDao(context).all()
+
+    /** 接在已有的后面加几样（字、勾没勾），满了 [Checklist.MAX_ITEMS] 的不加 */
+    suspend fun addItems(context: Context, reminderId: Long, items: List<Pair<String, Boolean>>) {
+        if (items.isEmpty()) return
+        val dao = itemDao(context)
+        val have = dao.of(reminderId)
+        var next = (have.maxOfOrNull { it.position } ?: -1) + 1
+        val add = items.mapNotNull { (text, done) -> Checklist.clean(text)?.let { it to done } }
+            .take((Checklist.MAX_ITEMS - have.size).coerceAtLeast(0))
+            .map { (text, done) -> ReminderItem(reminderId = reminderId, text = text, done = done, position = next++) }
+        if (add.isNotEmpty()) dao.insertAll(add)
+    }
+
+    suspend fun setItemDone(context: Context, item: ReminderItem, done: Boolean) = itemDao(context).update(item.copy(done = done))
+
+    /** 改字；改成空的就是删 */
+    suspend fun renameItem(context: Context, item: ReminderItem, text: String) {
+        val clean = Checklist.clean(text) ?: return itemDao(context).delete(item.id)
+        if (clean != item.text) itemDao(context).update(item.copy(text = clean))
+    }
+
+    suspend fun removeItem(context: Context, item: ReminderItem) = itemDao(context).delete(item.id)
+
+    /** 编辑页左滑删了一样又点「撤销」：原样放回原位 */
+    suspend fun restoreItem(context: Context, item: ReminderItem) = itemDao(context).insert(item)
+
+    /** 对话里改清单（`change_checklist`）。没有这一条是 null；返回改了什么，和改完的整份 */
+    suspend fun editItems(context: Context, reminderId: Long, edit: ChecklistEdit): Pair<ChecklistEdit.Plan, List<ReminderItem>>? {
+        val app = context.applicationContext
+        ReminderDatabase.get(app).reminderDao().byId(reminderId) ?: return null
+        val dao = itemDao(app)
+        val plan = edit.plan(dao.of(reminderId))
+        plan.checked.forEach { dao.update(it.copy(done = true)) }
+        plan.unchecked.forEach { dao.update(it.copy(done = false)) }
+        plan.removed.forEach { dao.delete(it.id) }
+        addItems(app, reminderId, plan.added.map { it to false })
+        return plan to dao.of(reminderId)
     }
 
     suspend fun rescheduleAll(context: Context) {
