@@ -18,8 +18,8 @@ class DeleteRemindersTool(private val desk: ReminderDesk) : Tool {
     override val effect = ToolEffect.WRITE
 
     override val description =
-        "删掉已有的提醒（按 # 编号），一次可以删几条。只在用户明说不要这条了（「把喝水的提醒删了」「周五那个取消吧」「不用提醒我了」）时用；" +
-            "只是改时间、改内容用 update_reminder。不知道编号先用 list_reminders 查；对得上的不止一条又说不清是哪条，用 ask_user 问。"
+        "删掉已有的提醒（按 # 编号），一次可以删几条，记录也不留。只在用户明说删（「把喝水的提醒删了」「那条删掉」「建错了」）时用；" +
+            "「以后不用提醒了」「停了吧」是 stop_reminders；只是改时间、改内容用 update_reminder。不知道编号先用 list_reminders 查；对得上的不止一条又说不清是哪条，用 ask_user 问。"
 
     override val parameters: Map<String, Any?> = mapOf(
         "type" to "object",

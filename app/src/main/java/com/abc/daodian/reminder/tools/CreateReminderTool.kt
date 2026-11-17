@@ -2,6 +2,8 @@ package com.abc.daodian.reminder.tools
 
 import com.abc.daodian.reminder.domain.PlanValidator
 import com.abc.daodian.reminder.domain.ReminderPlan
+import com.abc.daodian.reminder.domain.ReminderSpec
+import com.abc.daodian.reminder.domain.ReminderText
 import com.abc.daodian.reminder.domain.Verdict
 import com.abc.daodian.runtime.tool.Tool
 import com.abc.daodian.runtime.tool.ToolContext
@@ -14,20 +16,21 @@ import com.fasterxml.jackson.databind.ObjectMapper
  * 建一条提醒。过 [PlanValidator] 闸门，过了才交给 [commit] 落库排期；
  * 闸门拦下的原因原样回给模型，由它去问用户。
  *
- * 落库不在这里写死：harness 不依赖 ui/，由接线的一方传入（到时候就是 `PlanCommitter.commit`）。
+ * 落库不在这里写死：工具不碰 Context，由接线的一方传入（助手是 `Reminders.commitPlan`，提醒子代理另写来源）。
  *
- * 成功时 [ToolOutcome.payload] 是 [Created]。
+ * 参数就是一条提醒的六件事（DESIGN.md §4.6），成功时 [ToolOutcome.payload] 是 [Created]。
  */
-class CreateReminderTool(private val commit: suspend (ReminderPlan, ToolContext) -> Long) : Tool {
+class CreateReminderTool(private val commit: suspend (ReminderSpec, ToolContext) -> Long) : Tool {
 
-    data class Created(val reminderId: Long, val plan: ReminderPlan)
+    data class Created(val reminderId: Long, val spec: ReminderSpec)
 
     override val name = NAME
 
     override val effect = ToolEffect.WRITE
 
     override val description =
-        "在用户手机上建一条提醒，会真的排一个闹钟。只有他明确要被提醒、且能确定是哪一天时才调用。"
+        "在用户手机上建一条提醒，会真的排闹钟。只有他明确要被提醒、且能确定是哪一天时才调用。" +
+            "一件事就建一条：一天几个钟点、提前几天提醒、没做完接着提，都是这一条上的设置，不要拆成几条。"
 
     override val parameters: Map<String, Any?> = mapOf(
         "type" to "object",
@@ -42,20 +45,15 @@ class CreateReminderTool(private val commit: suspend (ReminderPlan, ToolContext)
 
         return when (val verdict = PlanValidator.validate(plan, context.now)) {
             is Verdict.Ok -> {
-                val id = commit(verdict.plan, context)
-                val p = verdict.plan
+                val id = commit(verdict.spec, context)
                 ToolOutcome(
-                    output = "已建好（id=$id）：${describe(p)}",
+                    output = "已建好（id=$id）：${ReminderText.describe(verdict.spec, context.now.toLocalDate())}",
                     ok = true,
                     ref = id,
-                    payload = Created(id, p)
+                    payload = Created(id, verdict.spec)
                 )
             }
-            is Verdict.Rejected -> ToolOutcome(
-                "没建。${verdict.reason} " +
-                    if (verdict.selfFix) "这是参数填错了，改好再调一次，不用问用户。" else "照这个意思问用户一句，不要自己换个时间重试。",
-                ok = false
-            )
+            is Verdict.Rejected -> rejected("没建。", verdict)
         }
     }
 
@@ -64,21 +62,25 @@ class CreateReminderTool(private val commit: suspend (ReminderPlan, ToolContext)
 
         private val mapper = ObjectMapper()
 
-        /** 回给模型的那句：「「喝水」，首次 …，重复 FREQ=DAILY。」建和改共用 */
-        fun describe(p: ReminderPlan): String =
-            "「${p.title}」，" +
-                (if (p.allDay) "当天事项，日期 ${p.firstTriggerAt.take(10)}" else "首次 ${p.firstTriggerAt}") +
-                "，" + (p.rrule?.let { "重复 $it" } ?: "不重复") +
-                (if (p.gentle && !p.allDay) "，轻提醒（到点只发一条通知、不响铃）" else "") +
-                (if (p.remindOn.isNotEmpty()) "，那天之前还提醒 ${p.remindOn.size} 次（${p.remindOn.joinToString("、")}）" else "") +
-                (if (p.allDay && p.rrule == null) (if (p.carryOver) "，那天没点完成就每晚接着提醒" else "，那天提醒过就结束") else "") + "。"
+        /** 闸门拦下时回给模型的那句。建和改共用 */
+        fun rejected(prefix: String, verdict: Verdict.Rejected) = ToolOutcome(
+            prefix + verdict.reason + " " +
+                if (verdict.selfFix) "这是参数填错了，改好再调一次，不用问用户。" else "照这个意思问用户一句，不要自己换个时间重试。",
+            ok = false
+        )
 
         /** 一整条提醒的参数。`update_reminder` 前面多一个 id、其余照抄这一份 —— 改提醒就是把改完的整条重写一遍、重过闸门 */
         val PLAN_PROPERTIES: LinkedHashMap<String, Any?> = linkedMapOf(
             "title" to string("简短的动作，去掉「提醒我」这类壳。例如「喝水」「交房租」"),
-            "firstTriggerAt" to string(
-                "首次触发时刻，ISO-8601 带时区偏移，如 2026-09-03T19:40:00+08:00。allDay 为 true 时只看日期，钟点填 00:00:00；" +
-                    "日期填事情本身的那一天（过期的那天、截止的那天、演出的那天），哪怕还有几个月 —— 不是第一次提醒的日子，提前提醒写在 remindOn 里"
+            "day" to string(
+                "事情本身那天，YYYY-MM-DD：过期的那天、截止的那天、演出的那天，哪怕还有几个月 —— 不是第一次提醒的日子。" +
+                    "重复的填头一次（今天或以后）。他连哪天都没说就填今天"
+            ),
+            "times" to mapOf(
+                "type" to "array",
+                "items" to mapOf("type" to "string"),
+                "description" to "几点，HH:mm，一天几次就列几个（最多 ${PlanValidator.MAX_TIMES} 个）：「9 点到 21 点每两小时」展开成 09:00、11:00 … 21:00。" +
+                    "他没说几点就填 []：那天晚上收尾时刻统一提醒，不要追问几点"
             ),
             "basis" to string("你的推算依据，如「用户时刻 09-18 周五 + 1 天，15:00」。必须填，出错时靠它看你哪步算歪了"),
             "note" to nullableString(
@@ -86,45 +88,50 @@ class CreateReminderTool(private val commit: suspend (ReminderPlan, ToolContext)
             ),
             "rrule" to nullableString(
                 "重复规则，RFC 5545 子集，不重复就 null。只允许 FREQ=DAILY|WEEKLY|MONTHLY|YEARLY、INTERVAL、" +
-                    "BYDAY（仅 WEEKLY）、BYMONTHDAY（仅 MONTHLY）、COUNT、UNTIL"
+                    "BYDAY（仅 WEEKLY）、BYMONTHDAY（仅 MONTHLY）、COUNT、UNTIL。和几点无关：没说几点的也能重复"
             ),
-            "wallClockAnchored" to boolean("重复类（每天早上 8 点）填 true，跟着用户所在时区走；一次性的具体约会填 false"),
-            "allDay" to boolean("当天事项（只说了哪天、没说几点）填 true；说了具体钟点填 false"),
-            "gentle" to boolean(
-                "轻提醒：到点只发一条通知（响一声，不响铃、不弹全屏）填 true。只有用户明说了才填 true（「轻提醒」「不用响铃」「发个通知就行」），" +
-                    "没提、拿不准一律 false"
-            ),
-            "remindOn" to mapOf(
+            "remindBefore" to mapOf(
                 "type" to "array",
-                "items" to mapOf("type" to "string"),
-                "description" to "提前提醒：日子还远的当天事项，在那天之前还要哪几天提醒，一组 YYYY-MM-DD。他说「每个月提醒一下，最后一周每天提醒」，" +
-                    "就把这些日子一天一天算出来列上（那天当晚本来就会提醒，不用列）。只有 allDay=true 且 rrule=null 能填；" +
-                    "别的提醒、他没说要提前提醒的，填 []"
+                "items" to mapOf("type" to "integer"),
+                "description" to "那天之前还要提前几天提一下，如 [30, 7, 1]；提前的那几次都在那天晚上收尾时刻发一条通知。" +
+                    "重复的也能填，每一次都照这几天往前算，但要比两次之间的间隔短。他没说要提前提醒就填 []，不要替他加"
             ),
-            "carryOver" to boolean(
-                "到了那天没点完成，要不要每晚接着提醒，直到他点完成。要办的事（要交、要买、要处理掉）填 true；" +
-                    "只是个日子（节日、生日、演出、纪念日）填 false，那天提醒过就结束。只有 allDay=true 且 rrule=null 看它，别的填 true"
+            "ring" to enum(
+                listOf("alarm", "notice"),
+                "到点怎么响：alarm 响铃（全屏、一直响到点掉），notice 只发一条通知（轻提醒）。" +
+                    "有钟点的默认 alarm，他明说「轻提醒」「不用响铃」「发个通知就行」才填 notice；" +
+                    "没钟点的默认 notice，他明说要响铃才填 alarm"
+            ),
+            "nag" to enum(
+                listOf("none", "soon", "daily"),
+                "响过他没点完成怎么办：none 不催，响过就算；soon 过 30 分钟再提，最多 3 次；daily 每天晚上收尾时刻再提，直到他点完成。" +
+                    "没钟点的一次性要办的事（要交、要买、要处理掉）默认 daily；只是个日子（节日、生日、演出）填 none；" +
+                    "有钟点的、重复的默认 none，他说「没做就一直提醒我」「催我」才填 soon 或 daily。每天都有的不能填 daily"
+            ),
+            "wallClockAnchored" to boolean(
+                "有钟点的才看：重复类（每天早上 8 点）填 true，跟着用户所在时区走；一次性的具体约会（开会、航班）填 false，固定那一瞬间。没钟点的填 true"
             )
         )
 
-        /** 参数 JSON → [ReminderPlan]，缺必填字段或不是 JSON 就是 null。重建历史卡片也用它 */
+        /** 参数 JSON → [ReminderPlan]，缺必填字段或不是 JSON 就是 null */
         fun planOf(arguments: String): ReminderPlan? = runCatching {
             val o = mapper.readTree(arguments)
             ReminderPlan(
                 title = o.text("title") ?: return null,
-                firstTriggerAt = o.text("firstTriggerAt") ?: return null,
+                day = o.text("day") ?: return null,
+                times = o.path("times").takeIf { it.isArray }?.mapNotNull { it.asText()?.trim()?.takeIf(String::isNotEmpty) }.orEmpty(),
                 basis = o.text("basis").orEmpty(),
                 note = o.text("note"),
                 rrule = o.text("rrule"),
-                wallClockAnchored = o.path("wallClockAnchored").asBoolean(true),
-                allDay = o.path("allDay").asBoolean(false),
-                // 加这个参数之前的历史里没有它：当响铃
-                gentle = o.path("gentle").asBoolean(false),
-                // 加这两个参数之前的历史里没有：没有提前提醒、照旧顺延
-                remindOn = o.path("remindOn").takeIf { it.isArray }?.mapNotNull { it.asText()?.trim()?.takeIf(String::isNotEmpty) }.orEmpty(),
-                carryOver = o.path("carryOver").asBoolean(true)
+                remindBefore = o.path("remindBefore").takeIf { it.isArray }?.mapNotNull { n -> n.takeIf { it.canConvertToInt() }?.asInt() }.orEmpty(),
+                ring = o.text("ring") ?: return null,
+                nag = o.text("nag") ?: return null,
+                wallClockAnchored = o.path("wallClockAnchored").asBoolean(true)
             )
         }.getOrNull()
+
+        /** 推算依据，编辑页「依据」那一段。11-16 以前的旧参数也有这个字段，单读它不用整条认得 */
+        fun basisOf(arguments: String): String? = runCatching { mapper.readTree(arguments).text("basis") }.getOrNull()
 
         private fun JsonNode.text(field: String): String? =
             get(field)?.takeUnless { it.isNull }?.asText()?.trim()?.takeIf { it.isNotEmpty() }
@@ -132,5 +139,6 @@ class CreateReminderTool(private val commit: suspend (ReminderPlan, ToolContext)
         private fun string(desc: String) = mapOf("type" to "string", "description" to desc)
         private fun nullableString(desc: String) = mapOf("type" to listOf("string", "null"), "description" to desc)
         private fun boolean(desc: String) = mapOf("type" to "boolean", "description" to desc)
+        private fun enum(values: List<String>, desc: String) = mapOf("type" to "string", "enum" to values, "description" to desc)
     }
 }

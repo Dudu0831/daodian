@@ -1,6 +1,7 @@
 package com.abc.daodian.reminder.domain
 
 import java.time.DayOfWeek
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -62,6 +63,30 @@ object Rrule {
         }
 
         return next?.takeIf { until == null || !it.isAfter(until) }
+    }
+
+    /**
+     * [day] 当天或以后、头一个合这条规则的日子：「每周六买菜」周一说的，模型交的哪天可能是今天，第一次该是周六。
+     * 排期从这一天起逐次往后（`Schedule`），起点本身就算一次，所以起点得落在规则上。没有 BYDAY / BYMONTHDAY 的就是 [day]
+     */
+    fun firstOnOrAfter(rrule: String?, day: LocalDate): LocalDate {
+        if (!isSupported(rrule)) return day
+        val p = parse(rrule!!)
+        return when (p["FREQ"]) {
+            "WEEKLY" -> {
+                val days = p["BYDAY"]?.split(",")?.mapNotNull { toDayOfWeek(it) }?.toSet()
+                if (days.isNullOrEmpty()) day else (0L..6L).map { day.plusDays(it) }.first { it.dayOfWeek in days }
+            }
+            "MONTHLY" -> {
+                val n = p["BYMONTHDAY"]?.toIntOrNull()?.takeIf { it in 1..31 || it in -31..-1 } ?: return day
+                fun inMonth(d: LocalDate): LocalDate {
+                    val length = d.lengthOfMonth()
+                    return d.withDayOfMonth((if (n < 0) (length + n + 1).coerceAtLeast(1) else n).coerceAtMost(length))
+                }
+                inMonth(day).takeIf { !it.isBefore(day) } ?: inMonth(day.withDayOfMonth(1).plusMonths(1))
+            }
+            else -> day
+        }
     }
 
     /** 规则 → 「每周二」这类人话。超出 §7.2 支持范围的一律显示「重复」；不重复是 null */

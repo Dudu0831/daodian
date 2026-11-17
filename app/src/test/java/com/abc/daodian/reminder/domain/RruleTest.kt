@@ -2,6 +2,7 @@ package com.abc.daodian.reminder.domain
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -32,5 +33,18 @@ class RruleTest {
     @Test
     fun `out of range month day is treated as unset`() {
         assertEquals(at("2026-10-15"), Rrule.nextAfter("FREQ=MONTHLY;BYMONTHDAY=0", at("2026-09-15"), zone))
+    }
+
+    @Test
+    fun `first day on or after lands on the rule`() {
+        fun d(s: String) = LocalDate.parse(s)
+        // 11-16 是周一
+        assertEquals(d("2026-11-21"), Rrule.firstOnOrAfter("FREQ=WEEKLY;BYDAY=SA", d("2026-11-16")))
+        assertEquals(d("2026-11-16"), Rrule.firstOnOrAfter("FREQ=WEEKLY;BYDAY=MO,FR", d("2026-11-16")))
+        assertEquals(d("2026-12-05"), Rrule.firstOnOrAfter("FREQ=MONTHLY;BYMONTHDAY=5", d("2026-11-16")))
+        assertEquals(d("2026-11-30"), Rrule.firstOnOrAfter("FREQ=MONTHLY;BYMONTHDAY=31", d("2026-11-16")))
+        assertEquals(d("2027-02-28"), Rrule.firstOnOrAfter("FREQ=MONTHLY;BYMONTHDAY=-1", d("2027-02-01")))
+        assertEquals(d("2026-11-16"), Rrule.firstOnOrAfter("FREQ=DAILY", d("2026-11-16")))
+        assertEquals(d("2026-11-16"), Rrule.firstOnOrAfter(null, d("2026-11-16")))
     }
 }

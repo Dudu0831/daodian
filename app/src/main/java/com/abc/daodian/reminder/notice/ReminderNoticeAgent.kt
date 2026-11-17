@@ -1,6 +1,6 @@
 package com.abc.daodian.reminder.notice
 
-import com.abc.daodian.reminder.domain.ReminderPlan
+import com.abc.daodian.reminder.domain.ReminderSpec
 import com.abc.daodian.reminder.tools.ReminderTools
 import com.abc.daodian.runtime.Agent
 import com.abc.daodian.runtime.AgentInfo
@@ -20,6 +20,6 @@ object ReminderNoticeAgent : AgentInfo {
     override val prompts = listOf(ReminderNoticePrompt.PROMPT)
 
     /** [commit]：落库那一下由 [ReminderNoticeTarget] 给（写上是哪条通知来的） */
-    fun build(commit: suspend (ReminderPlan, ToolContext) -> Long) =
+    fun build(commit: suspend (ReminderSpec, ToolContext) -> Long) =
         Agent(this, ReminderNoticePrompt.PROMPT, ReminderTools.forNotice(commit), maxSteps = 3)
 }

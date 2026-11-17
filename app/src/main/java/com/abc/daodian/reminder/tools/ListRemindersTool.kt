@@ -3,11 +3,9 @@ package com.abc.daodian.reminder.tools
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderStatus
 import com.abc.daodian.reminder.data.Nag
-import com.abc.daodian.reminder.data.gentle
-import com.abc.daodian.reminder.data.nudgeDays
-import com.abc.daodian.reminder.data.slotTime
-import com.abc.daodian.reminder.data.untimedDay
-import com.abc.daodian.reminder.scheduling.Schedule
+import com.abc.daodian.reminder.data.Ring
+import com.abc.daodian.reminder.data.untimed
+import com.abc.daodian.reminder.domain.spec
 import com.abc.daodian.reminder.domain.ReminderText
 import com.abc.daodian.reminder.domain.Rrule
 import com.abc.daodian.runtime.tool.Tool
@@ -17,10 +15,9 @@ import com.abc.daodian.runtime.tool.ToolOutcome
 import com.abc.daodian.shared.format.Format
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 
 /**
  * 查提醒：按关键词、日期筛，默认只列还没响的。只读，不留痕。
@@ -91,45 +88,49 @@ class ListRemindersTool(
         const val NAME = "list_reminders"
 
         private val mapper = ObjectMapper()
-        private val ISO: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX")
 
         /**
-         * 一条提醒给模型看的一行：「#12 喝水 · 每天 08:00 · 下次 11月14日 周五 08:00 · 轻提醒 | firstTriggerAt=… rrule=… …」。
-         * 竖线后面是 `update_reminder` 照抄的原样值。模型的参数还是两种提醒那一套（§4.6 第三步才改），这里照它写回去
+         * 一条提醒给模型看的一行：「#12 喝水 · 每天 09:00、15:00 · 下次 11月14日 周五 09:00 · 只发通知 | day=… times=[…] …」。
+         * 竖线后面是 `update_reminder` 照抄的原样值，六件事都在（§4.6）
          */
         fun line(r: Reminder, zone: ZoneId, today: LocalDate): String {
-            val repeat = Rrule.human(r.rrule)
-            val due = r.untimedDay()
-            val once = r.rrule == null
-            // 有钟点的：这一次本来的那一刻（稍后、催的那一下只是这一回）
-            val anchor = r.slotTime()?.let { r.day.atTime(it).atZone(Schedule.zoneOf(r, zone)).toInstant().toEpochMilli() } ?: r.nextTriggerAt
-            // 提前提醒里还没过的那几天（今天的算，抄回去今晚还会提）
-            val nudges = if (due != null && once) r.nudgeDays().filter { !it.isBefore(today) && it.isBefore(due) } else emptyList()
-            val endsOnDay = due != null && once && r.nag == Nag.NONE
-            val whenText = if (due != null) {
-                listOfNotNull(
-                    repeat, "当天事项", Format.humanDay(due), ReminderText.dayTaskWhen(due, today),
-                    nudges.takeIf { it.isNotEmpty() }?.let { "那天之前还提醒 ${it.size} 次，下次 ${Format.humanDay(it.first())}" },
-                    "那天提醒过就结束".takeIf { endsOnDay }
-                ).joinToString(" · ")
-            } else {
-                listOfNotNull(repeat?.let { "$it ${Format.clock(anchor, zone)}" }, Format.humanDateTime(r.nextTriggerAt, zone)).joinToString(" · 下次 ")
-            }
-            val status = when (r.status) {
-                ReminderStatus.SCHEDULED -> null
-                ReminderStatus.FIRED -> "响过了、还没点完成"
-                ReminderStatus.DONE -> "完成了"
-                ReminderStatus.CANCELLED -> "取消了"
-            }
+            val spec = r.spec()
+            // 拖过来的（每天再提着的）：那天已经过了，抄回去会被闸门当成过去。一次性的抄今天，重复的抄今天或以后的头一次
+            val day = if (!spec.day.isBefore(today)) spec.day else nextOnOrAfter(spec.rrule, spec.day, today, zone)
             val human = listOfNotNull(
-                "#${r.id} ${r.title}", whenText, "轻提醒".takeIf { r.gentle }, status,
+                "#${r.id} ${r.title}",
+                ReminderText.whenOf(spec, today),
+                "拖了 ${ChronoUnit.DAYS.between(spec.day, today)} 天".takeIf { r.untimed && spec.day.isBefore(today) && spec.rrule == null },
+                "下次 ${Format.humanDateTime(r.nextTriggerAt, zone)}".takeIf { r.status == ReminderStatus.SCHEDULED && !r.untimed },
+                spec.remindBefore.takeIf { it.isNotEmpty() }?.let { "提前 ${it.joinToString("、")} 天提一下" },
+                when {
+                    !r.untimed && spec.ring == Ring.NOTICE -> "只发通知"
+                    r.untimed && spec.ring == Ring.ALARM -> "响铃"
+                    else -> null
+                },
+                when (spec.nag) {
+                    Nag.NONE -> null
+                    Nag.SOON -> "没点完成 30 分钟后再提"
+                    Nag.DAILY -> "没点完成每晚再提"
+                },
+                when (r.status) {
+                    ReminderStatus.SCHEDULED -> null
+                    ReminderStatus.FIRED -> "响过了、还没点完成"
+                    ReminderStatus.DONE -> "完成了"
+                    ReminderStatus.CANCELLED -> "不再提醒了"
+                },
                 r.note?.takeIf { it.isNotBlank() }?.let { "备注：$it" }
             ).joinToString(" · ")
-            // 拖过来的当天事项：日期抄过去会被闸门当成过去，抄今天
-            val first = if (due != null) maxOf(due, today).atStartOfDay(zone) else Instant.ofEpochMilli(anchor).atZone(zone)
-            return "$human | firstTriggerAt=${ISO.format(first)} rrule=${r.rrule ?: "null"} " +
-                "wallClockAnchored=${r.wallClockAnchored} allDay=${due != null} gentle=${r.gentle} " +
-                "remindOn=[${nudges.joinToString(",")}] carryOver=${!endsOnDay}"
+            return "$human | day=$day times=[${spec.times.joinToString(",") { it.toString().take(5) }}] rrule=${spec.rrule ?: "null"} " +
+                "remindBefore=[${spec.remindBefore.joinToString(",")}] ring=${spec.ring.name.lowercase()} nag=${spec.nag.name.lowercase()} " +
+                "wallClockAnchored=${spec.wallClockAnchored}"
+        }
+
+        /** 重复的从 [from] 往后数，头一个不早于 [today] 的；不重复（或规则排不出下一次）的就是 [today] */
+        private fun nextOnOrAfter(rrule: String?, from: LocalDate, today: LocalDate, zone: ZoneId): LocalDate {
+            var at = from.atTime(12, 0).atZone(zone)
+            while (at.toLocalDate().isBefore(today)) at = Rrule.nextAfter(rrule, at, zone) ?: return today
+            return at.toLocalDate()
         }
 
         /** 筛日期用的那一天：这一次的那天 */

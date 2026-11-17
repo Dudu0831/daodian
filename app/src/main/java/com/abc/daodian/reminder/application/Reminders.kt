@@ -9,9 +9,7 @@ import com.abc.daodian.reminder.data.remindBeforeColumn
 import com.abc.daodian.reminder.data.timesColumn
 import com.abc.daodian.reminder.delivery.Fired
 import com.abc.daodian.reminder.delivery.Notifier
-import com.abc.daodian.reminder.domain.ReminderPlan
 import com.abc.daodian.reminder.domain.ReminderSpec
-import com.abc.daodian.reminder.domain.toSpec
 import com.abc.daodian.reminder.scheduling.CheckTime
 import com.abc.daodian.reminder.scheduling.FireHandler
 import com.abc.daodian.reminder.scheduling.Rescheduler
@@ -27,7 +25,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * 提醒的所有写操作，app 里只有这一个入口：模型建 / 改 / 删的（`create_reminder`、`update_reminder`、`delete_reminders`）、
+ * 提醒的所有写操作，app 里只有这一个入口：模型建 / 改 / 停 / 删的（`create_reminder`、`update_reminder`、`stop_reminders`、`delete_reminders`）、
  * 手动建 / 改、完成、稍后、删、撤销、重排。通知按钮、全屏页、小组件的 ✓ 也走这里；响了之后排下一下在 `FireHandler`。
  *
  * 「这一次排到哪了」全由 [Schedule] 算（DESIGN.md §4.6），这里只管落库和排闹钟。改完一律喊小组件重画一次（[WidgetUpdater]）——
@@ -42,18 +40,18 @@ object Reminders {
      * 模型建出来的一条提醒「落库 → 排闹钟」，返回新提醒的 id。对话页和桌面速记都经由 `create_reminder` 到这里。
      * 桌面上那一行先亮成朱砂的「刚记下」（[WidgetUpdater.announce]），速记记完回到桌面就看得见。
      */
-    suspend fun commitPlan(context: Context, rawInput: String, plan: ReminderPlan, parsedBy: String): Long {
-        val saved = save(context, null, plan.toSpec(ZoneId.systemDefault()), rawInput, parsedBy)!!
+    suspend fun commitPlan(context: Context, rawInput: String, spec: ReminderSpec, parsedBy: String): Long {
+        val saved = save(context, null, spec, rawInput, parsedBy)!!
         WidgetUpdater.announce(context.applicationContext, saved.id)
         return saved.id
     }
 
     /**
-     * 模型改了一条（`update_reminder`）：整条换成 [plan]（已经过了闸门），原话、建的时刻不动，重新排期。没有这一条是 null。
+     * 模型改了一条（`update_reminder`）：整条换成 [spec]（已经过了闸门），原话、建的时刻不动，重新排期。没有这一条是 null。
      * 响过了、完成了的改完一律回到 SCHEDULED；稍后作废；还挂在通知栏上的那条一起收掉 —— 不然点它的「完成」会把改好的这条也完成了
      */
-    suspend fun updatePlan(context: Context, id: Long, plan: ReminderPlan, parsedBy: String): Reminder? =
-        save(context, id, plan.toSpec(ZoneId.systemDefault()), rawInput = null, parsedBy = parsedBy)?.also {
+    suspend fun updatePlan(context: Context, id: Long, spec: ReminderSpec, parsedBy: String): Reminder? =
+        save(context, id, spec, rawInput = null, parsedBy = parsedBy)?.also {
             WidgetUpdater.refresh(context.applicationContext)
         }
 
@@ -199,13 +197,24 @@ object Reminders {
      * 和「完成」分开：完成只算这一次。先撤闹钟再改状态，理由同 [complete]
      */
     suspend fun stop(context: Context, r: Reminder) {
+        stopAll(context, listOf(r.id))
+    }
+
+    /** 对话里的「不再提醒」（`stop_reminders`）：还排着的才停，返回停了的 */
+    suspend fun stopAll(context: Context, ids: List<Long>): List<Reminder> {
         val app = context.applicationContext
-        Notifier.cancel(app, r.id)
-        FireHandler.lock.withLock {
-            Rescheduler(app).cancel(r.id)
-            ReminderDatabase.get(app).reminderDao().setStatus(r.id, ReminderStatus.CANCELLED, System.currentTimeMillis())
+        val dao = ReminderDatabase.get(app).reminderDao()
+        val stopped = FireHandler.lock.withLock {
+            ids.mapNotNull { id ->
+                dao.byId(id)?.takeIf { it.status == ReminderStatus.SCHEDULED }?.also { r ->
+                    Rescheduler(app).cancel(r.id)
+                    dao.setStatus(r.id, ReminderStatus.CANCELLED, System.currentTimeMillis())
+                }
+            }
         }
+        stopped.forEach { Notifier.cancel(app, it.id) }
         WidgetUpdater.refresh(app)
+        return stopped
     }
 
     suspend fun delete(context: Context, r: Reminder) {

@@ -1,27 +1,25 @@
 package com.abc.daodian.reminder.domain
 
-/** 模型给出的一条提醒，`create_reminder` 的参数。见 DESIGN.md §6.4 */
+/**
+ * 模型交的一条提醒，`create_reminder` / `update_reminder` 的参数原样（DESIGN.md §4.6、§6.4）。
+ * 还没过闸门：日子、钟点、怎么响、催不催都是它写的字，[PlanValidator] 认得了才换成 [ReminderSpec]。
+ */
 data class ReminderPlan(
     val title: String,
     val note: String? = null,
-    /** ISO-8601 带偏移，如 "2026-09-02T15:00:00+08:00" */
-    val firstTriggerAt: String,
-    /** 模型的推算依据，如 "now + 5d, 15:00"。刻意要求它写出来，出错时能一眼看出哪儿想歪了 */
+    /** 模型的推算依据，如「用户时刻 11-16 周一 + 5 天」。刻意要求它写出来，出错时能一眼看出哪儿想歪了 */
     val basis: String = "",
+    /** 事情本身那天（第一次），`YYYY-MM-DD` */
+    val day: String,
+    /** 几点，`HH:mm`；空 = 不定（那天晚上收尾时刻提醒） */
+    val times: List<String> = emptyList(),
     val rrule: String? = null,
-    val wallClockAnchored: Boolean = true,
-    /**
-     * 当天事项：只说了哪天、没说几点。这时 [firstTriggerAt] 只取日期，钟点换成设置里的收尾时刻。
-     * 见 DESIGN.md §4.3
-     */
-    val allDay: Boolean = false,
-    /** 轻提醒：到点只发一条通知，响一声，不响铃、不弹全屏。只有他明说了才是 true；当天事项不看它。见 DESIGN.md §5.6 */
-    val gentle: Boolean = false,
-    /**
-     * 提前提醒：那天之前还要提醒的几天，`YYYY-MM-DD`。只有不重复的当天事项能有；过了闸门的已经去重、排好、
-     * 去掉了今天以前的和那天当天的。见 DESIGN.md §4.4
-     */
-    val remindOn: List<String> = emptyList(),
-    /** 到了那天没点完成，要不要每晚接着提醒。false = 响过那一晚就结束（只是个日子的）。只有不重复的当天事项看它 */
-    val carryOver: Boolean = true
+    /** 提前几天，在那天晚上收尾时刻提一下 */
+    val remindBefore: List<Int> = emptyList(),
+    /** `alarm` 响铃 / `notice` 只发通知（轻提醒） */
+    val ring: String,
+    /** `none` 不催 / `soon` 过一会儿再提 / `daily` 每天再提 */
+    val nag: String,
+    /** 有钟点的才看：true = 跟着人走的当地钟点，false = 固定那一瞬间（§7.1） */
+    val wallClockAnchored: Boolean = true
 )

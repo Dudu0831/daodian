@@ -22,7 +22,8 @@ import com.abc.daodian.intake.steward.Steward
 import com.abc.daodian.ledger.capture.LedgerNoticeTarget
 import com.abc.daodian.ledger.domain.LedgerBackend
 import com.abc.daodian.ledger.tools.LedgerTools
-import com.abc.daodian.reminder.domain.ReminderPlan
+import com.abc.daodian.reminder.data.Ring
+import com.abc.daodian.reminder.domain.ReminderSpec
 import com.abc.daodian.reminder.notice.ReminderNoticeAgent
 import com.abc.daodian.reminder.notice.ReminderNoticePrompt
 import com.abc.daodian.reminder.notice.ReminderNoticeTarget
@@ -108,7 +109,7 @@ class LiveGatewayTest {
     }
 
     /** 助手，带着真机上那一套工具（按 `Modules.kt` 的顺序）；建提醒落到 [commit] */
-    private fun assistant(book: MemoryBackend, commit: suspend (ReminderPlan, ToolContext) -> Long = { _, _ -> 1001L }): Agent =
+    private fun assistant(book: MemoryBackend, commit: suspend (ReminderSpec, ToolContext) -> Long = { _, _ -> 1001L }): Agent =
         AssistantAgent.build(AssistantAgent.tools(book, ReminderTools.forAssistant(FakeReminderDesk(commit = commit)) + LedgerTools.forAssistant(noLedger)))
 
     @Test
@@ -117,7 +118,7 @@ class LiveGatewayTest {
         val book = FakeMemoryBook()
         install(book)
         val agent = assistant(book) { plan, _ ->
-            committed += "${plan.title} @ ${plan.firstTriggerAt}"
+            committed += "${plan.title} @ ${plan.day} ${plan.times}"
             1001L
         }
         val session = Session()
@@ -151,7 +152,7 @@ class LiveGatewayTest {
         val committed = mutableListOf<String>()
         val book = FakeMemoryBook("他说的「晚点」一般指晚上 9 点")
         install(book)
-        val agent = assistant(book) { plan, _ -> committed += plan.firstTriggerAt; 1001L }
+        val agent = assistant(book) { plan, _ -> committed += "${plan.day} ${plan.times}"; 1001L }
         val session = Session()
         val now = ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).withHour(15).withMinute(0)
         val background = { _: Session -> Preamble("你记得的关于他的事（m 编号 · 记下或改过的日子）：\n- m1 · 9月20日 · 他说的「晚点」一般指晚上 9 点") }
@@ -159,7 +160,7 @@ class LiveGatewayTest {
         val first = AgentRuntime.run(agent, session, Input("晚点提醒我给妈妈打电话", now), background = background).onEach(::log).toList()
         assertTrue("第一轮没正常结束：${first.last()}", first.last() is AgentEvent.Finished)
         println("建的：$committed")
-        assertTrue("没按记忆排到 21:00：$committed", committed.singleOrNull()?.contains("T21:00") == true)
+        assertTrue("没按记忆排到 21:00：$committed", committed.singleOrNull()?.contains("21:00") == true)
 
         val second = AgentRuntime.run(agent, session, Input("记住：我每周二晚上健身", now.plusMinutes(1)), background = background)
             .onEach(::log).toList()
@@ -230,17 +231,16 @@ class LiveGatewayTest {
         assertEquals("ledger", inbox.handoffs.single { it.noticeId == 3L }.to)
         assertEquals("reminder", inbox.handoffs.single { it.noticeId == 4L }.to)
 
-        val plans = mutableListOf<ReminderPlan>()
+        val plans = mutableListOf<ReminderSpec>()
         val agent = ReminderNoticeAgent.build { plan, _ -> plans += plan; 2001L }
         val input = ReminderNoticePrompt.input("短信", "菜鸟驿站", "【菜鸟驿站】您的包裹已到幸福里驿站，凭取件码 3-2-1088 领取", redacted = false, note = parcel.note)
         val run = AgentRuntime.runOnce(agent, Input(input, now), AgentRuntime.memory)
         println("提醒子代理：$run\n建的：$plans")
         val plan = plans.singleOrNull()
         assertNotNull("应该恰好建一条：$plans", plan)
-        assertFalse("说了钟点，不是当天事项：$plan", plan!!.allDay)
-        assertEquals("18:00 提醒：$plan", 18, java.time.OffsetDateTime.parse(plan.firstTriggerAt).atZoneSameInstant(ZoneId.of("Asia/Shanghai")).hour)
+        assertEquals("18:00 提醒：$plan", listOf(java.time.LocalTime.of(18, 0)), plan!!.times)
         assertTrue("标题带取件码：${plan.title}", plan.title.contains("3-2-1088"))
-        assertFalse("附言没说轻提醒：$plan", plan.gentle)
+        assertEquals("附言没说轻提醒：$plan", Ring.ALARM, plan.ring)
     }
 
     /** 整理员（§6.9）：看一段对话，交上记忆和摘要；账目、一次性的事不进记忆，摘要不写「已经办好」 */

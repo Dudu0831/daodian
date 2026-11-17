@@ -306,7 +306,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 - 以后「类似的出门推荐带什么」靠记忆（§6.9）和以前的清单，查以前的清单要 `list_reminders` 能看办完的，现在看不了。
 - 子项表和 §4.6 的新字段一起进 `reminder.db` v5，只迁一次。
 
-### 4.6 一种提醒、六件事（11-16 定的；第 ①② 步做完，模拟器上验过，没上真机）
+### 4.6 一种提醒、六件事（11-16 定的；第 ①②③ 步做完，模拟器上验过，没上真机）
 
 盘点（<https://claude.ai/artifact/MZpNGzJvm1cCTpaP3Yqazu>）发现：现在先按「有没有钟点」分成定时提醒和当天事项两种，再把设置挂到其中一种上，于是「12 月 23 日 07:30 的飞机提前一周提醒」「每年生日提前一周」「每天 8 点吃药没吃一直催」「每两小时喝水」都设不出来；重复的定时提醒，「完成」在通知上点只算这一次、在提醒页的圈上点整串停掉。方案：<https://claude.ai/artifact/1JZRqv4Qdq5MKwC2BZR2YQ>。
 
@@ -368,7 +368,16 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 
 **模型**：`create_reminder` / `update_reminder` 去掉 `allDay`、`gentle`、`remindOn`、`carryOver`、`firstTriggerAt`，换成 `day`、`times`、`rrule`、`remindBefore`（天数）、`ring`、`nag`，`wallClockAnchored`、`note`、`basis` 照旧。模型不再自己一天天算提前提醒的日子。「要办的事填催、只是个日子不催」的判断照搬。提示词升一版。
 
-**分五步，每步装真机验完再走下一步**：① 库、迁移、纯函数、`FireHandler` 查表（界面和模型照旧写，存时换算）—— 11-16 写完：`scheduling/Schedule`（`ScheduleTest` 21 例）、`data/Migration4To5`、`delivery/Fired`（通知按钮记着是哪一下）、`DayTasks` / `Series` 删了；「完成」「稍后」顺带已经统一走 `Reminders.complete` / `snooze`（第 ② 步剩下的是通知上按钮怎么摆、「不再提醒」的入口）；没上真机；② 响了之后：通知按钮、「完成」只算这一次、「不再提醒」、稍后谁都有 —— 11-16 做完：按钮照上面那条、编辑页「不再提醒」、排成一队（上面）；模拟器上验过，没上真机；③ 模型参数、提示词、闸门；④ 编辑页按六项重画（11-16 那份编辑页稿子 <https://claude.ai/artifact/GN6UcNftUvPNAALd8GTVD8> 搁着，到这步照六项改了再出）、提醒页小字；⑤ 接回清单（§4.5）、桌面卡片（§8.5）。
+11-16 做完（第 ③ 步）：
+- 参数原样是 `domain/ReminderPlan`（字），闸门 `PlanValidator` 分两层：`parse` 只认字（不是日期、不是钟点、不认得的 ring / nag、提前 0 天，都是模型自己改），`validate` 再查说不通的（上面那几条，加上一次性的钟点全过了、5 年以后、钟点超 12 个、提前超 60 次），过了交 `ReminderSpec`。痕用 `PlanValidator.read` 只认字，不看日子（旧的痕早就「过去」了）。
+- 重复的 `day` 先挪到规则上头一次（`Rrule.firstOnOrAfter`：周一说「每周六」，模型填了今天，排期从起点算一次，起点得落在周六上）。
+- 默认值写在参数说明和提示词里：有钟点的响铃、没钟点的只发通知；没钟点的一次性要办的事每天再提，只是个日子的、有钟点的、重复的不催。
+- 回给模型的那句六件事都说到（`ReminderText.describe`），它好对着用户的话核一遍；`list_reminders` 竖线后面六件事原样（`day=… times=[…] rrule=… remindBefore=[…] ring=… nag=… wallClockAnchored=…`），拖着的抄今天、重复的抄今天或以后的头一次。
+- 对话里「不再提醒」是新工具 `stop_reminders`（落成 `CANCELLED`、痕「不再提醒 · 吃药」）；`delete_reminders` 只管明说删的。
+- 提示词 `assistant-v11`、`reminder-notice-v2`。11-16 以前的历史里的旧参数认不得：痕只写标题，编辑页「依据」照样读（`CreateReminderTool.basisOf` 单读那一个字段）。
+- `ReminderSpec` 的换算 `toSpec` 删了；编辑页还按两种提醒的样子摆，存时自己拼 `ReminderSpec`，第 ④ 步重画。
+
+**分五步，每步装真机验完再走下一步**：① 库、迁移、纯函数、`FireHandler` 查表（界面和模型照旧写，存时换算）—— 11-16 写完：`scheduling/Schedule`（`ScheduleTest` 21 例）、`data/Migration4To5`、`delivery/Fired`（通知按钮记着是哪一下）、`DayTasks` / `Series` 删了；「完成」「稍后」顺带已经统一走 `Reminders.complete` / `snooze`（第 ② 步剩下的是通知上按钮怎么摆、「不再提醒」的入口）；没上真机；② 响了之后：通知按钮、「完成」只算这一次、「不再提醒」、稍后谁都有 —— 11-16 做完：按钮照上面那条、编辑页「不再提醒」、排成一队（上面）；模拟器上验过，没上真机；③ 模型参数、提示词、闸门 —— 11-16 做完（上面「模型」那段），模拟器上接真模型用英文验过建、改、停、催的默认值；④ 编辑页按六项重画（11-16 那份编辑页稿子 <https://claude.ai/artifact/GN6UcNftUvPNAALd8GTVD8> 搁着，到这步照六项改了再出）、提醒页小字；⑤ 接回清单（§4.5）、桌面卡片（§8.5）。
 
 ---
 

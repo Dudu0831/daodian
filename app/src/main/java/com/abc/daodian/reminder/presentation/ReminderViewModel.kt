@@ -62,5 +62,5 @@ class ReminderViewModel(app: Application) : AndroidViewModel(app) {
         // 对话里改过（update_reminder）就看最近改的那次，它的时间才是现在这条的
         (CallHistory.arguments(getApplication(), UpdateReminderTool.NAME, reminderId)
             ?: CallHistory.arguments(getApplication(), CreateReminderTool.NAME, reminderId))
-            ?.let(CreateReminderTool::planOf)?.basis?.takeIf { it.isNotBlank() }
+            ?.let(CreateReminderTool::basisOf)
 }

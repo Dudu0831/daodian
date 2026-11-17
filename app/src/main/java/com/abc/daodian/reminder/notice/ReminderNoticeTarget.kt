@@ -81,8 +81,8 @@ object ReminderNoticeTarget : NoticeTarget {
 
     private suspend fun ask(app: Context, h: Handed): Outcome {
         val source = sourceOf(h)
-        val agent = ReminderNoticeAgent.build { plan, ctx ->
-            Reminders.commitPlan(app, "$source：${h.body.orEmpty()}", plan.copy(note = noteOf(plan.note, source)), ctx.model)
+        val agent = ReminderNoticeAgent.build { spec, ctx ->
+            Reminders.commitPlan(app, "$source：${h.body.orEmpty()}", spec.copy(note = noteOf(spec.note, source)), ctx.model)
         }
 
         // 「明天」从通知的时刻算。隔太久才交到（扫通知栏扫出来的旧通知、模型挂了一阵）就按现在算，免得建出过去的时间
