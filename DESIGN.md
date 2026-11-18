@@ -293,7 +293,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 - **表**：`reminder.db` v4 → v5 加一张子项表（属于哪条提醒、写的什么、勾没勾、排第几），提醒删了它跟着删。**只加表、不改 `reminders` 的列。**
 - **排期不读这张表**：§05 的排期、四个重排触发源、巡检补发都不碰它，闹钟只看提醒本身。
 - **勾完不等于办完**：清单全勾上，提醒照样到点响，不自动 `DONE`；收拾完行李不等于这件事办完了。
-- **模型**：建提醒时顺手把清单列上（护照签证、转换插头、厚外套……），**直接列、不先问**，痕里写「清单 8 样」，不要的你划掉 —— 同「写操作直接办、留痕」（§6.6）。对话里能说「行李里加个充电宝」「鸡蛋买了」。工具（11-17 定的）：`create_reminder` 多一个 `items`（一组字，没有填 []；通知管家那一路的提醒子代理不给这个参数）；改清单单开 `change_checklist`（几号勾、几号取消、加哪几样、删几号，号是 `list_reminders` 在那条底下列的顺序：「  清单：1[ ]护照签证 2[x]转换插头」）。不并进 `update_reminder`：那边整条重写，清单也整份重写的话，模型抄漏一个勾就冲掉你勾过的。提示词 `assistant-v13`。
+- **模型**：建提醒时顺手把清单列上（护照签证、转换插头、厚外套……），**直接列、不先问**，痕里写「清单 8 样」，不要的你划掉 —— 同「写操作直接办、留痕」（§6.6）。对话里能说「行李里加个充电宝」「鸡蛋买了」。工具（11-17 定的）：`create_reminder` 多一个 `items`（一组字，没有填 []；通知管家那一路的提醒子代理不给这个参数）；改清单单开 `change_checklist`（几号勾、几号取消、加哪几样、删几号，号是 `list_reminders` 在那条底下列的顺序：「  清单：1[ ]护照签证 2[x]转换插头」）。不并进 `update_reminder`：清单要按号勾、加、删，整份重写的话模型抄漏一个勾就冲掉你勾过的。提示词 `assistant-v13`。
 - **界面**（设计稿 <https://claude.ai/artifact/KUbyGsiU6L1jNMtgHjMGXA>，用户 11-16 选的）：
   - 编辑页：清单整组放在标题和复述底下、所有设置上面（方向甲）；没有清单时只一行淡的「＋ 清单」。勾了的变灰划线、**留在原地不往下沉**；点字就地改，左滑删、5 秒撤销；最后一行「加一样」，回车接着打下一样。组名右边「还剩 5 样」/「都勾完了」。
   - **清单的改动当场存**，不等「记下改动」（收拾行李时勾了几样就按返回，不能丢）；新建还没记下的，跟着「记下」一起存。
@@ -374,7 +374,13 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 - 参数原样是 `domain/ReminderPlan`（字），闸门 `PlanValidator` 分两层：`parse` 只认字（不是日期、不是钟点、不认得的 ring / nag、提前 0 天，都是模型自己改），`validate` 再查说不通的（上面那几条，加上一次性的钟点全过了、5 年以后、钟点超 12 个、提前超 60 次），过了交 `ReminderSpec`。痕用 `PlanValidator.read` 只认字，不看日子（旧的痕早就「过去」了）。
 - 重复的 `day` 先挪到规则上头一次（`Rrule.firstOnOrAfter`：周一说「每周六」，模型填了今天，排期从起点算一次，起点得落在周六上）。
 - 默认值写在参数说明和提示词里：有钟点的响铃、没钟点的只发通知；没钟点的一次性要办的事每天再提，只是个日子的、有钟点的、重复的不催。
-- 回给模型的那句六件事都说到（`ReminderText.describe`），它好对着用户的话核一遍；`list_reminders` 竖线后面六件事原样（`day=… times=[…] rrule=… remindBefore=[…] ring=… nag=… wallClockAnchored=…`），拖着的抄今天、重复的抄今天或以后的头一次。
+- 回给模型的那句六件事都说到（`ReminderText.describe`），它好对着用户的话核一遍；`list_reminders` 竖线后面六件事现在的原样（`day=… times=[…] rrule=… remindBefore=[…] ring=… nag=…`），拖着的写今天、重复的写今天或以后的头一次。
+- **11-17 改了三处**（提示词 `assistant-v14`、`reminder-notice-v4`）：
+  - `update_reminder` 只填要改的几项，别的填 null；note、rrule 填 `""` 是去掉。代码拿库里那条合成整条再过同一道闸门（`UpdateReminderTool.merge`），日子没改的照 `list_reminders` 写的那天（`ListRemindersTool.listedDay`）。原来要模型整条抄一遍，提示词得点名「别弄丢」。对话里的痕只写改了的几样（「改成 16:00 轻提醒 · 交房租」），历史里整条重写的旧参数照旧读。
+  - `wallClockAnchored` 不让模型填了：重复的、不定钟点的跟着人走，一次性定了钟点的固定那一瞬间（`CreateReminderTool.anchoredOf`）；改的时候钟点和重复都没动就照旧（编辑页手动拨过的开关不被冲掉）。
+  - 参数说明只写是什么、怎么写；什么时候填什么只在提示词「提醒的规则」里写一份（原来参数说明、改的那份、提示词各一遍，已经开始对不上）。两个工具的说明从约 2.1k、2.0k 字缩到 1.3k、1.4k。
+  - 「工具没成」那条以前一律说「不要自己换参数重试」，和工具回的「参数填错了，改好再调一次」打架；现在照回话办：填错了自己改，时间过了这类问他。
+  - 模拟器上接 `deepseek-v4.1-flash` 验过：建下周二 15:00 看牙医（固定瞬间）、改到 16:30、把带提前 7、1 天的航班改到 9 点（提前提醒、日期都留着）。**看到的**：模型照旧每项都填（对话历史里有十几次整条重写的旧调用，它照着学），只是抄的值对；每次头一下都写出没引号的字（`"title": 看牙医`），被回「不是合法的 JSON」后自己改对，多走一步 —— 11-16 也出过一次，供应商不管 `strict`。
 - 对话里「不再提醒」是新工具 `stop_reminders`（落成 `CANCELLED`、痕「不再提醒 · 吃药」）；`delete_reminders` 只管明说删的。
 - 提示词 `assistant-v11`、`reminder-notice-v2`。11-16 以前的历史里的旧参数认不得：痕只写标题，编辑页「依据」照样读（`CreateReminderTool.basisOf` 单读那一个字段）。
 - `ReminderSpec` 的换算 `toSpec` 删了。
@@ -620,7 +626,7 @@ ViewModel 一律按 Activity 取（`shared/ui/activityViewModel`），各页、�
 **查、改、删已有的**（11-13 加的，提示词 `assistant-v7`；`reminder/tools/` 的 `ListRemindersTool`、`UpdateReminderTool`、`DeleteRemindersTool`，背后是 `ReminderDesk` → `Reminders`）：
 
 - `list_reminders`：只读、不留痕，结果过几轮折掉（`outputGoesStale`）。默认只列 `SCHEDULED` 的，`include_finished` 才带上响过的、完成了的。每条一行人话，竖线后面是 `update_reminder` 照抄的原样值（`firstTriggerAt`、`rrule`、`wallClockAnchored`、`allDay`、`gentle`）。稍后着的重复提醒抄的是这一串本来的下一次（`seriesNextAt`）；拖过来的当天事项抄今天，不然闸门当它在过去。
-- `update_reminder`：**整条重写**，参数是 `id` + `create_reminder` 那一套，过同一道闸门。不做「只传改了的字段」：`note`、`rrule` 可空，分不清「不改」和「改成空」，闸门也要整条才查得了。代价是模型可能抄丢字段，提示词点了名 rrule、gentle、note。落库走 `Reminders.updatePlan`：原话、建的时刻不动，状态回 `SCHEDULED`、稍后作废（同手动改），挂着的通知一起收掉（不然点它的「完成」会把改好的这条也完成）。编辑页的「依据」先看最近一次 `update_reminder`，没有再看 `create_reminder`。
+- `update_reminder`：**整条重写**，参数是 `id` + `create_reminder` 那一套，过同一道闸门。（11-17 起改成只填要改的，见 §4.6「11-17 改了三处」。）落库走 `Reminders.updatePlan`：原话、建的时刻不动，状态回 `SCHEDULED`、稍后作废（同手动改），挂着的通知一起收掉（不然点它的「完成」会把改好的这条也完成）。编辑页的「依据」先看最近一次 `update_reminder`，没有再看 `create_reminder`。
 - `delete_reminders`：一次几条，真删（同列表左滑删），对话里没有撤销。只在他明说不要了时用；「做完了」不是删。痕「删了 · 喝水」，几条的「删了 3 条」、细目逐条列，点不进去。
 - 提醒子代理（通知管家交来的）还是只有 `create_reminder`。
 

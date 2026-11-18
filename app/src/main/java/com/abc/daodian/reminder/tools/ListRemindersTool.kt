@@ -93,12 +93,11 @@ class ListRemindersTool(
 
         /**
          * 一条提醒给模型看的一行：「#12 喝水 · 每天 09:00、15:00 · 下次 11月14日 周五 09:00 · 只发通知 | day=… times=[…] …」。
-         * 竖线后面是 `update_reminder` 照抄的原样值，六件事都在（§4.6）
+         * 竖线后面是六件事现在的原样值（§4.6）：`update_reminder` 只填要改的，看这里知道现在是什么
          */
         fun line(r: Reminder, zone: ZoneId, today: LocalDate): String {
             val spec = r.spec()
-            // 拖过来的（每天再提着的）：那天已经过了，抄回去会被闸门当成过去。一次性的抄今天，重复的抄今天或以后的头一次
-            val day = if (!spec.day.isBefore(today)) spec.day else nextOnOrAfter(spec.rrule, spec.day, today, zone)
+            val day = listedDay(r, zone, today)
             val human = listOfNotNull(
                 "#${r.id} ${r.title}",
                 ReminderText.whenOf(spec, today),
@@ -120,9 +119,15 @@ class ListRemindersTool(
                 r.note?.takeIf { it.isNotBlank() }?.let { "备注：$it" }
             ).joinToString(" · ")
             return "$human | day=$day times=[${spec.times.joinToString(",") { it.toString().take(5) }}] rrule=${spec.rrule ?: "null"} " +
-                "remindBefore=[${spec.remindBefore.joinToString(",")}] ring=${spec.ring.name.lowercase()} nag=${spec.nag.name.lowercase()} " +
-                "wallClockAnchored=${spec.wallClockAnchored}"
+                "remindBefore=[${spec.remindBefore.joinToString(",")}] ring=${spec.ring.name.lowercase()} nag=${spec.nag.name.lowercase()}"
         }
+
+        /**
+         * 这一条现在该写成哪天。拖过来的（每天再提着的）那天已经过了，原样交回去会被闸门当成过去：
+         * 一次性的算今天，重复的算今天或以后的头一次。`update_reminder` 没改日子时也从这里取
+         */
+        fun listedDay(r: Reminder, zone: ZoneId, today: LocalDate): LocalDate =
+            if (!r.day.isBefore(today)) r.day else nextOnOrAfter(r.rrule, r.day, today, zone)
 
         /**
          * 清单另起一行，带号（`change_checklist` 按号改）：「  清单：1[ ]护照签证 2[x]转换插头」。没有清单是空的

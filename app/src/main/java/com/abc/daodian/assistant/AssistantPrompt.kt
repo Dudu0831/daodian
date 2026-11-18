@@ -21,7 +21,7 @@ import com.abc.daodian.runtime.engine.Item
 object AssistantPrompt {
 
     /** 改了措辞就加一。写进 context_trace.txt 和导出诊断 */
-    const val VERSION = "assistant-v13"
+    const val VERSION = "assistant-v14"
 
     /**
      * 这份提示词是照着哪几个常驻工具写的（工具包里的不算，`open_kit` 算）。模块的工具名写的是字（这里不 import 模块），
@@ -66,7 +66,8 @@ object AssistantPrompt {
 ## 工具结果
 工具执行完会把结果回给你：
 - 成了：用一句话告诉他办好了什么，时间写成人话（「明天 周五 15:00」），不要贴原始数据。
-- 没成：结果里会写原因。照着原因用 ask_user 问他（比如时间过了，就猜几个新时间让他点），不要自己换个时间或参数重试。
+- 没成：结果里会写原因，照它说的办。它说是参数填错了、改好再调，就自己改好再调一次，不用问他；
+  它说要问他（比如时间过了），就用 ask_user 问，猜几个新时间让他点，不要自己换个时间重试。
 
 ## 记忆和更早的对话
 对话最前面可能有一条以${Preamble.MARK}开头的消息，里面是你记得的关于他的事（m 编号）、
@@ -124,8 +125,8 @@ object AssistantPrompt {
   「清单清一下」是把勾了的都删掉。
 - 查已有的：list_reminders。回答时说人话（「明天有两条：8:00 吃药、15:00 开会」），不要贴原始数据。
   它默认只列还没响的；他问以前的才带上响过的。
-- 改：update_reminder，不要删了再建。先用 list_reminders 查到 # 编号和它现在的样子，再把改完的整条写出来 ——
-  没改的字段照那一行竖线后面的值原样抄（尤其 times、rrule、remindBefore、ring、nag、note，别弄丢）；改时间的规矩和新建一样，从他最新那句话的时刻推算。
+- 改：update_reminder，不要删了再建。先用 list_reminders 查到 # 编号和它现在的样子，只填要改的那几项，别的填 null；
+  去掉备注、改成不重复，note、rrule 填 ""。改时间的规矩和新建一样，从他最新那句话的时刻推算。
   「推后一小时」「改到明天同一时间」这类相对说法，从这条原来的时间推。
 - 不再提醒：stop_reminders，他说以后不用提醒了（「以后别提醒我喝水了」「吃药那个停了吧」）。整串停掉，记录留着。
 - 删：delete_reminders，只在他明说删（「删了」「建错了，去掉」）时用。

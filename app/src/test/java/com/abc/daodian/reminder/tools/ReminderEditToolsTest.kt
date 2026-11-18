@@ -56,16 +56,16 @@ class ReminderEditToolsTest {
         """{"keyword":${keyword?.let { "\"$it\"" }},"from":${from?.let { "\"$it\"" }},"to":${to?.let { "\"$it\"" }},"include_finished":$finished,"limit":null}"""
 
     @Test
-    fun `list shows the live ones in time order with the values update copies`() = runBlocking {
+    fun `list shows the live ones in time order with their current values`() = runBlocking {
         val out = list(desk()).execute(query(), ctx)
         assertTrue(out.ok)
         val lines = out.output.lines()
         assertEquals("共 3 条：", lines[0])
         assertTrue(lines[1], lines[1].startsWith("#7 报销 · ") && "拖了 2 天" in lines[1] && "没点完成每晚再提" in lines[1])
         // 拖过来的：抄过去的日子是今天，不然闸门当它在过去
-        assertTrue(lines[1], lines[1].endsWith("| day=2026-11-13 times=[] rrule=null remindBefore=[] ring=notice nag=daily wallClockAnchored=true"))
+        assertTrue(lines[1], lines[1].endsWith("| day=2026-11-13 times=[] rrule=null remindBefore=[] ring=notice nag=daily"))
         assertTrue(lines[2], lines[2].startsWith("#3 喝水 · 每天 10:00 · 下次 11月14日 周六 10:00 · 只发通知"))
-        assertTrue(lines[2], lines[2].endsWith("| day=2026-11-14 times=[10:00] rrule=FREQ=DAILY remindBefore=[] ring=notice nag=none wallClockAnchored=true"))
+        assertTrue(lines[2], lines[2].endsWith("| day=2026-11-14 times=[10:00] rrule=FREQ=DAILY remindBefore=[] ring=notice nag=none"))
         assertTrue(lines[3], "备注：转给房东" in lines[3] && "rrule=null" in lines[3] && "ring=alarm" in lines[3])
         assertFalse("完成了的默认不列", "开会" in out.output)
     }
@@ -81,31 +81,64 @@ class ReminderEditToolsTest {
         assertEquals("没有符合条件的、还没响的提醒。", list(d).execute(query(keyword = "健身"), ctx).output)
     }
 
-    private fun plan(id: Long, day: String, time: String = "16:00", title: String = "交房租") =
-        """{"id":$id,"title":"$title","day":"$day","times":["$time"],"basis":"原来 11-20 15:00 推后一小时","note":"转给房东",""" +
-            """"rrule":null,"remindBefore":[],"ring":"alarm","nag":"none","wallClockAnchored":false}"""
+    /** 只交要改的几项，别的 null（11-17 起） */
+    private fun patch(id: Long, vararg set: Pair<String, String>): String {
+        val fields = listOf("title", "day", "times", "note", "rrule", "remindBefore", "ring", "nag")
+        val given = set.toMap()
+        return "{\"id\":$id,\"basis\":\"测\"," + fields.joinToString(",") { "\"$it\":${given[it] ?: "null"}" } + "}"
+    }
 
     @Test
-    fun `update rewrites the whole reminder through the gate`() = runBlocking {
+    fun `update changes only what is given and keeps the rest`() = runBlocking {
         val d = desk()
-        val out = UpdateReminderTool(d).execute(plan(5, "2026-11-20"), ctx)
+        val out = UpdateReminderTool(d).execute(patch(5, "times" to "[\"16:00\"]"), ctx)
         assertTrue(out.output, out.ok)
         assertEquals(5L, out.ref)
         val r = d.reminders.single { it.id == 5L }
         assertEquals("16:00", r.times)
+        assertEquals("转给房东", r.note)
+        // 一次性的改了钟点：固定那一瞬间（不让模型填，代码推）
         assertFalse(r.wallClockAnchored)
         assertEquals("已改好（id=5）：「交房租」，2026-11-20 16:00，不重复，响铃，不催，固定这一瞬间（不跟时区走）。", out.output)
+
+        // 只改钟点，轻提醒、每天重复都留着
+        UpdateReminderTool(d).execute(patch(3, "times" to "[\"11:00\"]"), ctx).also { assertTrue(it.output, it.ok) }
+        d.reminders.single { it.id == 3L }.let {
+            assertEquals("11:00", it.times); assertEquals(Ring.NOTICE, it.ring); assertEquals("FREQ=DAILY", it.rrule); assertTrue(it.wallClockAnchored)
+        }
+    }
+
+    @Test
+    fun `an empty string clears the note and the repeat, null leaves them`() = runBlocking {
+        val d = desk()
+        UpdateReminderTool(d).execute(patch(5, "note" to "\"\""), ctx).also { assertTrue(it.output, it.ok) }
+        assertNull(d.reminders.single { it.id == 5L }.note)
+        UpdateReminderTool(d).execute(patch(3, "rrule" to "\"\""), ctx).also { assertTrue(it.output, it.ok) }
+        d.reminders.single { it.id == 3L }.let {
+            assertNull(it.rrule)
+            // 改成不重复、还定着钟点：从跟着人走变成固定那一瞬间
+            assertFalse(it.wallClockAnchored)
+        }
+    }
+
+    @Test
+    fun `renaming a nagging one whose day has passed still goes through`() = runBlocking {
+        val d = desk()
+        // 报销拖了 2 天：日子没改就照 list_reminders 写的今天，不被闸门当成过去
+        val out = UpdateReminderTool(d).execute(patch(7, "title" to "\"交报销单\""), ctx)
+        assertTrue(out.output, out.ok)
+        d.reminders.single { it.id == 7L }.let { assertEquals("交报销单", it.title); assertEquals(Nag.DAILY, it.nag); assertEquals(LocalDate.parse("2026-11-13"), it.day) }
     }
 
     @Test
     fun `update refuses the past and unknown ids`() = runBlocking {
         val d = desk()
-        val past = UpdateReminderTool(d).execute(plan(5, "2026-11-12"), ctx)
+        val past = UpdateReminderTool(d).execute(patch(5, "day" to "\"2026-11-12\""), ctx)
         assertFalse(past.ok)
         assertTrue(past.output, past.output.startsWith("没改。算出来是 11月12日，已经过去了"))
         assertTrue(d.updates.isEmpty())
 
-        val missing = UpdateReminderTool(d).execute(plan(42, "2026-11-20"), ctx)
+        val missing = UpdateReminderTool(d).execute(patch(42, "day" to "\"2026-11-20\""), ctx)
         assertFalse(missing.ok)
         assertTrue(missing.output, "没有 #42" in missing.output)
     }
@@ -144,10 +177,17 @@ class ReminderEditToolsTest {
 
     @Test
     fun `traces for update and delete`() {
-        val updated = ReminderTrace.of(ToolTrace(UpdateReminderTool.NAME, plan(5, "2026-11-20"), TraceState.OK, "", 5L))!!
-        assertTrue(updated.text, updated.text.startsWith("改成 ") && updated.text.endsWith(" · 交房租"))
+        val updated = ReminderTrace.of(
+            ToolTrace(UpdateReminderTool.NAME, patch(5, "times" to "[\"16:00\"]", "ring" to "\"notice\""), TraceState.OK, "已改好（id=5）：「交房租」，2026-11-20 16:00，…", 5L)
+        )!!
+        assertEquals("改成 16:00 轻提醒 · 交房租", updated.text)
         assertEquals("提醒", updated.settled)
         assertTrue(updated.route != null)
+        // 以前整条重写的参数（带 wallClockAnchored），历史里读回来照旧
+        val old = """{"id":5,"title":"交房租","day":"2026-11-20","times":["16:00"],"basis":"","note":null,"rrule":null,""" +
+            """"remindBefore":[],"ring":"alarm","nag":"none","wallClockAnchored":false}"""
+        val oldTrace = ReminderTrace.of(ToolTrace(UpdateReminderTool.NAME, old, TraceState.OK, "", 5L))!!
+        assertTrue(oldTrace.text, oldTrace.text.startsWith("改成 ") && oldTrace.text.endsWith(" · 交房租"))
 
         val refused = ReminderTrace.of(
             ToolTrace(UpdateReminderTool.NAME, "{}", TraceState.FAILED, "没改。没有 #42 这条提醒，先用 list_reminders 查一下编号。", null)

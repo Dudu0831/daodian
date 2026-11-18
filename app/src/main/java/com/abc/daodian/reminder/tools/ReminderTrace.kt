@@ -8,6 +8,9 @@ import com.abc.daodian.reminder.ReminderRoutes
 import com.abc.daodian.reminder.domain.PlanValidator
 import com.abc.daodian.reminder.data.Ring
 import com.abc.daodian.reminder.domain.ReminderText
+import com.abc.daodian.reminder.domain.Rrule
+import com.abc.daodian.shared.format.Format
+import java.time.LocalDate
 
 /**
  * 提醒在对话里留的痕：建的「✓ 提醒 9月24日 周四 08:00 · 带伞 ›」、改的「✓ 提醒 改成 明天 …」，点了去编辑页；
@@ -19,12 +22,43 @@ object ReminderTrace {
 
     fun of(call: ToolTrace): TraceView? = when (call.tool) {
         CreateReminderTool.NAME -> plan(call, working = "在记提醒", failed = "没建成", prefix = "没建。")
-        UpdateReminderTool.NAME -> plan(call, working = "在改提醒", failed = "没改成", prefix = "没改。", verb = "改成")
+        UpdateReminderTool.NAME ->
+            // 11-17 起只交改了的几项；以前是整条重写（那时都带着 wallClockAnchored），照旧按建的写法
+            if ("\"wallClockAnchored\"" in call.arguments) plan(call, working = "在改提醒", failed = "没改成", prefix = "没改。", verb = "改成")
+            else patch(call)
         ChangeChecklistTool.NAME -> checklist(call)
         StopRemindersTool.NAME -> listed(call, working = "在停提醒", failed = "没停成", prefix = "没停。", verb = "不再提醒")
         DeleteRemindersTool.NAME -> listed(call, working = "在删提醒", failed = "没删成", prefix = "没删。", verb = "删了")
         else -> null
     }
+
+    /**
+     * 改（只交改了的几项）：「改成 16:00 · 交房租」—— 只写改了的那几样，标题取结果里「」那段（没改标题也写上，认得出是哪条）
+     */
+    private fun patch(call: ToolTrace): TraceView {
+        val o = runCatching { mapper.readTree(call.arguments) }.getOrNull()
+        fun has(field: String) = o?.get(field)?.isNull == false
+        val changed = if (o == null) emptyList() else listOfNotNull(
+            o.get("day")?.takeIf { !it.isNull }?.asText()?.let { d -> runCatching { Format.humanDay(LocalDate.parse(d)) }.getOrDefault(d) },
+            CreateReminderTool.timesOf(o)?.let { t -> t.joinToString("、").ifEmpty { "不定钟点" } },
+            o.get("rrule")?.takeIf { !it.isNull }?.asText()?.let { r -> Rrule.human(r.ifBlank { null }) ?: "不重复" },
+            CreateReminderTool.remindBeforeOf(o)?.let { b -> if (b.isEmpty()) "不提前" else "提前提醒 ${b.size} 次" },
+            o.get("ring")?.takeIf { !it.isNull }?.asText()?.let { if (it == "notice") "轻提醒" else "响铃" },
+            o.get("nag")?.takeIf { !it.isNull }?.asText()?.let { when (it) { "soon" -> "过一会儿再提"; "daily" -> "每晚再提"; else -> "不催" } },
+            "改了备注".takeIf { has("note") }
+        )
+        val title = call.output?.substringAfter('「', "")?.substringBefore('」')?.takeIf { it.isNotEmpty() }
+            ?: PartialArgs.text(call.arguments, "title").orEmpty()
+        return TraceView(
+            working = "在改提醒",
+            settled = if (call.failed) "没改成" else "提醒",
+            text = if (call.failed) TraceText.reasonOf(call.output, "没改。")
+            else (listOf("改成") + changed).joinToString(" ").let { head -> listOf(head, title).filter { it.isNotBlank() }.joinToString(" · ") },
+            route = call.ref?.takeIf { call.ok }?.let { ReminderRoutes.edit(it) }
+        )
+    }
+
+    private val mapper = com.fasterxml.jackson.databind.ObjectMapper()
 
     /** 建和改：写的都是这一条现在什么时候响。改的多「改成」两个字，点了一样去编辑页 */
     private fun plan(call: ToolTrace, working: String, failed: String, prefix: String, verb: String? = null): TraceView {
