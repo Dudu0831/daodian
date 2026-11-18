@@ -1,8 +1,8 @@
 package com.abc.daodian.card.spec
 
 /**
- * 一个绑定：`reminder.days_left #7` = 归 reminder 管的 days_left，参数 #7。卡片自己的数前缀是 own（`own.cups.left`），
- * 卡片模块自带的时间前缀是 time（`time.weekday`）。写在说明里时套一层花括号：`{{reminder.days_left #7}}`
+ * 一个绑定：`reminder.days_left #7` = 归 reminder 管的 days_left，参数 #7。卡片模块自带的时间前缀是 time（`time.weekday`）。
+ * 写在说明里时套一层花括号：`{{reminder.days_left #7}}`。不写算式（§8.5）：要「勾了几样」就让模块多交一个名字
  */
 data class Ref(val source: String, val name: String, val args: List<String> = emptyList()) {
 
@@ -28,7 +28,7 @@ data class Ref(val source: String, val name: String, val args: List<String> = em
         /** 一段字里嵌了哪几个绑定 */
         fun holes(text: String): List<String> = HOLE.findAll(text).map { it.groupValues[1] }.toList()
 
-        /** 整段就是一个绑定（`{{own.cups}}`），不是就 null */
+        /** 整段就是一个绑定（`{{reminder.days_left #7}}`），不是就 null */
         fun whole(text: String): Ref? = text.trim().takeIf { HOLE.matchEntire(it) != null }?.let(::parse)
 
         /** 把字里的绑定换成 [value] 给的字 */

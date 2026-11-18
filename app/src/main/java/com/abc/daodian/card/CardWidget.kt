@@ -18,13 +18,17 @@ import kotlinx.coroutines.launch
  *
  * **这几个类的全类名记在桌面上，发出去之后不能挪、不能改名**（§2.2）。
  *
- * 什么时候重画：桌面叫（`onUpdate`，含 30 分钟一次的兜底）、跨零点 / 改时间 / 换时区、数据变了（`plugin/CardBoard.changed`）、
+ * 什么时候重画：桌面叫（`onUpdate`，含 30 分钟一次的兜底）、拖了大小（`onAppWidgetOptionsChanged`）、跨零点 / 改时间 / 换时区、数据变了（`plugin/CardBoard.changed`）、
  * 卡片上点了什么（[CardActionReceiver]）。查库不能在主线程，每条路都是 `goAsync()` + 协程（同提醒小组件 `DaodianWidget`）。
  */
 abstract class CardWidget(private val size: CardSize) : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) =
         async(this, context) { CardRenderer.render(it, AppWidgetManager.getInstance(it), size, appWidgetIds) }
+
+    /** 他在桌面上拖了这一块的大小：照新的大小重排（列表几行、数字多大，`render/CardFit`） */
+    override fun onAppWidgetOptionsChanged(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int, newOptions: android.os.Bundle) =
+        async(this, context) { CardRenderer.render(it, AppWidgetManager.getInstance(it), size, intArrayOf(appWidgetId)) }
 
     /** 他把这一块从桌面上拿掉了：说明留着，能再钉 */
     override fun onDeleted(context: Context, appWidgetIds: IntArray) = async(this, context) { app ->
@@ -83,15 +87,12 @@ class CardActionReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION) return
-        val card = intent.getLongExtra(EXTRA_CARD, -1)
         val action = intent.getStringExtra(EXTRA_DO) ?: return
-        if (card < 0) return
-        CardWidget.async(this, context) { Cards.act(it, card, action) }
+        CardWidget.async(this, context) { Cards.act(it, action) }
     }
 
     companion object {
         const val ACTION = "com.abc.daodian.card.ACT"
-        const val EXTRA_CARD = "com.abc.daodian.card.CARD"
         const val EXTRA_DO = "com.abc.daodian.card.DO"
     }
 }

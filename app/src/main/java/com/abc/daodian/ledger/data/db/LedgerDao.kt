@@ -269,6 +269,14 @@ interface LedgerDao {
     )
     fun observeDaily(from: Int, to: Int): Flow<List<Sum>>
 
+    /** 一段日子里最大的几笔支出（桌面卡片「最大的几笔」） */
+    @Query("SELECT * FROM txn WHERE state != 'VOID' AND direction = 'OUT' AND day BETWEEN :from AND :to ORDER BY amount DESC, occurredAt DESC LIMIT :limit")
+    suspend fun biggestOut(from: Int, to: Int, limit: Int): List<Txn>
+
+    /** 最近一笔支出（桌面卡片「最近一笔」） */
+    @Query("SELECT * FROM txn WHERE state != 'VOID' AND direction = 'OUT' ORDER BY occurredAt DESC LIMIT 1")
+    suspend fun lastOut(): Txn?
+
     @Query("SELECT COUNT(*) FROM txn WHERE state = 'PENDING'")
     fun observePendingTxns(): Flow<Int>
 

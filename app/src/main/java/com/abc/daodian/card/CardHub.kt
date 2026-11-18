@@ -18,7 +18,6 @@ object CardHub {
     fun install(list: List<CardSource>) {
         val all = list + builtIn
         require(all.map { it.id }.distinct().size == all.size) { "卡片来源 id 重复：${all.map { it.id }}" }
-        require(all.none { it.id == CardSpecs.OWN }) { "「${CardSpecs.OWN}」是卡片自己的数，模块不能用这个 id" }
         installed = list
     }
 

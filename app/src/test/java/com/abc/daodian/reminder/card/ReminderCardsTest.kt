@@ -3,11 +3,10 @@ package com.abc.daodian.reminder.card
 import com.abc.daodian.reminder.data.Ring
 import com.abc.daodian.reminder.data.Phase
 import com.abc.daodian.reminder.data.Nag
-import com.abc.daodian.card.assistant.CardGuide
+import com.abc.daodian.card.plugin.CardRow
 import com.abc.daodian.card.plugin.CardValue
-import com.abc.daodian.card.source.TimeSource
-import com.abc.daodian.card.spec.CardSpecs
 import com.abc.daodian.reminder.data.Reminder
+import com.abc.daodian.reminder.data.ReminderItem
 import com.abc.daodian.reminder.data.ReminderStatus
 import java.time.LocalDate
 import java.time.ZoneId
@@ -16,7 +15,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 提醒交给桌面卡片的那一份（DESIGN §8.5）：一条提醒说的是哪一天、还剩几天、办完没有 */
+/** 提醒交给桌面卡片的那一份（DESIGN §8.5）：一条提醒说的是哪一天、还剩几天、办完没有、清单、几点、下一次响的那一刻 */
 class ReminderCardsTest {
 
     private val zone = ZoneId.of("Asia/Shanghai")
@@ -27,8 +26,8 @@ class ReminderCardsTest {
         zoneId = zone.id, day = LocalDate.parse("2027-02-13"), phase = Phase.NUDGE, remindBefore = "62,31", ring = Ring.NOTICE, nag = Nag.DAILY, createdAt = ZonedDateTime.of(2026, 11, 13, 9, 0, 0, 0, zone).toInstant().toEpochMilli(), updatedAt = 0
     )
 
-    private fun f(name: String, r: Reminder = milk, args: List<String> = listOf("#7"), on: LocalDate = today) =
-        ReminderCards.field(r, name, args, on, zone)
+    private fun f(name: String, r: Reminder = milk, args: List<String> = listOf("#7"), on: LocalDate = today, items: List<ReminderItem> = emptyList()) =
+        ReminderCards.field(r, name, args, on, zone, items)
 
     @Test
     fun `a day item counts to its own day, even while it is being nudged`() {
@@ -57,11 +56,36 @@ class ReminderCardsTest {
     }
 
     @Test
-    fun `the guide's countdown example passes the gate with the real reminder fields`() {
-        val vocab = CardSpecs.Vocabulary(listOf(ReminderCards, TimeSource()))
-        assertTrue(CardSpecs.check(CardGuide.COUNTDOWN, vocab) is CardSpecs.Result.Ok)
-        assertTrue(CardSpecs.check(CardGuide.WATER, vocab) is CardSpecs.Result.Ok)
-        val list = """{"name":"今天","size":"4x2","body":{"column":[{"text":"今天","style":"title"},{"list":"{{reminder.today}}","max":3},{"text":"下一件 · {{reminder.next_in}}","style":"caption"}]}}"""
-        assertTrue(CardSpecs.check(list, vocab).toString(), CardSpecs.check(list, vocab) is CardSpecs.Result.Ok)
+    fun `the checklist comes as rows that tick themselves, plus counts`() {
+        val items = listOf("护照", "插头", "外套").mapIndexed { i, t -> ReminderItem(id = 40L + i, reminderId = 7, text = t, done = i == 1, position = i) }
+        assertEquals(
+            CardValue.Rows(listOf(
+                CardRow("护照", action = "reminder.check #7 1"),
+                CardRow("插头", done = true, action = "reminder.check #7 2"),
+                CardRow("外套", action = "reminder.check #7 3")
+            )),
+            f("items", items = items)
+        )
+        assertEquals(CardValue.Number(2), f("items_left", items = items))
+        assertEquals(CardValue.Number(1), f("items_checked", items = items))
+        assertEquals(CardValue.Number(3), f("items_total", items = items))
+        assertEquals(CardValue.Flag(false), f("items_done", items = items))
+        assertEquals(CardValue.Flag(true), f("items_done", items = items.map { it.copy(done = true) }))
+        // 没有清单不算勾完
+        assertEquals(CardValue.Flag(false), f("items_done"))
+    }
+
+    @Test
+    fun `time, repeat, the next nudge and the moment it rings`() {
+        assertEquals(CardValue.Text("当天"), f("time"))
+        assertEquals(CardValue.Text("12 月 13 日"), f("next_nudge"))
+        assertEquals(CardValue.Text(""), f("repeat"))
+        assertEquals(CardValue.Moment(milk.nextTriggerAt, "20:00"), f("fire_at"))
+        val rent = milk.copy(times = "09:00", slot = "09:00", rrule = "FREQ=MONTHLY;BYMONTHDAY=15", phase = Phase.MAIN)
+        assertEquals(CardValue.Text("09:00"), f("time", r = rent))
+        assertEquals(CardValue.Text(""), f("next_nudge", r = rent))
+        assertTrue((f("repeat", r = rent) as CardValue.Text).text.contains("15"))
+        // 点完成了的不会再响，走秒没得数
+        assertEquals(null, f("fire_at", r = milk.copy(status = ReminderStatus.DONE)))
     }
 }

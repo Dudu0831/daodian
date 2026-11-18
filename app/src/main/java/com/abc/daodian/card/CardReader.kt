@@ -1,18 +1,16 @@
 package com.abc.daodian.card
 
 import android.content.Context
-import com.abc.daodian.card.own.OwnData
 import com.abc.daodian.card.plugin.CardSource
 import com.abc.daodian.card.plugin.CardValue
-import com.abc.daodian.card.spec.CardSpecs
 import com.abc.daodian.card.spec.Ref
 import kotlinx.coroutines.CancellationException
 
 /**
- * 画一张卡片时取数：own 的问卡片自己（[own]），别的问交它的模块。同一个名字一次重画里只问一次。
+ * 画一张卡片时取数：问交它的模块。同一个名字一次重画里只问一次。
  * 模块那边出了错当没有 —— 卡片上那一块空着，不连累整张卡（同 `AssistantPlugins.backgrounds`）
  */
-class CardReader(private val context: Context, private val sources: List<CardSource>, val own: OwnData) {
+class CardReader(private val context: Context, private val sources: List<CardSource>) {
 
     private val memo = HashMap<String, CardValue?>()
 
@@ -20,7 +18,7 @@ class CardReader(private val context: Context, private val sources: List<CardSou
         ref ?: return null
         val key = ref.toString()
         if (memo.containsKey(key)) return memo[key]
-        val v = if (ref.source == CardSpecs.OWN) own.read(ref.name) else try {
+        val v = try {
             sources.firstOrNull { it.id == ref.source }?.read(context, ref.name, ref.args)
         } catch (e: CancellationException) {
             throw e
@@ -36,9 +34,27 @@ class CardReader(private val context: Context, private val sources: List<CardSou
 
     suspend fun flag(ref: Ref?): Boolean = (value(ref) as? CardValue.Flag)?.on == true
 
-    /** 一个绑定或一个字面数 */
-    suspend fun number(text: String): Long? =
-        Ref.whole(text)?.let { (value(it) as? CardValue.Number)?.value } ?: text.trim().toLongOrNull()
+    /** 整段是一个绑定的数 */
+    suspend fun number(text: String): Long? = Ref.whole(text)?.let { (value(it) as? CardValue.Number)?.value }
+
+    /**
+     * 卡片绑的那几条里，有没有哪一条没了（提醒删了）：有就是那个来源的名字（「提醒」），整张卡画成一行灰字。
+     * 出了错当没删 —— 宁可画一块空的，不把好好的卡片说成没了
+     */
+    suspend fun gone(refs: List<Ref>): String? {
+        refs.distinctBy { it.toString() }.forEach { ref ->
+            val source = sources.firstOrNull { it.id == ref.source } ?: return@forEach
+            val gone = try {
+                source.gone(context, ref.name, ref.args)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                false
+            }
+            if (gone) return source.label
+        }
+        return null
+    }
 
     companion object {
         const val MISSING = "—"

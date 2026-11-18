@@ -2,7 +2,6 @@ package com.abc.daodian.card.assistant
 
 import com.abc.daodian.card.Cards
 import com.abc.daodian.card.data.Card
-import com.abc.daodian.card.own.OwnData
 import com.abc.daodian.card.spec.CardSize
 import com.abc.daodian.card.spec.CardSpec
 import com.abc.daodian.card.spec.CardSpecs
@@ -31,20 +30,17 @@ interface CardDesk {
 
     /** 请桌面放上去。没有这张是 null */
     suspend fun pin(id: Long): Cards.Pinned?
-
-    /** 改卡片自己记的数：(键, 做什么, 值)。返回改完的和没改成的原因；没有这张是 null */
-    suspend fun changeOwn(id: Long, changes: List<Triple<String, String, String?>>): Pair<Card, List<String>>?
 }
 
 /**
- * 桌面卡片的四个工具，收在工具包 `card` 里交给助手（DESIGN.md §6.11、§8.5）：画（新画或改）、钉到桌面、看有哪些、改卡片自己的数。
- * 卡片上的数不归模型：它写的是绑定，数由代码每次重画时现取。
+ * 桌面卡片的三个工具，收在工具包 `card` 里交给助手（DESIGN.md §6.11、§8.5）：画（新画或改）、钉到桌面、看有哪些。
+ * 卡片上的数不归模型：它写的是绑定，数由代码每次重画时现取。卡片上的东西要改，就去改那条提醒或那笔账。
  */
 object CardTools {
 
     fun kit(desk: CardDesk): Kit = Kit(
         KIT, SUMMARY, CardGuide.guide(desk.vocabulary.sources),
-        listOf(DesignCardTool(desk), PinCardTool(desk), ListCardsTool(desk), ChangeCardDataTool(desk))
+        listOf(DesignCardTool(desk), PinCardTool(desk), ListCardsTool(desk))
     )
 
     const val KIT = "card"
@@ -52,12 +48,11 @@ object CardTools {
     const val DESIGN = "design_card"
     const val PIN = "pin_card"
     const val LIST = "list_cards"
-    const val CHANGE = "change_card_data"
 
-    val NAMES = setOf(DESIGN, PIN, LIST, CHANGE)
+    val NAMES = setOf(DESIGN, PIN, LIST)
 
-    const val SUMMARY = "桌面卡片。他想在手机桌面上放一张卡片看点什么（某件事还剩几天、今天喝了几杯水、这周花了多少、买菜清单、今天几件事），" +
-        "或者要改桌面上那张、问桌面上有什么、说卡片上记的数（「喝了一杯」「清单加个葱」）时开"
+    const val SUMMARY = "桌面卡片。他想在手机桌面上放一张卡片看点什么（某件事还剩几天、行李清单、这周花了多少、今天几件事），" +
+        "或者要改桌面上那张、问桌面上有什么时开"
 
     internal val mapper = ObjectMapper()
 
@@ -74,24 +69,9 @@ object CardTools {
 
     internal val CARD_ID = mapOf("type" to "integer", "description" to "卡片 c 编号的数字：c3 填 3")
 
-    /** 「c3「喝水」2×2 · 在桌面上」 */
+    /** 「c3「去旧金山」2×2 · 在桌面上」 */
     internal fun head(card: Card): String =
         "c${card.id}「${card.name}」${CardSize.of(card.size)?.label ?: card.size} · " + if (card.widgetId != null) "在桌面上" else "还没放上桌面"
-
-    /** 卡片自己记的现在是多少：「cups 3；items 鸡蛋✓、番茄」 */
-    internal fun ownSummary(card: Card, now: java.time.ZonedDateTime): String {
-        val spec = CardSpecs.read(card.spec) ?: return ""
-        if (spec.own.isEmpty()) return ""
-        val own = OwnData(spec.own, card.own, now.toLocalDate(), now.toInstant().toEpochMilli())
-        return spec.own.keys.joinToString("；") { k ->
-            val v = own.read(k)
-            "$k " + when (v) {
-                is com.abc.daodian.card.plugin.CardValue.Rows -> v.rows.joinToString("、") { it.title + if (it.done) "✓" else "" }.ifEmpty { "（空）" }
-                null -> "—"
-                else -> v.asText()
-            }
-        }
-    }
 }
 
 internal class DesignCardTool(private val desk: CardDesk) : Tool {
@@ -156,58 +136,12 @@ internal class ListCardsTool(private val desk: CardDesk) : Tool {
     override val name = CardTools.LIST
     override val effect = ToolEffect.READ
     override val outputGoesStale = true
-    override val description = "画过哪些卡片：编号、名字、大小、在不在桌面上、卡片自己记的数，和每张现在的说明（改的时候照它改）。"
+    override val description = "画过哪些卡片：编号、名字、大小、在不在桌面上，和每张现在的说明（改的时候照它改）。"
     override val parameters = CardTools.obj()
 
     override suspend fun execute(arguments: String, context: ToolContext): ToolOutcome {
         val cards = desk.cards()
         if (cards.isEmpty()) return ToolOutcome("还没画过卡片。", ok = true)
-        return ToolOutcome(cards.joinToString("\n\n") { c ->
-            listOfNotNull(
-                CardTools.head(c),
-                CardTools.ownSummary(c, context.now).takeIf { it.isNotEmpty() }?.let { "记着：$it" },
-                "说明：${c.spec}"
-            ).joinToString("\n")
-        }, ok = true)
-    }
-}
-
-internal class ChangeCardDataTool(private val desk: CardDesk) : Tool {
-    override val name = CardTools.CHANGE
-    override val effect = ToolEffect.WRITE
-    override val description = "改卡片自己记的数（说明里 own 的那几样），一次几样：喝了一杯、设成几、勾掉清单第几项、清单加一项 / 删一项、清零、走秒开始 / 停。不改卡片的样子。"
-    override val parameters = CardTools.obj(
-        "card_id" to CardTools.CARD_ID,
-        "changes" to mapOf(
-            "type" to "array",
-            "description" to "要改的几样",
-            "items" to CardTools.obj(
-                "key" to mapOf("type" to "string", "description" to "own 里的键（cups）"),
-                "op" to mapOf(
-                    "type" to "string",
-                    "enum" to listOf("add", "set", "toggle", "add_item", "remove_item", "reset", "start", "stop"),
-                    "description" to "add 加几、set 设成几（一句话、一个日子也用它）、toggle 勾掉 / 取消第几项、add_item 清单加一项、remove_item 删第几项、reset 清零、start / stop 走秒"
-                ),
-                "value" to mapOf("type" to listOf("string", "null"), "description" to "几、第几项（从 1 数）、那一项的字、YYYY-MM-DD、秒数；不用就 null")
-            )
-        )
-    )
-
-    override suspend fun execute(arguments: String, context: ToolContext): ToolOutcome = with(CardTools) {
-        val o = parse(arguments) ?: return ToolOutcome("没改。参数不是合法的 JSON。", ok = false)
-        val id = o.long("card_id") ?: return ToolOutcome("没改。card_id 要填卡片 c 编号的数字。", ok = false)
-        val changes = o.path("changes").mapNotNull { c ->
-            val key = c.path("key").asText("").trim()
-            val op = c.path("op").asText("").trim()
-            if (key.isEmpty() || op.isEmpty()) null else Triple(key, op, c.get("value")?.takeUnless { it.isNull }?.asText())
-        }
-        if (changes.isEmpty()) return ToolOutcome("没改。changes 是空的。", ok = false)
-        val (card, problems) = desk.changeOwn(id, changes) ?: return ToolOutcome("没改。没有 c$id 这张卡片，先用 list_cards 查。", ok = false)
-        val now = ownSummary(card, context.now)
-        if (problems.size == changes.size) return ToolOutcome("没改。" + problems.joinToString("；") + "。", ok = false)
-        ToolOutcome(
-            "改好了：c$id「${card.name}」\n现在记着：$now" + if (problems.isEmpty()) "" else "\n有几样没改成：" + problems.joinToString("；"),
-            ok = true, ref = id
-        )
+        return ToolOutcome(cards.joinToString("\n\n") { c -> CardTools.head(c) + "\n说明：${c.spec}" }, ok = true)
     }
 }

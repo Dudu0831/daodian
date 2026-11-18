@@ -44,7 +44,7 @@ internal fun CardPreview(cardId: Long, raw: String) {
     val colors = DaodianColors.current
     val scope = rememberCoroutineScope()
     val size = remember(raw) { CardSpecs.read(raw)?.size ?: CardSize.S2X2 }
-    val views by produceState<RemoteViews?>(null, cardId, raw) { value = Cards.preview(context, cardId, raw) }
+    val views by produceState<RemoteViews?>(null, raw) { value = Cards.preview(context, raw) }
     val placed by produceState(false, cardId) { value = Cards.byId(context, cardId)?.widgetId != null }
     var note by remember { mutableStateOf<String?>(null) }
 

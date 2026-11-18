@@ -13,18 +13,17 @@ import com.abc.daodian.R
 import com.abc.daodian.card.CardActionReceiver
 import com.abc.daodian.card.CardHub
 import com.abc.daodian.card.CardReader
-import com.abc.daodian.card.own.OwnData
 import com.abc.daodian.card.plugin.CardValue
 import com.abc.daodian.card.spec.Align
 import com.abc.daodian.card.spec.Block
 import com.abc.daodian.card.spec.ButtonIcon
-import com.abc.daodian.card.spec.CardSize
 import com.abc.daodian.card.spec.CardSpec
 import com.abc.daodian.card.spec.NumberSize
 import com.abc.daodian.card.spec.Paint
 import com.abc.daodian.card.spec.TextStyle
 import com.abc.daodian.card.spec.Tone
-import java.time.LocalDate
+import com.abc.daodian.card.spec.actions
+import com.abc.daodian.card.spec.bindings
 import kotlin.math.roundToInt
 
 /**
@@ -33,21 +32,37 @@ import kotlin.math.roundToInt
  * 每个零件一份布局（`res/layout/card_*.xml`），外面套一层格子（`card_cell_*`）管「撑不撑满」—— RemoteViews 改不了
  * layout_weight，撑满和不撑满只好是两份格子。颜色一律 `setColor` 交 `@color`，桌面切深浅色时才跟着变（§8.2 第 3 条）。
  *
- * RemoteViews 量不了尺寸：放不下的零件被卡片边裁掉，不会自己往后砍。说明里零件的多少由模型照大小拿捏（工具包说明里写了）。
+ * 跟着大小变（§8.5）：桌面给的每一种实际大小各画一份（[CardFit] 先收放：列表几行、数字多大、放不下先收哪块），
+ * 交给桌面一个「大小 → 画法」的表，拖大拖小时桌面自己挑。RemoteViews 量不了里面的东西，[CardFit] 是估的，偶尔会裁掉一点。
  */
 object CardViews {
 
-    /** [cardId] = 桌面上那一块是哪张卡片，按钮点了发给它；预览是 null，按钮不接 */
-    suspend fun build(context: Context, spec: CardSpec, ownJson: String?, cardId: Long?): RemoteViews {
-        val reader = CardReader(context, CardHub.sources, OwnData(spec.own, ownJson, LocalDate.now(), System.currentTimeMillis()))
-        val root = root(context)
-        val b = Builder(context, reader, cardId, spec.size)
-        when (val body = spec.body) {
-            is Block.Column -> body.children.forEachIndexed { i, c -> b.add(root, android.R.id.background, c, inRow = false, last = i == body.children.lastIndex) }
-            else -> b.add(root, android.R.id.background, body, inRow = false, last = true)
+    /**
+     * 照 [spaces] 里每一种大小各画一份（同一次取的数）。[cardId] = 桌面上那一块是哪张卡片，按钮点了发给它；预览是 null，按钮不接。
+     * 绑的那条没了（提醒删了）：整张卡画成一行灰字，长按移除 —— 代码删不了桌面上的组件（§8.5）。
+     * 返回的每一份都还没挂「点空白处」，由调的一方挂
+     */
+    suspend fun build(context: Context, spec: CardSpec, cardId: Long?, spaces: List<Space>): Map<Space, RemoteViews> {
+        val reader = CardReader(context, CardHub.sources)
+        reader.gone(spec.body.bindings() + spec.body.actions())?.let { what -> return spaces.associateWith { gone(context, what) } }
+        val look = object : CardFit.Look {
+            override suspend fun text(template: String) = reader.text(template)
+            override suspend fun rows(ref: com.abc.daodian.card.spec.Ref) = (reader.value(ref) as? CardValue.Rows)?.total ?: 0
         }
-        return root
+        return spaces.associateWith { space ->
+            val root = root(context)
+            val b = Builder(context, reader, cardId)
+            when (val body = CardFit.fit(spec.body, space, look)) {
+                is Block.Column -> body.children.forEachIndexed { i, c -> b.add(root, android.R.id.background, c, inRow = false, last = i == body.children.lastIndex) }
+                else -> b.add(root, android.R.id.background, body, inRow = false, last = true)
+            }
+            root
+        }
     }
+
+    /** 几份按大小画的交给桌面：一份就直接给，几份给成「大小 → 画法」的表（Android 12 起），桌面拖到哪挑哪份 */
+    fun responsive(views: Map<Space, RemoteViews>): RemoteViews =
+        views.values.singleOrNull() ?: RemoteViews(views.mapKeys { (s, _) -> android.util.SizeF(s.width, s.height) })
 
     /**
      * 外壳。桌面刷新时不一定重新铺一遍布局，常常是把这份 RemoteViews 在原来那层上重放一遍（reapply），
@@ -55,6 +70,17 @@ object CardViews {
      */
     private fun root(context: Context) = RemoteViews(context.packageName, R.layout.card_root).apply {
         removeAllViews(android.R.id.background)
+    }
+
+    /** 绑的那条没了：「绑的那条提醒没了」一行灰字，底下一行「长按移除」 */
+    private fun gone(context: Context, what: String): RemoteViews {
+        val root = root(context)
+        root.addView(android.R.id.background, RemoteViews(context.packageName, R.layout.card_text_body).apply {
+            setTextViewText(R.id.card_text, "绑的那条${what}没了")
+            setColor(R.id.card_text, "setTextColor", R.color.widget_muted)
+        })
+        root.addView(android.R.id.background, RemoteViews(context.packageName, R.layout.card_text_caption).apply { setTextViewText(R.id.card_text, "长按移除") })
+        return root
     }
 
     /** 桌面上还没钉东西、钉的那张不在了：两行字 */
@@ -65,7 +91,7 @@ object CardViews {
         return root
     }
 
-    private class Builder(val context: Context, val reader: CardReader, val cardId: Long?, val size: CardSize) {
+    private class Builder(val context: Context, val reader: CardReader, val cardId: Long?) {
 
         private val pkg = context.packageName
         private var clicks = 0
@@ -112,16 +138,13 @@ object CardViews {
         }
 
         suspend fun number(b: Block.Number): RemoteViews = views(R.layout.card_number).apply {
-            val raw = reader.text(b.value)
-            setTextViewText(R.id.card_value, raw)
-            val sp = (b.size ?: defaultNumber()).sp.let { if (raw.length > 4) it * 0.7f else it }
-            setTextViewTextSize(R.id.card_value, TypedValue.COMPLEX_UNIT_SP, sp)
+            setTextViewText(R.id.card_value, reader.text(b.value))
+            // 字号由 CardFit 按实际大小挑好了
+            setTextViewTextSize(R.id.card_value, TypedValue.COMPLEX_UNIT_SP, (b.size ?: NumberSize.M).sp)
             setColor(R.id.card_value, "setTextColor", color(b.paint, Tone.INK))
             label(this, R.id.card_before, reader.text(b.before))
             label(this, R.id.card_after, reader.text(b.after))
         }
-
-        fun defaultNumber() = when (size) { CardSize.S4X1 -> NumberSize.S; CardSize.S4X4 -> NumberSize.L; else -> NumberSize.M }
 
         suspend fun bar(b: Block.Bar): RemoteViews = views(R.layout.card_bar).apply {
             setProgressBar(R.id.card_ink, 100, (reader.number(b.value) ?: 0).toInt().coerceIn(0, 100), false)
@@ -183,7 +206,7 @@ object CardViews {
 
         suspend fun checklist(b: Block.Checklist): RemoteViews {
             val box = views(R.layout.card_list)
-            val rows = (reader.own.read(b.key) as? CardValue.Rows)?.rows.orEmpty()
+            val rows = (reader.value(b.rows) as? CardValue.Rows)?.rows.orEmpty()
             rows.take(b.max).forEach { r ->
                 box.addView(R.id.card_box, views(R.layout.card_check_row).apply {
                     setImageViewResource(R.id.card_check_box, if (r.done) R.drawable.card_box_on else R.drawable.card_box_off)
@@ -192,7 +215,7 @@ object CardViews {
                     r.action?.let { click(this, R.id.card_check_row, it) }
                 })
             }
-            if (rows.size > b.max) box.addView(R.id.card_box, views(R.layout.card_text_caption).apply { setTextViewText(R.id.card_text, "还有 ${rows.size - b.max} 项") })
+            if (rows.size > b.max) box.addView(R.id.card_box, views(R.layout.card_text_caption).apply { setTextViewText(R.id.card_text, "还有 ${rows.size - b.max} 样") })
             return box
         }
 
@@ -208,17 +231,17 @@ object CardViews {
             return box
         }
 
-        fun timer(b: Block.Timer): RemoteViews = views(R.layout.card_timer).apply {
+        suspend fun timer(b: Block.Timer): RemoteViews = views(R.layout.card_timer).apply {
             val now = System.currentTimeMillis()
-            val until = reader.own.until(b.key)
+            val until = (reader.value(b.at) as? CardValue.Moment)?.at
             if (until != null && until > now) {
-                // 系统自己一秒一秒往下数，我们不用每秒重画。数到 0 以后它会接着数成负的，到时候由下一次重画收掉
+                // 系统自己一秒一秒往下数，我们不用每秒重画。数到 0 那一刻提醒自己响，响完喊重画收掉（在那之前会接着数成负的）
                 setChronometer(R.id.card_chrono, SystemClock.elapsedRealtime() + (until - now), null, true)
                 setChronometerCountDown(R.id.card_chrono, true)
                 setViewVisibility(R.id.card_chrono, View.VISIBLE)
                 setViewVisibility(R.id.card_timer_idle, View.GONE)
             } else {
-                setTextViewText(R.id.card_timer_idle, (reader.own.read(b.key) as? CardValue.Text)?.text ?: "")
+                setTextViewText(R.id.card_timer_idle, "0:00")
                 setViewVisibility(R.id.card_chrono, View.GONE)
                 setViewVisibility(R.id.card_timer_idle, View.VISIBLE)
             }
@@ -256,7 +279,6 @@ object CardViews {
                     Intent(context, CardActionReceiver::class.java)
                         .setAction(CardActionReceiver.ACTION)
                         .setData(Uri.parse("daodian-card://$card/$n"))
-                        .putExtra(CardActionReceiver.EXTRA_CARD, card)
                         .putExtra(CardActionReceiver.EXTRA_DO, action),
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )

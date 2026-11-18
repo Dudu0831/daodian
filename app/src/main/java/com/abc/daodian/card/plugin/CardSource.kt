@@ -34,6 +34,12 @@ interface CardSource {
 
     /** 桌面上点了 [name] 这个动作。办成了 true。办完要不要让卡片重画，模块自己喊 [CardBoard.changed] */
     suspend fun act(context: Context, name: String, args: List<String>): Boolean = false
+
+    /**
+     * [name] 指着的那一条没了（提醒删了）：整张卡画成一行灰字「绑的那条提醒没了」（§8.5）。
+     * 和 [read] 是 null 不一样 —— 那是此刻没有值（今天没有下一条），卡片上那一块空着就行
+     */
+    suspend fun gone(context: Context, name: String, args: List<String>): Boolean = false
 }
 
 /**
@@ -49,9 +55,10 @@ data class CardField(val name: String, val kind: CardKind, val what: String, val
     val maxArgs: Int get() = tokens.size
 }
 
-/** 值的样子。零件挑着认：大数字要 [NUMBER]，列表要 [ROWS]，柱子要 [SERIES]…… */
+/** 值的样子。零件挑着认：大数字要 [NUMBER]，列表要 [ROWS]，清单要 [CHECKS]，走秒要 [MOMENT]…… */
 enum class CardKind(val label: String) {
-    TEXT("字"), NUMBER("数"), FLAG("是 / 否"), ROWS("一组行"), SERIES("一组数"), ACTION("动作")
+    TEXT("字"), NUMBER("数"), FLAG("是 / 否"), ROWS("一组行"), CHECKS("一组带方框的行"), SERIES("一组数"),
+    MOMENT("时刻"), ACTION("动作")
 }
 
 sealed interface CardValue {
@@ -65,6 +72,9 @@ sealed interface CardValue {
     /** 柱子：一组数、每根底下的字、哪一根是「现在」（墨色；它后面的还没到，只画底线）。没有「现在」是 -1 */
     data class Series(val values: List<Long>, val labels: List<String> = emptyList(), val current: Int = -1) : CardValue
 
+    /** 一个时刻（epoch 毫秒），走秒数到它。[label] 是嵌进字里时写的「12:05」 */
+    data class Moment(val at: Long, val label: String) : CardValue
+
     /** 嵌进字里时写成什么 */
     fun asText(): String = when (this) {
         is Text -> text
@@ -72,12 +82,13 @@ sealed interface CardValue {
         is Flag -> if (on) "是" else "否"
         is Rows -> rows.joinToString("、") { it.title }
         is Series -> values.sum().toString()
+        is Moment -> label
     }
 }
 
 /**
  * 列表的一行：左边一句、右边一句。[accent] 右边那句用朱砂（「当天」）；[done] 办完了，整行变灰。
- * [action] 是行尾那个圈点下去做什么（`reminder.done #12`），没有就不画圈
+ * [action] 是行尾那个圈（清单里是行首的方框）点下去做什么（`reminder.done #12`、`reminder.check #12 3`），没有就不画圈
  */
 data class CardRow(
     val title: String,

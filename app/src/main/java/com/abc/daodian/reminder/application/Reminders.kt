@@ -274,21 +274,40 @@ object Reminders {
         val add = items.mapNotNull { (text, done) -> Checklist.clean(text)?.let { it to done } }
             .take((Checklist.MAX_ITEMS - have.size).coerceAtLeast(0))
             .map { (text, done) -> ReminderItem(reminderId = reminderId, text = text, done = done, position = next++) }
-        if (add.isNotEmpty()) dao.insertAll(add)
+        if (add.isNotEmpty()) {
+            dao.insertAll(add)
+            WidgetUpdater.refresh(context.applicationContext)
+        }
     }
 
-    suspend fun setItemDone(context: Context, item: ReminderItem, done: Boolean) = itemDao(context).update(item.copy(done = done))
+    // 清单一改，桌面卡片上绑了它的跟着变（§8.5）：每一处都喊一声
+
+    suspend fun setItemDone(context: Context, item: ReminderItem, done: Boolean) {
+        itemDao(context).update(item.copy(done = done))
+        WidgetUpdater.refresh(context.applicationContext)
+    }
 
     /** 改字；改成空的就是删 */
     suspend fun renameItem(context: Context, item: ReminderItem, text: String) {
-        val clean = Checklist.clean(text) ?: return itemDao(context).delete(item.id)
-        if (clean != item.text) itemDao(context).update(item.copy(text = clean))
+        val clean = Checklist.clean(text)
+        when {
+            clean == null -> itemDao(context).delete(item.id)
+            clean != item.text -> itemDao(context).update(item.copy(text = clean))
+            else -> return
+        }
+        WidgetUpdater.refresh(context.applicationContext)
     }
 
-    suspend fun removeItem(context: Context, item: ReminderItem) = itemDao(context).delete(item.id)
+    suspend fun removeItem(context: Context, item: ReminderItem) {
+        itemDao(context).delete(item.id)
+        WidgetUpdater.refresh(context.applicationContext)
+    }
 
     /** 编辑页左滑删了一样又点「撤销」：原样放回原位 */
-    suspend fun restoreItem(context: Context, item: ReminderItem) = itemDao(context).insert(item)
+    suspend fun restoreItem(context: Context, item: ReminderItem) {
+        itemDao(context).insert(item)
+        WidgetUpdater.refresh(context.applicationContext)
+    }
 
     /** 对话里改清单（`change_checklist`）。没有这一条是 null；返回改了什么，和改完的整份 */
     suspend fun editItems(context: Context, reminderId: Long, edit: ChecklistEdit): Pair<ChecklistEdit.Plan, List<ReminderItem>>? {
@@ -300,6 +319,7 @@ object Reminders {
         plan.unchecked.forEach { dao.update(it.copy(done = false)) }
         plan.removed.forEach { dao.delete(it.id) }
         addItems(app, reminderId, plan.added.map { it to false })
+        WidgetUpdater.refresh(app)
         return plan to dao.of(reminderId)
     }
 
