@@ -37,6 +37,9 @@ import kotlin.math.roundToInt
  */
 object CardViews {
 
+    /** 列表、清单放不下时最后那一行：不写数，免得和模型写的「还剩 N 样」两个数打架 */
+    private const val MORE = "⋯"
+
     /**
      * 照 [spaces] 里每一种大小各画一份（同一次取的数）。[cardId] = 桌面上那一块是哪张卡片，按钮点了发给它；预览是 null，按钮不接。
      * 绑的那条没了（提醒删了）：整张卡画成一行灰字，长按移除 —— 代码删不了桌面上的组件（§8.5）。
@@ -52,9 +55,10 @@ object CardViews {
         return spaces.associateWith { space ->
             val root = root(context)
             val b = Builder(context, reader, cardId)
-            when (val body = CardFit.fit(spec.body, space, look)) {
+            when (val body = CardFit.fit(spec.body, space, look, Space(spec.size.widthDp.toFloat(), spec.size.heightDp.toFloat()))) {
                 is Block.Column -> body.children.forEachIndexed { i, c -> b.add(root, android.R.id.background, c, inRow = false, last = i == body.children.lastIndex) }
-                else -> b.add(root, android.R.id.background, body, inRow = false, last = true)
+                // 最外面就一排（或一块）：铺满整张卡片，里面的 grow 才有地方撑
+                else -> b.add(root, android.R.id.background, body, inRow = false, last = true, fill = true)
             }
             root
         }
@@ -98,13 +102,16 @@ object CardViews {
 
         fun views(layout: Int) = RemoteViews(pkg, layout)
 
-        /** 把 [block] 套进格子，加到 [parent] 的 [into] 里 */
-        suspend fun add(parent: RemoteViews, into: Int, block: Block, inRow: Boolean, last: Boolean) {
+        /**
+         * 把 [block] 套进格子，加到 [parent] 的 [into] 里。[fill] = 撑满（说明里写了 grow，或者它是整张卡片唯一的一块）。
+         * 竖排里的字写了 grow 不算：几格撑满的平分多出来的高，字会被推到半中间（真机上日期飘在数字和底边之间）
+         */
+        suspend fun add(parent: RemoteViews, into: Int, block: Block, inRow: Boolean, last: Boolean, fill: Boolean = block.grow && (inRow || block !is Block.Text)) {
             val cell = views(
                 when {
-                    inRow && block.grow -> R.layout.card_cell_row_grow
+                    inRow && fill -> R.layout.card_cell_row_grow
                     inRow -> R.layout.card_cell_row
-                    block.grow -> R.layout.card_cell_col_grow
+                    fill -> R.layout.card_cell_col_grow
                     else -> R.layout.card_cell_col
                 }
             )
@@ -176,7 +183,7 @@ object CardViews {
             val more = (value?.total ?: rows.size) - minOf(rows.size, b.max)
             if (rows.isEmpty() || more > 0) {
                 box.addView(R.id.card_box, views(R.layout.card_text_caption).apply {
-                    setTextViewText(R.id.card_text, if (rows.isEmpty()) "没有" else "还有 $more 条")
+                    setTextViewText(R.id.card_text, if (rows.isEmpty()) "没有" else MORE)
                 })
             }
             return box
@@ -215,7 +222,7 @@ object CardViews {
                     r.action?.let { click(this, R.id.card_check_row, it) }
                 })
             }
-            if (rows.size > b.max) box.addView(R.id.card_box, views(R.layout.card_text_caption).apply { setTextViewText(R.id.card_text, "还有 ${rows.size - b.max} 样") })
+            if (rows.size > b.max) box.addView(R.id.card_box, views(R.layout.card_text_caption).apply { setTextViewText(R.id.card_text, MORE) })
             return box
         }
 

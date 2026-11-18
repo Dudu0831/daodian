@@ -22,8 +22,8 @@ data class Space(val width: Float, val height: Float)
  * 收放的规矩：
  * 1. 竖排里先按「最省」排（列表一行、数字最小号），放不下就按轻重收掉一块：细线、小字、点数、正文、墨条、柱子、按钮、标题，
  *    最后才是数字、列表、清单、走秒；一样重的先收后面的。至少留一块。
- * 2. 剩下的地方先给列表、清单多放几行（到说明里写的 max、到真有的行数为止），再让数字往大一号长（到说明写的 size，没写到 l），
- *    再分给套在里面的竖排、横排。
+ * 2. 剩下的地方先给列表、清单多放几行（到说明里写的 max），再让数字往大一号长（到说明写的 size，没写到 l）；
+ *    比标准尺寸高出两成（拖大了）还有富余，就不管说明了：列表、清单接着加到真有的行数，数字接着长到 xl。最后分给套在里面的竖排、横排。
  * 3. 横排里每一块都拿整排的高；宽度先给定宽的（字、数字、按钮、点数、走秒），剩下的平分给其余的。
  */
 object CardFit {
@@ -42,17 +42,21 @@ object CardFit {
     private const val GAP = 8f
     private const val MORE = 15f
 
-    suspend fun fit(body: Block, space: Space, look: Look): Block =
-        Fitter(look).fit(body, max(space.width - PAD_H, 40f), max(space.height - PAD_V, 20f))
+    /**
+     * [standard] = 说明写的那种大小的标准尺寸。实际比它高出两成以上才算「拖大了」，才不管说明里的 max、size 接着放
+     * （标准大小时照说明，这台荣耀上 4×2 实际 183dp、标准 164dp，不算拖大）
+     */
+    suspend fun fit(body: Block, space: Space, look: Look, standard: Space = space): Block =
+        Fitter(look, space.height > standard.height * 1.2f).fit(body, max(space.width - PAD_H, 40f), max(space.height - PAD_V, 20f))
 
-    private class Fitter(val look: Look) {
+    private class Fitter(val look: Look, val stretched: Boolean) {
 
         suspend fun fit(b: Block, w: Float, h: Float): Block = when (b) {
             is Block.Column -> column(b, w, h)
             is Block.Row -> row(b, w, h)
             is Block.Number -> number(b, w, h)
-            is Block.ListRows -> b.copy(max = rowsFor(b.rows, b.max, h))
-            is Block.Checklist -> b.copy(max = rowsFor(b.rows, b.max, h))
+            is Block.ListRows -> b.copy(max = rowsFor(b.rows, if (stretched) Int.MAX_VALUE else b.max, h))
+            is Block.Checklist -> b.copy(max = rowsFor(b.rows, if (stretched) Int.MAX_VALUE else b.max, h))
             else -> b
         }
 
@@ -95,7 +99,25 @@ object CardFit {
                 extra -= numberHeight(grown.size!!) - numberHeight(small.size!!)
                 out[i] = grown
             }
-            // 2c. 套在里面的分剩下的
+            // 2c. 拖大了还有富余：列表、清单接着加到全列出来，数字接着长到最大号
+            if (stretched) out.indices.forEach { i ->
+                val k = out[i]
+                val ref = when (k) { is Block.ListRows -> k.rows; is Block.Checklist -> k.rows; else -> return@forEach }
+                val have = look.rows(ref)
+                var rows = when (k) { is Block.ListRows -> k.max; is Block.Checklist -> k.max; else -> 0 }
+                // 全列出来时底下那行「⋯」也省了
+                while (rows < have && extra >= ROW - if (rows + 1 == have) MORE else 0f) { rows++; extra -= ROW - if (rows == have) MORE else 0f }
+                out[i] = when (k) { is Block.ListRows -> k.copy(max = rows); is Block.Checklist -> k.copy(max = rows); else -> k }
+            }
+            if (stretched) out.indices.forEach { i ->
+                val k = out[i] as? Block.Number ?: return@forEach
+                if (k.size == NumberSize.entries.last()) return@forEach
+                val now = numberHeight(k.size!!)
+                val grown = number(k, w, now + extra, NumberSize.entries.last())
+                extra -= numberHeight(grown.size!!) - now
+                out[i] = grown
+            }
+            // 2d. 套在里面的分剩下的
             val boxes = out.indices.filter { out[it] is Block.Column || out[it] is Block.Row }
             val share = if (boxes.isEmpty()) 0f else max(extra, 0f) / boxes.size
             boxes.forEach { i -> out[i] = fit(out[i], w, least[i] + share) }
@@ -168,7 +190,7 @@ object CardFit {
             return shown * ROW + if (have > shown) MORE else 0f
         }
 
-        /** 只有一块列表时，[h] 里放得下几行 */
+        /** 只有一块列表时，[h] 里放得下几行，最多 [want]（拖大了不限） */
         private suspend fun rowsFor(ref: Ref, want: Int, h: Float): Int {
             val have = look.rows(ref)
             var rows = 1
@@ -178,9 +200,8 @@ object CardFit {
 
         // ---------------- 大数字
 
-        /** [h] 高、[w] 宽里放得下的最大一号，最大到说明写的（没写到 l），最小 s */
-        private suspend fun number(b: Block.Number, w: Float, h: Float): Block.Number {
-            val cap = b.size ?: NumberSize.L
+        /** [h] 高、[w] 宽里放得下的最大一号，最大到 [cap]（平时是说明写的，没写到 l；拖大了有富余才放到 xl），最小 s */
+        private suspend fun number(b: Block.Number, w: Float, h: Float, cap: NumberSize = b.size ?: NumberSize.L): Block.Number {
             val value = look.text(b.value)
             val pick = NumberSize.entries.filter { it <= cap }.reversed().firstOrNull { s ->
                 numberHeight(s) <= h && numberWidth(b, s, value) <= w

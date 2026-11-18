@@ -30,7 +30,8 @@ class CardFitTest {
     }
 
     private fun sample(name: String) = CardSpecs.read(CardGuide.SAMPLES.first { it.first.startsWith(name) }.second)!!.body
-    private fun fit(body: Block, w: Int, h: Int) = runBlocking { CardFit.fit(body, Space(w.toFloat(), h.toFloat()), look) }
+    /** 标准尺寸按 4×2（352×164）算：高过 197 才算拖大了 */
+    private fun fit(body: Block, w: Int, h: Int, standard: Space = Space(352f, 164f)) = runBlocking { CardFit.fit(body, Space(w.toFloat(), h.toFloat()), look, standard) }
 
     private fun Block.all(): List<Block> = listOf(this) + when (this) {
         is Block.Column -> children.flatMap { it.all() }
@@ -43,10 +44,11 @@ class CardFitTest {
 
     @Test
     fun `a checklist shows more rows when the card is taller, up to what the spec allows`() {
-        // 样板里写的 max 4：4×2 放得下 4 行，拖成 4×4 也还是 4 行
+        // 样板里写的 max 4：4×2 放 4 行，拖成 4×4 接着往下列，10 样全列出来
         val luggage = sample("倒数 + 行李")
         assertEquals(4, fit(luggage, 352, 164).checklist().max)
-        assertEquals(4, fit(luggage, 352, 352).checklist().max)
+        assertEquals(4, fit(luggage, 352, 183).checklist().max)
+        assertEquals(10, fit(luggage, 352, 400).checklist().max)
         // 模型写了 max 10：矮的少放，高的多放
         val roomy = CardSpecs.read(CardGuide.SAMPLES.first { it.first.startsWith("倒数 + 行李") }.second.replace("\"max\":4", "\"max\":10"))!!.body
         val short = fit(roomy, 352, 130).checklist().max
@@ -59,12 +61,14 @@ class CardFitTest {
     fun `the big number grows with the card and stays within the spec's size`() {
         val countdown = sample("倒数")
         // 说明写的 l：标准 2×2 放得下 l，压扁了退到小号
-        assertEquals(NumberSize.L, fit(countdown, 164, 164).number().size)
-        val squat = fit(countdown, 164, 110).number().size!!
+        assertEquals(NumberSize.L, fit(countdown, 164, 164, Space(164f, 164f)).number().size)
+        val squat = fit(countdown, 164, 110, Space(164f, 164f)).number().size!!
         assertTrue("$squat", squat < NumberSize.L)
-        // 没写 size 的，再大也只到 l
+        // 拖大了有富余，超过说明写的，长到 xl
         val free = CardSpecs.read(CardGuide.SAMPLES.first().second.replace(",\"size\":\"l\"", ""))!!.body
-        assertEquals(NumberSize.L, fit(free, 352, 352).number().size)
+        assertEquals(NumberSize.XL, fit(free, 352, 352).number().size)
+        // 没拖大（荣耀上 4×2 实际 183）：照说明，不超过 l
+        assertEquals(NumberSize.L, fit(free, 352, 183).number().size)
     }
 
     @Test
@@ -92,7 +96,7 @@ class CardFitTest {
     fun `every sample keeps all its parts at its own size`() {
         CardGuide.SAMPLES.forEach { (what, json) ->
             val spec = CardSpecs.read(json)!!
-            val fitted = fit(spec.body, spec.size.widthDp, spec.size.heightDp)
+            val fitted = fit(spec.body, spec.size.widthDp, spec.size.heightDp, Space(spec.size.widthDp.toFloat(), spec.size.heightDp.toFloat()))
             assertEquals(what, spec.body.all().size, fitted.all().size)
         }
     }
