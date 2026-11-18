@@ -332,7 +332,6 @@ fun EditReminderScreen(vm: ReminderViewModel, reminderId: Long?, onBack: () -> U
                             Value(
                                 when (effectiveNag) {
                                     Nag.NONE -> "不催"
-                                    Nag.SOON -> "过一会儿再提"
                                     Nag.DAILY -> "每晚再提"
                                 }
                             )

@@ -363,15 +363,13 @@ fun NudgeSheet(
     }
 }
 
-/** 「没点完成」（§4.6）：三选一，选了就收起。每天都有的不能每晚再提（[dailyAllowed] = false 时那行灰着） */
+/** 「没点完成」（§4.6）：二选一，选了就收起。每天都有的不能每晚再提（[dailyAllowed] = false 时那行灰着） */
 @Composable
 fun NagSheet(current: Nag, dailyAllowed: Boolean, checkTime: LocalTime, onPick: (Nag) -> Unit, onDismiss: () -> Unit) {
     PaperSheet(onDismiss) {
         Column(Modifier.padding(horizontal = 20.dp)) {
             SheetHead("没点完成", null)
             SheetLine("不催", note = "响过就算", on = current == Nag.NONE) { onPick(Nag.NONE) }
-            GroupRule()
-            SheetLine("过一会儿再提", note = "30 分钟一次，最多 3 次", on = current == Nag.SOON) { onPick(Nag.SOON) }
             GroupRule()
             SheetLine(
                 "每晚再提",

@@ -57,25 +57,9 @@ class ScheduleTest {
     }
 
     @Test
-    fun `nagging soon comes back three times then stops`() {
-        var x = r("2026-11-17", "08:00", nag = Nag.SOON).let { it.on(start(it, "2026-11-16T10:00:00")!!) }
-        val seen = mutableListOf<Beat>()
-        while (true) { val b = fired(x) ?: break; seen += b; x = x.on(b) }
-        assertEquals(
-            listOf(
-                beat("2026-11-17", "08:00", Phase.NAG, "2026-11-17T08:30:00", 1),
-                beat("2026-11-17", "08:00", Phase.NAG, "2026-11-17T09:00:00", 2),
-                beat("2026-11-17", "08:00", Phase.NAG, "2026-11-17T09:30:00", 3)
-            ),
-            seen
-        )
-    }
-
-    @Test
-    fun `medicine every day at eight nags then moves on to tomorrow`() {
-        val pill = r("2026-11-17", "08:00", rrule = "FREQ=DAILY", nag = Nag.SOON, at = "2026-11-17T08:00:00")
-        val third = pill.copy(phase = Phase.NAG, nagCount = 3, nextTriggerAt = ms("2026-11-17T09:30:00"))
-        assertEquals(beat("2026-11-18", "08:00", Phase.MAIN, "2026-11-18T08:00:00"), fired(third))
+    fun `medicine every day at eight moves on to tomorrow`() {
+        val pill = r("2026-11-17", "08:00", rrule = "FREQ=DAILY", at = "2026-11-17T08:00:00")
+        assertEquals(beat("2026-11-18", "08:00", Phase.MAIN, "2026-11-18T08:00:00"), fired(pill))
         // 点了完成：今天这次算完，直接排明天
         assertEquals(beat("2026-11-18", "08:00", Phase.MAIN, "2026-11-18T08:00:00"), Schedule.afterDone(pill, ms("2026-11-17T08:05:00"), check, zone))
     }
@@ -90,11 +74,9 @@ class ScheduleTest {
 
     @Test
     fun `nagging stops when the next time of the day comes`() {
-        val x = r("2026-11-17", "09:00,10:00", rrule = "FREQ=DAILY", nag = Nag.SOON, at = "2026-11-17T09:00:00")
-        val nag1 = fired(x)!!
-        assertEquals(beat("2026-11-17", "09:00", Phase.NAG, "2026-11-17T09:30:00", 1), nag1)
-        // 再过 30 分钟是 10:00，跟下一次撞上：不催了，排下一次
-        assertEquals(beat("2026-11-17", "10:00", Phase.MAIN, "2026-11-17T10:00:00"), fired(x.on(nag1)))
+        // 一次性、两个钟点、每晚再提：9 点那次的催排在晚上，10 点那次先到 —— 不催了，排下一次
+        val x = r("2026-11-17", "09:00,10:00", nag = Nag.DAILY, at = "2026-11-17T09:00:00")
+        assertEquals(beat("2026-11-17", "10:00", Phase.MAIN, "2026-11-17T10:00:00"), fired(x))
     }
 
     @Test
@@ -159,8 +141,8 @@ class ScheduleTest {
         val nudged = r("2026-12-23", "07:30", before = "1", phase = Phase.NUDGE, at = "2026-12-22T20:00:00")
         assertNull(fired(nudged, "2026-12-23T09:00:00"))
         assertEquals(
-            beat("2026-12-23", "07:30", Phase.NAG, "2026-12-23T09:30:00", 1),
-            fired(nudged.copy(nag = Nag.SOON), "2026-12-23T09:00:00")
+            beat("2026-12-23", "07:30", Phase.NAG, "2026-12-23T20:00:00", 1),
+            fired(nudged.copy(nag = Nag.DAILY), "2026-12-23T09:00:00")
         )
     }
 
@@ -204,8 +186,9 @@ class ScheduleTest {
 
     @Test
     fun `a snoozed ring nags from when it really rang`() {
-        val x = r("2026-11-17", "08:00", nag = Nag.SOON, at = "2026-11-17T08:10:00")
-        assertEquals(beat("2026-11-17", "08:00", Phase.NAG, "2026-11-17T08:40:00", 1), fired(x))
+        // 19:55 的，稍后到 20:10 才响：今晚的收尾时刻已经过了，催排到明晚
+        val x = r("2026-11-17", "19:55", nag = Nag.DAILY, at = "2026-11-17T20:10:00")
+        assertEquals(beat("2026-11-17", "19:55", Phase.NAG, "2026-11-18T20:00:00", 1), fired(x))
     }
 
     @Test
@@ -228,9 +211,8 @@ class ScheduleTest {
         // 今晚提过了、又往后改：今晚按新钟点再提一次
         val nag = r("2026-11-16", nag = Nag.DAILY, phase = Phase.NAG, nagCount = 1, at = "2026-11-17T20:00:00")
         assertEquals(beat("2026-11-16", null, Phase.NAG, "2026-11-16T21:00:00", 1), Schedule.realign(nag, ms("2026-11-16T20:30:00"), later, zone))
-        // 稍后着的、隔 30 分钟催的是绝对时刻，不动
+        // 稍后着的是绝对时刻，不动
         assertNull(Schedule.realign(main.copy(snoozed = true), ms("2026-11-16T10:00:00"), later, zone))
-        assertNull(Schedule.realign(r("2026-11-16", "08:00", nag = Nag.SOON, phase = Phase.NAG, nagCount = 1, at = "2026-11-16T10:30:00"), ms("2026-11-16T10:00:00"), later, zone))
         // 已经到点还没响的不动：闹钟正要响、巡检会补发，挪走就把这一下吞了（11-16 模拟器上跳钟时碰到的）
         assertNull(Schedule.realign(r("2026-11-16", at = "2026-11-16T09:00:00"), ms("2026-11-16T10:00:00"), later, zone))
         // 有钟点的正点不看收尾时刻
@@ -251,9 +233,9 @@ class ScheduleTest {
 
     @Test
     fun `fired days late after the next one already came, it does not nag about the old one`() {
-        // 每天 10:00 喝水、要催；手机关了两天，22 号那次 24 号中午才补发 —— 23 号那次早过了，不再为 22 号催
-        val water = r("2026-11-22", "10:00", rrule = "FREQ=DAILY", nag = Nag.SOON, at = "2026-11-22T10:00:00")
-        assertEquals(beat("2026-11-25", "10:00", Phase.MAIN, "2026-11-25T10:00:00"), fired(water, "2026-11-24T12:00:00"))
+        // 每周日、周二 10:00 交水费、每晚再提；手机关了两天，22 号（周日）那次 24 号中午才补发 —— 24 号那次早过了，不再为 22 号催
+        val water = r("2026-11-22", "10:00", rrule = "FREQ=WEEKLY;BYDAY=SU,TU", nag = Nag.DAILY, at = "2026-11-22T10:00:00")
+        assertEquals(beat("2026-11-29", "10:00", Phase.MAIN, "2026-11-29T10:00:00"), fired(water, "2026-11-24T12:00:00"))
         // 晚到一会儿、下一次还没来的，照催
         assertEquals(Phase.NAG, fired(water, "2026-11-22T10:05:00")!!.phase)
     }

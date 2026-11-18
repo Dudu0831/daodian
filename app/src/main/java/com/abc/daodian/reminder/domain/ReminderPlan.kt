@@ -18,7 +18,7 @@ data class ReminderPlan(
     val remindBefore: List<Int> = emptyList(),
     /** `alarm` 响铃 / `notice` 只发通知（轻提醒） */
     val ring: String,
-    /** `none` 不催 / `soon` 过一会儿再提 / `daily` 每天再提 */
+    /** `none` 不催 / `daily` 每天再提 */
     val nag: String,
     /** 有钟点的才看：true = 跟着人走的当地钟点，false = 固定那一瞬间（§7.1） */
     val wallClockAnchored: Boolean = true

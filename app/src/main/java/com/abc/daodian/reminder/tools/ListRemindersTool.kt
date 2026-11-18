@@ -107,7 +107,6 @@ class ListRemindersTool(
                 "只发通知".takeIf { !r.untimed && spec.ring == Ring.NOTICE },
                 when (spec.nag) {
                     Nag.NONE -> null
-                    Nag.SOON -> "没点完成 30 分钟后再提"
                     Nag.DAILY -> "没点完成每晚再提"
                 },
                 when (r.status) {

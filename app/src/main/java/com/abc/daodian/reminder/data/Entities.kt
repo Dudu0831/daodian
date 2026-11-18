@@ -14,8 +14,12 @@ enum class FireSource { ALARM, SWEEP, BOOT_CATCHUP, MANUAL_TEST }
 /** 到点怎么响（§4.6）：响铃 = 全屏 + 闹钟铃声循环；只发通知 = 一条通知、响一声震一下（界面上叫「轻提醒」，§5.6） */
 enum class Ring { ALARM, NOTICE }
 
-/** 响过没点完成要不要催（§4.6）：不催 / 过一会儿再提（30 分钟一次，最多 3 次）/ 每天再提（每晚收尾时刻，直到点完成） */
-enum class Nag { NONE, SOON, DAILY }
+/**
+ * 响过没点完成要不要催（§4.6）：不催 / 每天再提（每晚收尾时刻，直到点完成）。
+ * 原来还有「过一会儿再提」（SOON，30 分钟一次），11-18 删了：响铃的本来一直响到你点，稍后够用。
+ * v5 没发过版，不加迁移：库里存着 SOON 的 debug 包读到那行会崩，清数据重装
+ */
+enum class Nag { NONE, DAILY }
 
 /** 眼下排着的这一下是哪一种（§4.6）：那天之前提一下 / 正点 / 催 */
 enum class Phase { NUDGE, MAIN, NAG }

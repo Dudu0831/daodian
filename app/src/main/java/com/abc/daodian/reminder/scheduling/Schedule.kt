@@ -27,10 +27,6 @@ data class Beat(val day: LocalDate, val slot: LocalTime?, val phase: Phase, val 
  */
 object Schedule {
 
-    /** 「过一会儿再提」隔多久、最多几次（用户 11-16 定的，先写死） */
-    const val NAG_SOON_MS = 30 * 60 * 1000L
-    const val NAG_SOON_MAX = 3
-
     /** 一串最多往后数这么多次：规则写坏了也不会死循环。每天 12 个钟点也够看两年 */
     private const val GUARD = 10_000
 
@@ -95,14 +91,13 @@ object Schedule {
         firstBeat(r, occurrences(r, Occ(r.day, r.slotTime()), check, zone).drop(1), now, check, zone)
 
     /**
-     * 改了收尾时刻、换了时区：这一下重新落在哪。null = 不用动（稍后着的、隔 30 分钟催的是绝对时刻；排不出来的留给巡检；
+     * 改了收尾时刻、换了时区：这一下重新落在哪。null = 不用动（稍后着的是绝对时刻；排不出来的留给巡检；
      * 已经到点还没响的也不动 —— 它的闹钟正要响或者巡检会补发，这里挪走就把这一下悄悄吞了）。
      * 每天再提的挪到下一个收尾时刻 —— 今晚提过了、又把收尾时刻往后改，今晚会按新钟点再提一次，改设置的人要的就是这个
      */
     fun realign(r: Reminder, now: Long, check: LocalTime, zone: ZoneId): Beat? = when {
         r.nextTriggerAt <= now -> null
         r.snoozed -> null
-        r.phase == Phase.NAG && r.nag == Nag.SOON -> null
         r.phase == Phase.NAG -> Beat(r.day, r.slotTime(), Phase.NAG, r.nagCount, checkAfter(now, check, zone))
         else -> start(r, now, check, zone)
     }
@@ -116,7 +111,6 @@ object Schedule {
         val nag = when {
             overtaken(r, here, firedAt, check, zone) -> null
             r.nag == Nag.NONE -> null
-            r.nag == Nag.SOON -> Beat(here.day, here.slot, Phase.NAG, 1, base + NAG_SOON_MS)
             else -> Beat(here.day, here.slot, Phase.NAG, 1, checkAfter(base, check, zone))
         }
         return earlier(nag, nextOccurrence(r, here, firedAt, check, zone))
@@ -127,7 +121,6 @@ object Schedule {
         val nag = when {
             overtaken(r, here, firedAt, check, zone) -> null
             r.nag == Nag.NONE -> null
-            r.nag == Nag.SOON -> if (r.nagCount < NAG_SOON_MAX) Beat(here.day, here.slot, Phase.NAG, r.nagCount + 1, base + NAG_SOON_MS) else null
             else -> Beat(here.day, here.slot, Phase.NAG, r.nagCount + 1, checkAfter(base, check, zone))
         }
         return earlier(nag, nextOccurrence(r, here, firedAt, check, zone))

@@ -35,10 +35,10 @@ class CreateReminderToolTest {
 
     @Test
     fun `several times a day, repeating, nagging — all on one reminder`() = runBlocking {
-        val (ok, spec) = create(args(times = "\"15:00\",\"09:00\"", rrule = "FREQ=DAILY", nag = "soon"))
+        val (ok, spec) = create(args(times = "\"15:00\",\"09:00\"", rrule = "FREQ=WEEKLY;BYDAY=MO,TH", nag = "daily"))
         assertTrue(ok)
         assertEquals(listOf(LocalTime.of(9, 0), LocalTime.of(15, 0)), spec!!.times)
-        assertEquals(Nag.SOON, spec.nag)
+        assertEquals(Nag.DAILY, spec.nag)
         assertEquals(Ring.ALARM, spec.ring)
     }
 

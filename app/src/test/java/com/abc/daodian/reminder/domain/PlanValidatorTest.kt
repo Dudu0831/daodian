@@ -27,8 +27,8 @@ class PlanValidatorTest {
 
     @Test
     fun `any combination that makes sense goes through`() {
-        // 每天 9 点到 21 点每两小时喝水、过一会儿再提
-        ok(plan(times = listOf("09:00", "11:00", "13:00", "15:00", "17:00", "19:00", "21:00"), rrule = "FREQ=DAILY", nag = "soon"))
+        // 每天 9 点到 21 点每两小时喝水
+        ok(plan(times = listOf("09:00", "11:00", "13:00", "15:00", "17:00", "19:00", "21:00"), rrule = "FREQ=DAILY"))
         // 每年生日提前一周
         ok(plan(day = "2027-03-08", rrule = "FREQ=YEARLY", before = listOf(7)))
         // 飞机 07:30 提前一周、前一天
@@ -72,6 +72,8 @@ class PlanValidatorTest {
         // 重复的今天 9 点过了没关系，下一次是明天
         ok(plan(times = listOf("09:00"), rrule = "FREQ=DAILY"))
         assertTrue(rejected(plan(day = "2026-11-10", rrule = "FREQ=DAILY")).selfFix)
+        // 「过一会儿再提」11-18 删了，历史里照着旧调用写 soon 的自己改
+        assertTrue(rejected(plan(nag = "soon")).selfFix)
         assertFalse(rejected(plan(day = "2032-01-01")).selfFix)
     }
 

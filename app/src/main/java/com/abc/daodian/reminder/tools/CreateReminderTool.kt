@@ -103,7 +103,7 @@ class CreateReminderTool(
                 ),
                 "remindBefore" to arr("integer", "提前几天在那天晚上提一下，如 [30, 7, 1]；[] = 不提前"),
                 "ring" to enumOf(listOf("alarm", "notice"), "alarm 响铃（全屏，一直响到点掉）；notice 只发一条通知（轻提醒）"),
-                "nag" to enumOf(listOf("none", "soon", "daily"), "响过没点完成：none 不催；soon 30 分钟后再提，最多 3 次；daily 每天晚上收尾时刻再提，直到点完成")
+                "nag" to enumOf(listOf("none", "daily"), "响过没点完成：none 不催；daily 每天晚上收尾时刻再提，直到点完成")
             )
         }
 

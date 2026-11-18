@@ -44,7 +44,7 @@ object ReminderTrace {
             o.get("rrule")?.takeIf { !it.isNull }?.asText()?.let { r -> Rrule.human(r.ifBlank { null }) ?: "不重复" },
             CreateReminderTool.remindBeforeOf(o)?.let { b -> if (b.isEmpty()) "不提前" else "提前提醒 ${b.size} 次" },
             o.get("ring")?.takeIf { !it.isNull }?.asText()?.let { if (it == "notice") "轻提醒" else "响铃" },
-            o.get("nag")?.takeIf { !it.isNull }?.asText()?.let { when (it) { "soon" -> "过一会儿再提"; "daily" -> "每晚再提"; else -> "不催" } },
+            o.get("nag")?.takeIf { !it.isNull }?.asText()?.let { when (it) { "daily" -> "每晚再提"; else -> "不催" } },
             "改了备注".takeIf { has("note") }
         )
         val title = call.output?.substringAfter('「', "")?.substringBefore('」')?.takeIf { it.isNotEmpty() }

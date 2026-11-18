@@ -51,7 +51,6 @@ object ReminderText {
             if (spec.ring == Ring.ALARM) "响铃" else "只发通知",
             when (spec.nag) {
                 Nag.NONE -> "不催"
-                Nag.SOON -> "没点完成 30 分钟后再提，最多 3 次"
                 Nag.DAILY -> "没点完成每晚再提"
             },
             "固定这一瞬间（不跟时区走）".takeIf { spec.times.isNotEmpty() && !spec.wallClockAnchored }

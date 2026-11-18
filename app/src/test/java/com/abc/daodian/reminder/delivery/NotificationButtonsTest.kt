@@ -39,7 +39,7 @@ class NotificationButtonsTest {
     @Test
     fun `anything that nags asks for done`() {
         assertEquals(listOf(Button.DONE, Button.SNOOZE), buttonsOf(r(null, Ring.NOTICE, Nag.DAILY, Phase.NAG)))
-        assertEquals(listOf(Button.DONE, Button.SNOOZE), buttonsOf(r("08:00", Ring.ALARM, Nag.SOON)))
-        assertEquals(listOf(Button.DONE, Button.SNOOZE), buttonsOf(r("08:00", Ring.NOTICE, Nag.SOON)))
+        assertEquals(listOf(Button.DONE, Button.SNOOZE), buttonsOf(r("08:00", Ring.ALARM, Nag.DAILY)))
+        assertEquals(listOf(Button.DONE, Button.SNOOZE), buttonsOf(r("08:00", Ring.NOTICE, Nag.DAILY)))
     }
 }

@@ -290,18 +290,6 @@ private fun bellPath(k: Float) = Path().apply {
     quadraticTo(6f * k, 11.6f * k, 6.9f * k, 10.6f * k)
 }
 
-/** 再提：一只铃，两边两道响声 —— 还会再响 */
-@Composable
-fun BellIcon(modifier: Modifier = Modifier, size: Dp = 11.dp, tint: Color, strokeWidth: Dp = 1.1.dp) {
-    Canvas(modifier.size(size)) {
-        val k = this.size.width / 12f
-        val sw = strokeOf(strokeWidth.toPx())
-        drawPath(bellPath(k), tint, style = sw)
-        drawPath(Path().apply { moveTo(1.2f * k, 4.2f * k); quadraticTo(1.5f * k, 2.9f * k, 2.4f * k, 2.2f * k) }, tint, style = sw)
-        drawPath(Path().apply { moveTo(10.8f * k, 4.2f * k); quadraticTo(10.5f * k, 2.9f * k, 9.6f * k, 2.2f * k) }, tint, style = sw)
-    }
-}
-
 /** 没送到：一只铃，斜着划一道 */
 @Composable
 fun BellOffIcon(modifier: Modifier = Modifier, size: Dp = 11.dp, tint: Color, strokeWidth: Dp = 1.1.dp) {

@@ -74,7 +74,7 @@ object PlanValidator {
             }
             if (gap != null && gap <= 1 && spec.nag == Nag.DAILY) {
                 return Verdict.Rejected(
-                    "每天都有的提醒不能「每天再提」—— 明天本来就会再响。要催就填 soon（30 分钟后再提），不催填 none。", selfFix = true
+                    "每天都有的提醒不能「每天再提」—— 明天本来就会再响。填 none。", selfFix = true
                 )
             }
         }
@@ -99,9 +99,8 @@ object PlanValidator {
         }
         val nag = when (plan.nag.trim().lowercase()) {
             "none" -> Nag.NONE
-            "soon" -> Nag.SOON
             "daily" -> Nag.DAILY
-            else -> return Verdict.Rejected("nag 只能是 none、soon、daily，不是「${plan.nag}」。", selfFix = true)
+            else -> return Verdict.Rejected("nag 只能是 none 或 daily，不是「${plan.nag}」。", selfFix = true)
         }
         plan.remindBefore.firstOrNull { it < 1 }?.let {
             return Verdict.Rejected("remindBefore 里的 $it 不对：填提前几天，正整数；那天当天本来就会提醒，不用写 0。", selfFix = true)

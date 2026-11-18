@@ -63,7 +63,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import com.abc.daodian.reminder.data.Nag
 import com.abc.daodian.reminder.data.Phase
 import com.abc.daodian.reminder.data.Reminder
 import com.abc.daodian.reminder.data.ReminderItem
@@ -75,7 +74,6 @@ import com.abc.daodian.reminder.data.slotTime
 import com.abc.daodian.reminder.data.untimed
 import com.abc.daodian.reminder.domain.Rrule
 import com.abc.daodian.reminder.presentation.ReminderViewModel
-import com.abc.daodian.reminder.scheduling.Schedule
 import com.abc.daodian.shared.format.Format
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
@@ -85,7 +83,6 @@ import com.abc.daodian.shared.ui.ChevronRightIcon
 import com.abc.daodian.shared.ui.PlusIcon
 import com.abc.daodian.shared.ui.BeatIcon
 import com.abc.daodian.shared.ui.BoxIcon
-import com.abc.daodian.shared.ui.BellIcon
 import com.abc.daodian.shared.ui.BellOffIcon
 import com.abc.daodian.shared.ui.HourglassIcon
 import com.abc.daodian.shared.ui.LeafIcon
@@ -661,11 +658,6 @@ private fun EntryNotes(r: Reminder, armed: Boolean, items: List<ReminderItem>) {
             Note(if (r.phase != Phase.NUDGE && r.day == today) "${rangToday(r, times)}/${times.size}" else "${times.size} 次")
         }
         if (!r.untimed && r.ring == Ring.NOTICE) add { LeafIcon(tint = colors.muted) }
-        // 钟点头上已经写了，这里只说第几次；每晚再提的不写：拖着的头上已经是「拖 N 天」
-        if (r.phase == Phase.NAG && r.nag == Nag.SOON) add {
-            BellIcon(tint = colors.muted)
-            Note("${r.nagCount}/${Schedule.NAG_SOON_MAX}")
-        }
         // 清单（§4.5）：只写还剩几样，不展开；点进编辑页去勾
         if (items.isNotEmpty()) add {
             val left = Checklist.left(items)
