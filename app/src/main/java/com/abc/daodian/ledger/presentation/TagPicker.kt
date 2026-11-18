@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -42,6 +43,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -57,6 +59,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -81,20 +84,57 @@ import kotlinx.coroutines.delay
 
 private val TagShape = RoundedCornerShape(14.dp)
 
-// ---------------- 对账问卡：一笔底下 ----------------
+// ---------------- 对账问卡：出处那行右头的入口 + 猜测底下展开的一块 ----------------
 
 /**
- * 问卡上一笔底下：平时一行灰字「＋ 打标签」，不打的账不占地方；点开是一行候选 + 虚线「＋」，
- * 再点「＋」换成输入框打字找。收起后是挂着的小黑块 +「改」
+ * 问卡上哪几笔的挑标签块开着（txnId → 开）。入口和展开块是问卡上两个地方画的（问卡设计稿甲，11-18），
+ * 开合放在这里两边一起看。只活在进程里，重启照默认收着
+ */
+private val askTagOpen = mutableStateMapOf<Long, Boolean>()
+
+/**
+ * 问卡上一笔出处那行右头：一行字那么高。没挂是灰的「＋ 标签」，挂了是「约会、请客 · 改」，开着是「收起」
  */
 @Composable
-fun AskTagRow(txnId: Long) {
+fun AskTagTrigger(txnId: Long) {
+    val vm = activityViewModel<LedgerViewModel>()
+    val flow = remember(txnId) { vm.tags(txnId) }
+    val board by flow.collectAsState(initial = null)
+    val b = board ?: return
+    val colors = DaodianColors.current
+    val open = askTagOpen[txnId] == true
+    Row(
+        Modifier
+            .padding(start = 10.dp)
+            .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Button) { askTagOpen[txnId] = !open },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        when {
+            open -> Text("收起", style = DaodianType.caption, color = colors.muted, maxLines = 1)
+            b.attached.isEmpty() -> {
+                PlusIcon(size = 10.dp, tint = colors.ink2, strokeWidth = 1.3.dp)
+                Text("标签", style = DaodianType.caption, color = colors.ink2, maxLines = 1)
+            }
+            else -> Text(
+                b.attached.joinToString("、") + " · 改", style = DaodianType.caption, color = colors.ink2,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp)
+            )
+        }
+    }
+}
+
+/**
+ * 点了入口后在那笔猜测底下展开：一行候选 + 虚线「＋」，再点「＋」换成输入框打字找。收着时什么都不画
+ */
+@Composable
+fun AskTagPanel(txnId: Long) {
     val vm = activityViewModel<LedgerViewModel>()
     val flow = remember(txnId) { vm.tags(txnId) }
     val board by flow.collectAsState(initial = null)
     val b = board ?: return
     val categories by vm.categoryNodes.collectAsState()
-    var open by rememberSaveable(txnId) { mutableStateOf(false) }
+    val open = askTagOpen[txnId] == true
     var searching by rememberSaveable(txnId) { mutableStateOf(false) }
     var query by rememberSaveable(txnId) { mutableStateOf("") }
 
@@ -104,76 +144,40 @@ fun AskTagRow(txnId: Long) {
         query = ""
     }
 
-    Column(Modifier.animateContentSize(Motion.flow())) {
-        if (!open) {
-            Row(
-                Modifier
-                    .padding(top = 4.dp)
-                    .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Button) { open = true }
-                    .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                val colors = DaodianColors.current
-                if (b.attached.isEmpty()) {
-                    PlusIcon(size = 11.dp, tint = colors.muted, strokeWidth = 1.3.dp)
-                    Text("打标签", style = DaodianType.caption, color = colors.muted)
-                } else {
-                    b.attached.forEach { MiniTag(it) }
-                    Text("改", style = DaodianType.caption, color = colors.muted, modifier = Modifier.padding(start = 2.dp))
-                }
-            }
-        }
-        AnimatedVisibility(
-            visible = open,
-            enter = expandVertically(Motion.settle()) + fadeIn(Motion.flow(delay = 60)),
-            exit = shrinkVertically(Motion.flow()) + fadeOut(Motion.flow(Motion.SHORT))
-        ) {
-            Crossfade(searching, animationSpec = tween(Motion.MID), label = "askTagSearch") { s ->
-                if (!s) {
-                    Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                            OneLineRow(Modifier.weight(1f, fill = false)) {
-                                b.ranked.forEach { name -> key(name) { TagChip(name, name in b.attached) { set(name, name !in b.attached) } } }
-                            }
-                            Spacer(Modifier.width(6.dp))
-                            PlusChip { searching = true }
-                        }
-                        TextAction("收起", Modifier.padding(start = 10.dp)) { open = false }
-                    }
-                } else {
-                    Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                        val found = LedgerTags.find(query, b.all, categories)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TagField(
-                                query, { query = it }, placeholderOf(b), height = 32.dp,
-                                modifier = Modifier.weight(1f), autoFocus = true,
-                                onDone = { doneWith(found, b)?.let { (n, on) -> set(n, on); done() } }
-                            )
-                            TextAction("取消", Modifier.padding(start = 12.dp)) { done() }
-                        }
-                        TagResults(
-                            board = b, found = found, withAttached = true, categoryTail = "",
-                            onToggle = { set(it, it !in b.attached); done() },
-                            onUse = { if (it !in b.attached) set(it, true); done() },
-                            onCreate = { set(it, true); done() }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** 收起后挂着的一个：22 高的小黑块 */
-@Composable
-private fun MiniTag(name: String) {
-    val colors = DaodianColors.current
-    Box(
-        Modifier.height(22.dp).background(colors.solid, RoundedCornerShape(11.dp)).padding(horizontal = 9.dp),
-        contentAlignment = Alignment.Center
+    AnimatedVisibility(
+        visible = open,
+        enter = expandVertically(Motion.settle()) + fadeIn(Motion.flow(delay = 60)),
+        exit = shrinkVertically(Motion.flow()) + fadeOut(Motion.flow(Motion.SHORT))
     ) {
-        Text(name, style = DaodianType.caption.copy(fontSize = 12.sp), color = colors.onSolid, maxLines = 1)
+        Crossfade(searching, animationSpec = tween(Motion.MID), label = "askTagSearch") { s ->
+            if (!s) {
+                Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OneLineRow(Modifier.weight(1f, fill = false)) {
+                        b.ranked.forEach { name -> key(name) { TagChip(name, name in b.attached) { set(name, name !in b.attached) } } }
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    PlusChip { searching = true }
+                }
+            } else {
+                Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    val found = LedgerTags.find(query, b.all, categories)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TagField(
+                            query, { query = it }, placeholderOf(b), height = 32.dp,
+                            modifier = Modifier.weight(1f), autoFocus = true,
+                            onDone = { doneWith(found, b)?.let { (n, on) -> set(n, on); done() } }
+                        )
+                        TextAction("取消", Modifier.padding(start = 12.dp)) { done() }
+                    }
+                    TagResults(
+                        board = b, found = found, withAttached = true, categoryTail = "",
+                        onToggle = { set(it, it !in b.attached); done() },
+                        onUse = { if (it !in b.attached) set(it, true); done() },
+                        onCreate = { set(it, true); done() }
+                    )
+                }
+            }
+        }
     }
 }
 

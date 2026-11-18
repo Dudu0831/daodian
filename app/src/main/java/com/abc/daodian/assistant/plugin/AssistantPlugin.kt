@@ -78,11 +78,16 @@ interface AssistantPlugin {
     suspend fun askNote(context: Context, ref: String): AskNote? = null
 
     /**
-     * 问卡上一题底下挂的一块（记账：顺手打标签）。[ref] 是模型在那题上写的「#12」，不是自己的就什么都不画。
-     * 只在等你答的时候画；办了什么，「就这样」时由 [askNote] 报给问卡
+     * 问卡上一题出处那行右头的入口（记账：「＋ 标签」）。[ref] 是模型在那题上写的「#12」，不是自己的就什么都不画。
+     * 只有一行字那么高（18dp），点了展开的东西画在 [AskAddonPanel]。只在等你答的时候画；
+     * 办了什么，「就这样」时由 [askNote] 报给问卡
      */
     @Composable
     fun AskAddon(ref: String) {}
+
+    /** 点了 [AskAddon] 后在那题猜测底下展开的一块（记账：挑标签）。收着时什么都不画 */
+    @Composable
+    fun AskAddonPanel(ref: String) {}
 }
 
 /** app 自己发起的一轮 */

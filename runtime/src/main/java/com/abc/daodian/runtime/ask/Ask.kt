@@ -23,6 +23,11 @@ data class AskQuestion(
     val amount: String?,
     /** 问句：「什么时候提醒？」。问账时有金额就可以没有 */
     val prompt: String?,
+    /**
+     * 一行依据：「前两天 11 点多也各有一笔，你说是午饭」。11-14 删过、11-18 加回来（用户要对账时那段小字），
+     * 只在有真依据时写，问卡上固定一行
+     */
+    val hint: String?,
     /** 猜测，最可能的在前 */
     val options: List<AskOption>,
     /**

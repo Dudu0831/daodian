@@ -54,51 +54,45 @@ private val HeadPrompt = DaodianType.cardTitle.copy(fontSize = 17.sp, lineHeight
 
 private val AmountText = DaodianType.rowTitle.copy(fontSize = 22.sp, lineHeight = 28.sp)
 
-/** 问账时金额底下那句问句：14 */
+private val HintText = DaodianType.caption.copy(fontSize = 12.sp, lineHeight = 18.sp)
+
+/** 问账时跟在金额后面的那句问句：14 */
 private val SubPrompt = DaodianType.bodySmall.copy(fontSize = 14.sp, lineHeight = 20.sp)
 
 /*
- * 固定槽位（11-14）：一题从上到下是几行，每行一个固定的高（问句两行，别的一行，长了截断），
- * 哪一行这一题没有也照样空着。哪几行要留按整张卡定（[AskSlots]）：几页一样高、翻页时同一样东西在同一个位置，
- * 字长字短、有没有出处都挪不动别的。以前问句折行、依据时有时无、猜测为空就不占位，一题一个样子。
+ * 固定槽位（11-14 起，11-18 照设计稿甲 <https://claude.ai/artifact/LJyCeLjXMCqkvwsRCSXyc2> 重排）：
+ * 一题从上到下是几行，每行一个固定的高（问句两行，别的一行，长了截断），这一题没有的那一行原地空着。
+ * 哪几行要留按整张卡定（[AskSlots]）：几页一样高、每一行在每页上同一个位置，短问句的第二行空在底下（顶格）。
+ *   出处一行（右头是模块的入口，记账「＋ 标签」）
+ *   问账的：金额一行（后面跟小字问句）；别的：问句两行宋体
+ *   依据一行
+ *   猜测一行，没有猜测也留着；模块的展开块（点了「＋ 标签」）在最底下，点开长高是你点的
  */
 private val META_LINE = 18.dp
 private val AMOUNT_LINE = 30.dp
-/** 问句给两行（11-14 用户要的）：短的也占两行高，长的第三行起截断 */
 private const val PROMPT_LINES = 2
-private val SUB_PROMPT_LINE = 20.dp * PROMPT_LINES
 private val PROMPT_LINE = 25.dp * PROMPT_LINES
-private val CHIPS_TOP = 11.dp
+private val HINT_LINE = 18.dp
+private val CHIPS_TOP = 12.dp
 
-/** 模块挂件那一行（记账：「＋ 打标签」收着时，挂了标签的那样最高）。点开以后长高是你点的，不算 */
-private val ADDON_LINE = 38.dp
-
-/**
- * 整张卡每题留哪几行：有一题用到，每页都留。
- * 问账的卡（有一题带金额）：金额 + 出处一行，有问句再一行小的；别的卡：出处一行小字，问句一行宋体
- */
-internal data class AskSlots(val amount: Boolean, val context: Boolean, val prompt: Boolean, val addon: Boolean) {
+/** 整张卡每题留哪几行：有一题用到，每页都留 */
+internal data class AskSlots(val meta: Boolean, val amount: Boolean, val hint: Boolean) {
     companion object {
         fun of(questions: List<AskQuestion>) = AskSlots(
+            meta = questions.any { it.context != null || it.ref != null },
             amount = questions.any { it.amount != null },
-            context = questions.any { it.context != null },
-            prompt = questions.any { it.prompt != null },
-            addon = questions.any { it.ref != null }
+            hint = questions.any { it.hint != null }
         )
     }
 }
 
-/**
- * 卡里的一题，槽位见 [AskSlots]：问账的是「金额 · 出处」一行、问句一行小的；别的是出处一行、问句一行。
- * 底下猜测一行（没有猜测也留着），模块挂的那一块一行
- */
+/** 卡里的一题，槽位见 [AskSlots] */
 @Composable
 internal fun Question(
     q: AskQuestion,
     slots: AskSlots,
     pick: Pick?,
     live: Boolean,
-    glyphRoom: Boolean = false,
     onPick: (Int) -> Unit,
     onRetype: (String) -> Unit
 ) {
@@ -107,20 +101,27 @@ internal fun Question(
     val amount = q.amount
     val ref = q.ref
     Column {
-        Column(Modifier.padding(end = if (glyphRoom) 28.dp else 0.dp)) {
-            if (slots.amount) {
-                Row(Modifier.height(AMOUNT_LINE), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (amount != null) Text(amount, style = AmountText, color = colors.ink, maxLines = 1, modifier = Modifier.alignByBaseline())
-                    OneLine(q.context, DaodianType.caption, colors.muted, Modifier.weight(1f).alignByBaseline())
-                }
-                if (slots.prompt) Lines(q.prompt, SubPrompt, colors.ink2, PROMPT_LINES, Modifier.height(SUB_PROMPT_LINE))
-            } else {
-                if (slots.context) OneLine(q.context, DaodianType.caption, colors.muted, Modifier.height(META_LINE))
-                Lines(q.prompt, HeadPrompt, colors.ink, PROMPT_LINES, Modifier.height(PROMPT_LINE))
+        if (slots.meta) {
+            Row(Modifier.height(META_LINE), verticalAlignment = Alignment.CenterVertically) {
+                OneLine(q.context, DaodianType.caption, colors.muted, Modifier.weight(1f))
+                if (live && ref != null) AddonTrigger(ref)
             }
         }
+        if (slots.amount) {
+            Row(Modifier.height(AMOUNT_LINE), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (amount != null) {
+                    Text(amount, style = AmountText, color = colors.ink, maxLines = 1, modifier = Modifier.alignByBaseline())
+                    OneLine(q.prompt, SubPrompt, colors.ink2, Modifier.weight(1f).alignByBaseline())
+                } else {
+                    OneLine(q.prompt, HeadPrompt, colors.ink, Modifier.weight(1f).alignByBaseline())
+                }
+            }
+        } else {
+            Lines(q.prompt, HeadPrompt, colors.ink, PROMPT_LINES, Modifier.height(PROMPT_LINE))
+        }
+        if (slots.hint) OneLine(q.hint, HintText, colors.ink2, Modifier.height(HINT_LINE))
         Box(Modifier.padding(top = CHIPS_TOP).height(CHIP_HEIGHT)) { Guesses(q, pick, live, onPick, onRetype) }
-        if (slots.addon) Box(Modifier.heightIn(min = ADDON_LINE)) { if (live && ref != null) Addon(ref) }
+        if (live && ref != null) AddonPanel(ref)
     }
 }
 
@@ -226,11 +227,18 @@ private fun Modifier.edgeFade(scroll: ScrollState, width: Dp = 22.dp): Modifier 
         )
     }
 
-/** 模块在这题底下挂的一块（记账：顺手打标签），见 [AssistantPlugin.AskAddon]。不是它的 ref 就什么都不画 */
+/** 模块在出处那行右头放的入口（记账：「＋ 标签」），见 [AssistantPlugin.AskAddon]。不是它的 ref 就什么都不画 */
 @Composable
-private fun Addon(ref: String) {
+private fun AddonTrigger(ref: String) {
     val plugins = remember { AssistantPlugins.plugins }
     plugins.forEach { it.AskAddon(ref) }
+}
+
+/** 点了入口后在猜测底下展开的那一块（记账：挑标签），见 [AssistantPlugin.AskAddonPanel] */
+@Composable
+private fun AddonPanel(ref: String) {
+    val plugins = remember { AssistantPlugins.plugins }
+    plugins.forEach { it.AskAddonPanel(ref) }
 }
 
 @Composable

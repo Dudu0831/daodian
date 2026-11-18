@@ -2,6 +2,7 @@ package com.abc.daodian.assistant.conversation.ask
 
 import com.abc.daodian.assistant.conversation.TurnBlock
 import com.abc.daodian.assistant.conversation.AskState
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.AnimatedVisibility
@@ -135,31 +136,18 @@ private fun Asking(
     LaunchedEffect(current) { onPage(current) }
     val side = Modifier.padding(horizontal = SIDE)
 
-    // 参数刚开始流，一题都还没收全：只有「问」和标签
+    // 参数刚开始流，一题都还没收全：只有卡头「问 · 标签」
     if (request.questions.isEmpty()) {
-        Row(
-            side.heightIn(min = 28.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp)
-        ) {
-            AskGlyph("问", colors.accent)
-            Text(request.label.ifBlank { "问一下" }, style = DaodianType.caption, color = colors.ink2)
-        }
+        StampHead(request.label, side)
         return
     }
 
-    // 一题和多题是同一副骨架（都是翻页器，一题就是只有一页），差别只在两样「收全了才知道」的东西：
-    // 多题的卡头（细线 + 交卷）、一题的「问」印。
-    // 流到第一题时还不知道后面有没有，以前先画成一题的样子、第二题到了整张换成多题，闪一下。
-    // 第二题收全时卡头的细线从顶上长出来，之后每收全一题多长一段，卡一直停在第一题；交卷那颗等参数收全才淡进来（11-13）。
-    // 卡是钉在输入条上面的，卡头从顶上长出来时底下的题在屏幕上不动
+    // 卡头（设计稿甲，11-18）：一题是「问」印 + 标签，多题是一排细线 + 交卷那颗（以前的样子，不加印和标签）。
+    // 两样一样高：流到第二题时卡头原地换掉，底下的题在屏幕上不动
     val single = request.questions.size == 1
-    AnimatedVisibility(
-        visible = !single,
-        enter = expandVertically(Motion.settle()) + fadeIn(Motion.flow()),
-        exit = shrinkVertically(Motion.flow()) + fadeOut(Motion.exit())
-    ) {
-        AskProgress(
+    Crossfade(single, animationSpec = Motion.flow(), label = "askHead") { one ->
+        if (one) StampHead(request.label, side)
+        else AskProgress(
             picks = List(request.questions.size) { block.picks.getOrNull(it) },
             current = current,
             live = live,
@@ -188,19 +176,29 @@ private fun Asking(
                 slots = slots,
                 pick = block.picks.getOrNull(i),
                 live = live,
-                // 一题：右上角要盖「问」印，字给它让出一截
-                glyphRoom = single,
                 onPick = { onPick(i, it) },
                 onRetype = { onRetype(i, it) }
             )
         }
-        val stamp by animateFloatAsState(if (live && single) 1f else 0f, Motion.flow(), label = "askStamp")
-        AskGlyph(
-            "问", colors.accent,
-            Modifier.align(Alignment.TopEnd).padding(end = SIDE, top = 3.dp).graphicsLayer { alpha = stamp }
-        )
     }
 }
+
+/** 一题的卡头：「问」印 + 模型写的短标签，和多题的细线那排一样高 */
+@Composable
+private fun StampHead(label: String, modifier: Modifier) {
+    val colors = DaodianColors.current
+    Row(
+        modifier.padding(bottom = 8.dp).height(HEAD_HEIGHT),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        AskGlyph("问", colors.accent)
+        Text(label.ifBlank { "问一下" }, style = DaodianType.caption, color = colors.ink2, maxLines = 1)
+    }
+}
+
+/** 卡头的高：细线那排的点击区 */
+private val HEAD_HEIGHT = 30.dp
 
 /** 问卡里的字离纸边多远 */
 private val SIDE = 16.dp
@@ -245,7 +243,7 @@ private fun AskProgress(
                     Modifier
                         .weight(weight)
                         .graphicsLayer { alpha = weight }
-                        .height(30.dp)
+                        .height(HEAD_HEIGHT)
                         .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Tab) { onSelect(i) }
                         .semantics { contentDescription = "第 ${i + 1} 题" + if (pick != null) "，答了" else "" },
                     contentAlignment = Alignment.Center

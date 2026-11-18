@@ -11,7 +11,8 @@ import com.abc.daodian.ledger.LedgerModule
 import com.abc.daodian.ledger.LedgerRoutes
 import com.abc.daodian.ledger.data.LedgerStore
 import com.abc.daodian.ledger.domain.LedgerText
-import com.abc.daodian.ledger.presentation.AskTagRow
+import com.abc.daodian.ledger.presentation.AskTagPanel
+import com.abc.daodian.ledger.presentation.AskTagTrigger
 import com.abc.daodian.ledger.reconciliation.LedgerCheck
 import com.abc.daodian.ledger.reconciliation.LedgerCheckPrompt
 import com.abc.daodian.ledger.tools.LedgerTools
@@ -79,10 +80,16 @@ object LedgerPlugin : AssistantPlugin {
         return AskNote(short = names, told = "这笔挂着标签「$names」（他在问卡上点的也在里面），已经挂好了，别再打")
     }
 
-    /** 对账问卡上一笔底下的「＋ 打标签」（设计稿方向 B） */
+    /** 对账问卡上一笔出处那行右头的「＋ 标签」（问卡设计稿甲，11-18） */
     @Composable
     override fun AskAddon(ref: String) {
-        txnIdOf(ref)?.let { AskTagRow(it) }
+        txnIdOf(ref)?.let { AskTagTrigger(it) }
+    }
+
+    /** 点了「＋ 标签」后在猜测底下展开的挑标签那块 */
+    @Composable
+    override fun AskAddonPanel(ref: String) {
+        txnIdOf(ref)?.let { AskTagPanel(it) }
     }
 
     /** 问卡上模型写的「#12」→ 12。别的写法不认 */
