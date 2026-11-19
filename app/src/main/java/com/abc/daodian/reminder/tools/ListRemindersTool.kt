@@ -21,7 +21,8 @@ import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 /**
- * 查提醒：按关键词、日期筛，默认只列还没响的。只读，不留痕。
+ * 查提醒：按关键词、日期、带不带清单筛，默认只列还没响的。只读，不留痕。
+ * 带清单那一筛是给建新清单前翻以前的清单用的（§4.5）。
  *
  * 每条一行人话，后面跟着 `update_reminder` 要的那几个字段的原样值 —— 改提醒是把整条重写一遍，
  * 没改的照这里抄。结果是查的那一刻的样子，几轮之后折掉（§6.9）。
@@ -51,9 +52,10 @@ class ListRemindersTool(
                 "type" to "boolean",
                 "description" to "true 时连响过的、完成了的也列（最近的在前）；一般 false"
             ),
+            "with_checklist" to mapOf("type" to "boolean", "description" to "true 时只列带清单的"),
             "limit" to mapOf("type" to listOf("integer", "null"), "description" to "最多几条，默认 30，最多 100")
         ),
-        "required" to listOf("keyword", "from", "to", "include_finished", "limit"),
+        "required" to listOf("keyword", "from", "to", "include_finished", "with_checklist", "limit"),
         "additionalProperties" to false
     )
 
@@ -66,9 +68,11 @@ class ListRemindersTool(
         val from = o.day("from")
         val to = o.day("to")
         val withFinished = o.path("include_finished").asBoolean(false)
+        val withChecklist = o.path("with_checklist").asBoolean(false)
         val limit = (o.get("limit")?.takeIf { it.canConvertToInt() }?.asInt() ?: 30).coerceIn(1, 100)
 
-        val all = desk.all()
+        val items = desk.items().groupBy { it.reminderId }
+        val all = desk.all().filter { !withChecklist || items[it.id].orEmpty().isNotEmpty() }
         val live = all.filter { it.status == ReminderStatus.SCHEDULED }.sortedBy { it.nextTriggerAt }
         val finished = if (withFinished) all.filter { it.status != ReminderStatus.SCHEDULED }.sortedByDescending { it.updatedAt } else emptyList()
         val hits = (live + finished).filter { r ->
@@ -77,10 +81,10 @@ class ListRemindersTool(
                 (from == null || !day.isBefore(from)) && (to == null || !day.isAfter(to))
         }
         if (hits.isEmpty()) {
-            return ToolOutcome(if (withFinished) "没有符合条件的提醒。" else "没有符合条件的、还没响的提醒。", ok = true)
+            val what = if (withChecklist) "带清单的提醒" else "提醒"
+            return ToolOutcome(if (withFinished) "没有符合条件的$what。" else "没有符合条件的、还没响的$what。", ok = true)
         }
         val shown = hits.take(limit)
-        val items = desk.items().groupBy { it.reminderId }
         val out = "共 ${hits.size} 条" + (if (hits.size > shown.size) "，列了前 ${shown.size} 条" else "") + "：\n" +
             shown.joinToString("\n") { line(it, zone, today) + checklist(items[it.id].orEmpty()) }
         return ToolOutcome(out, ok = true)

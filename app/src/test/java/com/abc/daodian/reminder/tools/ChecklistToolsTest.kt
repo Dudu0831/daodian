@@ -3,6 +3,7 @@ package com.abc.daodian.reminder.tools
 import com.abc.daodian.assistant.plugin.ToolTrace
 import com.abc.daodian.assistant.plugin.TraceState
 import com.abc.daodian.reminder.data.Reminder
+import com.abc.daodian.reminder.data.ReminderStatus
 import com.abc.daodian.reminder.domain.Checklist
 import com.abc.daodian.runtime.tool.ToolContext
 import java.time.LocalDate
@@ -65,11 +66,39 @@ class ChecklistToolsTest {
     @Test
     fun `list shows the checklist numbered under its reminder`() = runBlocking {
         val out = ListRemindersTool(desk()) { zone }.execute(
-            """{"keyword":null,"from":null,"to":null,"include_finished":false,"limit":null}""", ctx
+            """{"keyword":null,"from":null,"to":null,"include_finished":false,"with_checklist":false,"limit":null}""", ctx
         )
         val lines = out.output.lines()
         assertTrue(lines[1], lines[1].startsWith("#4 去超市"))
         assertEquals("  清单：1[ ]鸡蛋 2[ ]牛奶 3[x]洗衣液", lines[2])
+    }
+
+    @Test
+    fun `with_checklist lists only reminders that have one, finished ones too`() = runBlocking {
+        val d = FakeReminderDesk(
+            listOf(
+                Reminder(
+                    id = 4, title = "去超市", nextTriggerAt = 0, zoneId = zone.id, wallClockAnchored = true,
+                    day = LocalDate.parse("2026-11-21"), createdAt = 0, updatedAt = 0
+                ),
+                Reminder(
+                    id = 5, title = "吃药", nextTriggerAt = 0, zoneId = zone.id, wallClockAnchored = true,
+                    day = LocalDate.parse("2026-11-21"), createdAt = 0, updatedAt = 0
+                ),
+                Reminder(
+                    id = 6, title = "出差收拾行李", nextTriggerAt = 0, zoneId = zone.id, wallClockAnchored = true,
+                    day = LocalDate.parse("2026-10-02"), status = ReminderStatus.DONE, createdAt = 0, updatedAt = 0
+                )
+            )
+        ).apply { add(4, "鸡蛋"); add(6, "充电器", done = true); add(6, "降噪耳机", done = true) }
+        val tool = ListRemindersTool(d) { zone }
+        val out = tool.execute("""{"keyword":null,"from":null,"to":null,"include_finished":true,"with_checklist":true,"limit":null}""", ctx).output
+        assertTrue(out, out.startsWith("共 2 条") && "#4 去超市" in out && "#6 出差收拾行李" in out && "2[x]降噪耳机" in out)
+        assertFalse(out, "吃药" in out)
+        val none = FakeReminderDesk(emptyList())
+        assertEquals("没有符合条件的、还没响的带清单的提醒。", ListRemindersTool(none) { zone }.execute(
+            """{"keyword":null,"from":null,"to":null,"include_finished":false,"with_checklist":true,"limit":null}""", ctx
+        ).output)
     }
 
     @Test

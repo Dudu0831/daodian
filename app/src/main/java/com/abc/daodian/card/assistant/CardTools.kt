@@ -1,6 +1,5 @@
 package com.abc.daodian.card.assistant
 
-import com.abc.daodian.card.Cards
 import com.abc.daodian.card.data.Card
 import com.abc.daodian.card.spec.CardSize
 import com.abc.daodian.card.spec.CardSpec
@@ -27,29 +26,26 @@ interface CardDesk {
 
     /** 换掉说明。没有这张是 null */
     suspend fun redraw(id: Long, raw: String, spec: CardSpec): Card?
-
-    /** 请桌面放上去。没有这张是 null */
-    suspend fun pin(id: Long): Cards.Pinned?
 }
 
 /**
- * 桌面卡片的三个工具，收在工具包 `card` 里交给助手（DESIGN.md §6.11、§8.5）：画（新画或改）、钉到桌面、看有哪些。
+ * 桌面卡片的两个工具，收在工具包 `card` 里交给助手（DESIGN.md §6.11、§8.5）：画（新画或改）、看有哪些。
+ * 放上桌面不给模型：桌面会弹框，由他自己点预览底下的「放到桌面 ›」。
  * 卡片上的数不归模型：它写的是绑定，数由代码每次重画时现取。卡片上的东西要改，就去改那条提醒或那笔账。
  */
 object CardTools {
 
     fun kit(desk: CardDesk): Kit = Kit(
         KIT, SUMMARY, CardGuide.guide(desk.vocabulary.sources),
-        listOf(DesignCardTool(desk), PinCardTool(desk), ListCardsTool(desk))
+        listOf(DesignCardTool(desk), ListCardsTool(desk))
     )
 
     const val KIT = "card"
 
     const val DESIGN = "design_card"
-    const val PIN = "pin_card"
     const val LIST = "list_cards"
 
-    val NAMES = setOf(DESIGN, PIN, LIST)
+    val NAMES = setOf(DESIGN, LIST)
 
     const val SUMMARY = "桌面卡片。他想在手机桌面上放一张卡片看点什么（某件事还剩几天、行李清单、这周花了多少、今天几件事），" +
         "或者要改桌面上那张、问桌面上有什么时开"
@@ -77,7 +73,7 @@ object CardTools {
 internal class DesignCardTool(private val desk: CardDesk) : Tool {
     override val name = CardTools.DESIGN
     override val effect = ToolEffect.WRITE
-    override val description = "画一张桌面卡片，或者改已有的一张（整份说明重写）。对话里会出预览；放上桌面另调 pin_card。说明怎么写见工具包说明。"
+    override val description = "画一张桌面卡片，或者改已有的一张（整份说明重写）。对话里会出预览，他自己点预览底下的「放到桌面」放上去。说明怎么写见工具包说明。"
     override val parameters = CardTools.obj(
         "card_id" to mapOf("type" to listOf("integer", "null"), "description" to "改哪张（c 编号的数字）；新画一张填 null"),
         "spec" to mapOf("type" to "string", "description" to "卡片说明，一整段 JSON 文本")
@@ -99,36 +95,16 @@ internal class DesignCardTool(private val desk: CardDesk) : Tool {
             val card = desk.create(raw, spec)
             return ToolOutcome(
                 "画好了：c${card.id}「${card.name}」（${spec.size.label}）。\n大小从 ${CardSize.of(old.size)?.label} 改成 ${spec.size.label}：桌面上那一块的大小改不了，所以另画了这张 c${card.id}；" +
-                    "c${old.id} 还在桌面上没动。对话里已经出了预览；他要放上去就 pin_card c${card.id}，旧的让他长按移除。",
+                    "c${old.id} 还在桌面上没动。对话里已经出了预览；他要放上去就点预览底下的「放到桌面」，旧的让他长按移除。",
                 ok = true, ref = card.id
             )
         }
         val card = if (old != null) desk.redraw(old.id, raw, spec)!! else desk.create(raw, spec)
         ToolOutcome(
             "画好了：c${card.id}「${card.name}」（${spec.size.label}）。\n对话里已经出了预览，不用再描述它。" +
-                if (card.widgetId != null) "桌面上那张已经跟着变了。" else "他要放到桌面就 pin_card。",
+                if (card.widgetId != null) "桌面上那张已经跟着变了。" else "他要放到桌面就点预览底下的「放到桌面」。",
             ok = true, ref = card.id
         )
-    }
-}
-
-internal class PinCardTool(private val desk: CardDesk) : Tool {
-    override val name = CardTools.PIN
-    override val effect = ToolEffect.WRITE
-    override val description = "把画好的一张卡片放到桌面：桌面会弹框，他点「添加」才出现。"
-    override val parameters = CardTools.obj("card_id" to CardTools.CARD_ID)
-
-    override suspend fun execute(arguments: String, context: ToolContext): ToolOutcome = with(CardTools) {
-        val id = parse(arguments)?.long("card_id") ?: return ToolOutcome("没钉。card_id 要填卡片 c 编号的数字。", ok = false)
-        val p = desk.pin(id) ?: return ToolOutcome("没钉。没有 c$id 这张卡片，先用 list_cards 查。", ok = false)
-        val size = CardSize.of(p.card.size)?.label ?: p.card.size
-        when {
-            p.already -> ToolOutcome("没钉。c$id「${p.card.name}」已经在桌面上了。", ok = false)
-            p.asked -> ToolOutcome("备好了：c$id「${p.card.name}」\n桌面弹了一个框，他点「添加」卡片就出现在桌面上。", ok = true, ref = id)
-            else -> ToolOutcome(
-                "备好了：c$id「${p.card.name}」\n这个桌面不能直接加：请他长按桌面 → 小组件 → 到点「卡片 $size」，加上就是这张。", ok = true, ref = id
-            )
-        }
     }
 }
 

@@ -53,7 +53,7 @@ class ReminderEditToolsTest {
     private fun list(desk: ReminderDesk) = ListRemindersTool(desk) { zone }
 
     private fun query(keyword: String? = null, from: String? = null, to: String? = null, finished: Boolean = false) =
-        """{"keyword":${keyword?.let { "\"$it\"" }},"from":${from?.let { "\"$it\"" }},"to":${to?.let { "\"$it\"" }},"include_finished":$finished,"limit":null}"""
+        """{"keyword":${keyword?.let { "\"$it\"" }},"from":${from?.let { "\"$it\"" }},"to":${to?.let { "\"$it\"" }},"include_finished":$finished,"with_checklist":false,"limit":null}"""
 
     @Test
     fun `list shows the live ones in time order with their current values`() = runBlocking {

@@ -25,8 +25,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 内存里的卡片，测试用。能绑的是真的提醒、记账交的名字 + 时间。[supported] = 桌面收不收「加一块」的请求 */
-class FakeCardDesk(private val supported: Boolean = true) : CardDesk {
+/** 内存里的卡片，测试用。能绑的是真的提醒、记账交的名字 + 时间 */
+class FakeCardDesk : CardDesk {
 
     val cards = mutableListOf<Card>()
 
@@ -45,14 +45,9 @@ class FakeCardDesk(private val supported: Boolean = true) : CardDesk {
         cards[i] = cards[i].copy(name = spec.name, size = spec.size.key, spec = raw)
         return cards[i]
     }
-
-    override suspend fun pin(id: Long): Cards.Pinned? {
-        val c = cards.firstOrNull { it.id == id } ?: return null
-        return if (c.widgetId != null) Cards.Pinned(c, asked = false, already = true) else Cards.Pinned(c, supported)
-    }
 }
 
-/** 卡片说明的闸门（五条）、时间、三个工具、给模型的样板（DESIGN §8.5） */
+/** 卡片说明的闸门（五条）、时间、两个工具、给模型的样板（DESIGN §8.5） */
 class CardTest {
 
     private val desk = FakeCardDesk()
@@ -177,8 +172,8 @@ class CardTest {
     private fun spec(json: String) = CardTools.mapper.writeValueAsString(json)
 
     @Test
-    fun `the kit has three tools, no way to change numbers on the card`() {
-        assertEquals(setOf("design_card", "pin_card", "list_cards"), tools.keys)
+    fun `the kit has two tools, no way to change numbers or pin from the model`() {
+        assertEquals(setOf("design_card", "list_cards"), tools.keys)
         assertEquals(CardTools.NAMES, tools.keys)
     }
 
@@ -207,20 +202,6 @@ class CardTest {
         assertTrue(wide.output, wide.ok && wide.output.contains("另画了这张 c2"))
         assertEquals(2, desk.cards.size)
         assertEquals("2x2", desk.cards[0].size)
-    }
-
-    @Test
-    fun `pinning tells the model what the user has to do next`() {
-        call(CardTools.DESIGN, """{"card_id":null,"spec":${spec(countdown)}}""")
-        assertTrue(call(CardTools.PIN, """{"card_id":1}""").output.contains("点「添加」"))
-        val manual = runBlocking {
-            CardTools.kit(FakeCardDesk(supported = false).also { it.create(countdown, CardSpecs.read(countdown)!!) })
-                .tools.first { it.name == CardTools.PIN }.execute("""{"card_id":1}""", ctx)
-        }
-        assertTrue(manual.output.contains("长按桌面") && manual.output.contains("卡片 2×2"))
-        desk.cards[0] = desk.cards[0].copy(widgetId = 7)
-        assertTrue(call(CardTools.PIN, """{"card_id":1}""").output.contains("已经在桌面上了"))
-        assertFalse(call(CardTools.PIN, """{"card_id":9}""").ok)
     }
 
     @Test

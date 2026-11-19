@@ -14,7 +14,7 @@ import com.abc.daodian.runtime.kit.Kit
 import com.abc.daodian.runtime.tool.Tool
 
 /**
- * 桌面卡片给助手的：一个平时收着的工具包（画、钉、看三个工具连同用法，[CardTools.kit]）、它们的痕、
+ * 桌面卡片给助手的：一个平时收着的工具包（画、看两个工具连同用法，[CardTools.kit]；放上桌面由他点预览底下那行）、它们的痕、
  * 画好那一步在正文里挂的预览（[CardPreview]）。没有常驻的工具（DESIGN.md §6.11、§8.5）
  */
 object CardPlugin : AssistantPlugin {
@@ -30,7 +30,6 @@ object CardPlugin : AssistantPlugin {
             override suspend fun cards() = Cards.all(app)
             override suspend fun create(raw: String, spec: CardSpec) = Cards.create(app, raw, spec)
             override suspend fun redraw(id: Long, raw: String, spec: CardSpec) = Cards.redraw(app, id, raw, spec)
-            override suspend fun pin(id: Long) = Cards.pin(app, id)
         }))
     }
 
@@ -38,7 +37,7 @@ object CardPlugin : AssistantPlugin {
     override fun trace(call: ToolTrace): TraceView? {
         val (working, settled, prefix) = when (call.tool) {
             CardTools.DESIGN -> Triple("在画卡片", "卡片", "没画。")
-            CardTools.PIN -> Triple("在放桌面", "桌面卡片", "没钉。")
+            "pin_card" -> Triple("在放桌面", "桌面卡片", "没钉。") // 11-19 删了，旧对话里的痕照旧画
             else -> return null
         }
         val name = call.output?.lineSequence()?.firstOrNull()?.substringAfter('「', "")?.substringBefore('」').orEmpty()
