@@ -24,7 +24,14 @@ object CardRenderer {
      * 分两遍交：先每块只截系统此刻那一种颜色（点了勾等的就是这一遍），都交完了再回头把另一种颜色补上。
      * 数没变的那几块两遍都命中 `CardShot` 的缓存，不重截
      */
-    suspend fun render(context: Context, manager: AppWidgetManager, size: CardSize, widgetIds: IntArray) {
+    /** 每一块上次交给桌面的是什么（[CardViews.key]），两种颜色都交完才记。进程没了就空了，头一次照常画 */
+    private val delivered = java.util.concurrent.ConcurrentHashMap<Int, String>()
+
+    /**
+     * [onlyChanged]：数据变了喊的（`Cards.refresh`），和上次交的一样的那几块跳过。
+     * 桌面自己叫的（`onUpdate`、拖了大小、刚加上）是 false：桌面那边可能已经把画丢了，照样交
+     */
+    suspend fun render(context: Context, manager: AppWidgetManager, size: CardSize, widgetIds: IntArray, onlyChanged: Boolean = false) {
         val dao = CardDatabase.get(context).cardDao()
         val pending = mutableListOf<suspend () -> Unit>()
         val started = android.os.SystemClock.uptimeMillis()
@@ -38,19 +45,30 @@ object CardRenderer {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
             if (card == null || spec == null) {
+                delivered.remove(widgetId)
                 val views = if (card == null) CardViews.blank(context, "还没钉东西", "在对话里说「在桌面放一张……」")
                 else CardViews.blank(context, card.name, "这张是旧的画法，在对话里让它重画")
                 views.setOnClickPendingIntent(android.R.id.background, open)
                 manager.updateAppWidget(widgetId, views)
                 return@forEach
             }
-            val spaces = spacesOf(manager, widgetId, size).also { trace(context, manager, widgetId, it) }
+            val spaces = spacesOf(manager, widgetId, size)
+            val key = CardViews.key(context, spec, card.id, spaces)
+            if (onlyChanged && delivered[widgetId] == key) {
+                CardShot.trace(context, "#$widgetId 没变，不重画")
+                return@forEach
+            }
+            trace(context, manager, widgetId, spaces)
+            delivered.remove(widgetId)
             suspend fun views(both: Boolean) = CardViews.responsive(
                 CardViews.build(context, spec, card.id, spaces, both).views.onEach { (_, v) -> v.setOnClickPendingIntent(android.R.id.background, open) }
             )
             manager.updateAppWidget(widgetId, views(both = false))
             CardShot.trace(context, "#$widgetId 先交一种颜色 ${android.os.SystemClock.uptimeMillis() - started}ms")
-            pending += { manager.updateAppWidget(widgetId, views(both = true)) }
+            pending += {
+                manager.updateAppWidget(widgetId, views(both = true))
+                delivered[widgetId] = key
+            }
         }
         pending.forEach { it() }
         CardShot.trace(context, "两种颜色都交完 ${android.os.SystemClock.uptimeMillis() - started}ms")

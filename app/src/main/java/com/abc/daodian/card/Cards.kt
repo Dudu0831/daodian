@@ -16,6 +16,7 @@ import com.abc.daodian.card.spec.CardSize
 import com.abc.daodian.card.spec.CardSpec
 import com.abc.daodian.card.spec.CardSpecs
 import com.abc.daodian.card.spec.Ref
+import kotlinx.coroutines.sync.withLock
 
 /**
  * 桌面卡片的进出口：画一张、改一张、请桌面放上去、桌面上点了什么、数据变了重画。见 DESIGN.md §8.5
@@ -125,15 +126,28 @@ object Cards {
         return Trial(built.problems, filled, built.text)
     }
 
-    /** 桌面上所有卡片重画一次。一张都没放就什么都不查 */
+    private val refreshing = kotlinx.coroutines.sync.Mutex()
+    private val asked = java.util.concurrent.atomic.AtomicLong()
+    @Volatile private var served = 0L
+
+    /**
+     * 数据变了：桌面上的卡片照现在的数重画，和上次交的一样的那几块跳过（`CardRenderer`）。一张都没放就什么都不查。
+     * 一起喊来的几次并成一遍：点一个勾，模块办完喊一次、[act] 再补一次，提醒那边改清单可能还喊一次 ——
+     * 等锁的时候已经有一遍在自己喊过之后开始画了，就不再画。返回时画的一定是喊的那一刻之后的数
+     */
     suspend fun refresh(context: Context) {
         val app = context.applicationContext
-        val manager = AppWidgetManager.getInstance(app)
-        CardSize.entries.forEach { size ->
-            val ids = manager.getAppWidgetIds(ComponentName(app, providerOf(size)))
-            if (ids.isEmpty()) return@forEach
-            runCatching { CardRenderer.render(app, manager, size, ids) }
-                .onFailure { Log.e(TAG, "重画卡片失败", it) }
+        val mine = asked.incrementAndGet()
+        refreshing.withLock {
+            if (served >= mine) return
+            served = asked.get()
+            val manager = AppWidgetManager.getInstance(app)
+            CardSize.entries.forEach { size ->
+                val ids = manager.getAppWidgetIds(ComponentName(app, providerOf(size)))
+                if (ids.isEmpty()) return@forEach
+                runCatching { CardRenderer.render(app, manager, size, ids, onlyChanged = true) }
+                    .onFailure { Log.e(TAG, "重画卡片失败", it) }
+            }
         }
     }
 }

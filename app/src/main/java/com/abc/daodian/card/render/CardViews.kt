@@ -72,6 +72,20 @@ object CardViews {
         return Built(views, problems.distinct(), text)
     }
 
+    /**
+     * 这一刻画出来会是什么样的指纹：网页、绑上的值、能点的那几块勾没勾、大小、深浅。
+     * 和上次交给桌面的一样，就不用再截、再交（`CardRenderer`）：点一个勾，别的卡片不跟着重画
+     */
+    suspend fun key(context: Context, spec: CardSpec, cardId: Long, spaces: List<Space>): String {
+        val reader = CardReader(context, CardHub.sources)
+        val refs = CardSpecs.refs(spec.html)
+        val taps = CardSpecs.taps(spec.html)
+        val what = reader.gone(refs + taps.mapNotNull(Ref::parse))?.let { "gone $it" }
+            ?: (refs.map { "$it=${reader.value(it)}" } + taps.map { "$it=${reader.on(it)}" }).joinToString("\n")
+        val all = "$cardId\n${spec.size.key}\n${spec.html}\n$what\n${spaces.take(MAX_SPACES)}\n${nightNow()}"
+        return java.security.MessageDigest.getInstance("SHA-1").digest(all.toByteArray()).joinToString("") { "%02x".format(it) }
+    }
+
     /** 几份按大小画的交给桌面：一份就直接给，几份给成「大小 → 画法」的表（Android 12 起），桌面拖到哪挑哪份 */
     fun responsive(views: Map<Space, RemoteViews>): RemoteViews =
         views.values.singleOrNull() ?: RemoteViews(views.mapKeys { (s, _) -> android.util.SizeF(s.width, s.height) })
