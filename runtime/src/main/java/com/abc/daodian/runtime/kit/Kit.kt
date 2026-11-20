@@ -1,5 +1,6 @@
 package com.abc.daodian.runtime.kit
 
+import com.abc.daodian.runtime.model.Effort
 import com.abc.daodian.runtime.tool.Tool
 
 /**
@@ -13,8 +14,15 @@ import com.abc.daodian.runtime.tool.Tool
  * @param summary 目录上那一句：什么时候该开。模型只凭它决定开不开，写他会怎么说，不写这组工具是什么
  * @param guide 打开后回给模型的说明：这组工具怎么用、先后顺序、哪些要问
  * @param tools 打开后才带给模型的工具
+ * @param effort 开着的这几轮至少想到这一档（画桌面卡片要多想）；选得更深就照选的。null 就照配置
  */
-class Kit(val name: String, val summary: String, val guide: String, val tools: List<Tool> = emptyList()) {
+class Kit(
+    val name: String,
+    val summary: String,
+    val guide: String,
+    val tools: List<Tool> = emptyList(),
+    val effort: Effort? = null
+) {
     init {
         require(NAME.matches(name)) { "工具包的名字只用小写字母、数字、短横线：$name" }
         require(summary.isNotBlank() && guide.isNotBlank()) { "工具包「$name」的简介和说明都要写" }

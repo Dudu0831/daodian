@@ -1,12 +1,12 @@
 package com.abc.daodian.assistant.provider
 
 import android.content.Context
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.abc.daodian.BuildConfig
 import com.abc.daodian.runtime.ModelSource
+import com.abc.daodian.runtime.model.Effort
 import com.abc.daodian.runtime.model.ProviderProfile
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -27,7 +27,8 @@ object ProviderStore {
     private val BASE_URL = stringPreferencesKey("base_url")
     private val API_KEY = stringPreferencesKey("api_key")
     private val MODEL = stringPreferencesKey("model")
-    private val THINKING = booleanPreferencesKey("thinking")
+    /** 想多久，存 [Effort.wire]。以前的「先想一想再答」开关（`thinking`）不读了：没选过一律从默认「想一下」起 */
+    private val EFFORT = stringPreferencesKey("effort")
     private val API = stringPreferencesKey("api")
 
     /** 打包时那份。设置页的「恢复成打包时的配置」把三格填回它 */
@@ -46,7 +47,7 @@ object ProviderStore {
 
     fun flow(context: Context): Flow<ProviderProfile> =
         context.applicationContext.providerDataStore.data.map { p ->
-            // 思考开关不算「存过配置」：只拨了开关时，三格照样用种子
+            // 想多久不算「存过配置」：只拉过印时，三格照样用种子
             val base = if (p.contains(BASE_URL) || p.contains(API_KEY) || p.contains(MODEL)) {
                 seed.copy(
                     baseUrl = normalizeBaseUrl(p[BASE_URL].orEmpty()),
@@ -57,7 +58,7 @@ object ProviderStore {
                 seed
             }
             base.copy(
-                thinking = p[THINKING] ?: seed.thinking,
+                effort = Effort.parse(p[EFFORT]),
                 // 存的是枚举名；没存过（这个字段是后加的）或认不出来都当 Responses，以前只有它
                 api = p[API]?.let { name -> ProviderProfile.Api.entries.firstOrNull { it.name == name } } ?: seed.api
             )
@@ -68,21 +69,28 @@ object ProviderStore {
         baseUrl: String,
         apiKey: String,
         model: String,
-        thinking: Boolean,
         api: ProviderProfile.Api
     ) {
         context.applicationContext.providerDataStore.edit { p ->
             p[BASE_URL] = normalizeBaseUrl(baseUrl)
             p[API_KEY] = firstLine(apiKey)
             p[MODEL] = firstLine(model)
-            p[THINKING] = thinking
             p[API] = api.name
         }
     }
 
-    /** 把存下来的全删掉，下次读到的就是打包时那份 */
+    /** 对话页按住印往下拉选的那一档（§8.4）。下一步请求起就用它 */
+    suspend fun setEffort(context: Context, effort: Effort) {
+        context.applicationContext.providerDataStore.edit { it[EFFORT] = effort.wire }
+    }
+
+    /** 把配置的三格和协议删掉，下次读到的就是打包时那份。想多久留着：那是对话页上选的，不是配置 */
     suspend fun clear(context: Context) {
-        context.applicationContext.providerDataStore.edit { it.clear() }
+        context.applicationContext.providerDataStore.edit { p ->
+            val effort = p[EFFORT]
+            p.clear()
+            effort?.let { p[EFFORT] = it }
+        }
     }
 
     /**

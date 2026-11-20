@@ -1,6 +1,7 @@
 package com.abc.daodian.runtime.tool
 
 import com.abc.daodian.runtime.engine.Turn
+import com.abc.daodian.runtime.model.Effort
 
 /**
  * 每一步请求前，决定这一次把哪些工具的说明带给模型。和 [com.abc.daodian.runtime.context.ContextPolicy]
@@ -12,6 +13,9 @@ interface ToolSelector {
 
     /** [all] 是这个 agent 手上全部的工具，[sent] 是这一步真要发出去的那几轮（折过的样子）。顺序要稳：前缀缓存靠它 */
     fun select(all: Collection<Tool>, sent: List<Turn>): Collection<Tool>
+
+    /** 这一步至少想到哪一档（开着的工具包要求的）。null 就照配置 */
+    fun effortFloor(sent: List<Turn>): Effort? = null
 
     /** 模型调了一个这一步没带出去的工具：回给它的话，写成它能照着往下接的样子 */
     fun whyHidden(name: String): String = "「$name」这个工具现在用不了。"

@@ -55,7 +55,9 @@ object ContextTrace {
                 // 这一步带给模型几个工具、开着哪几个工具包（§6.11）
                 " · 工具 ${request.tools.size} 个" + (if (agent.kits.isEmpty()) "" else "（开着：${
                     OpenKitTool.opened(sent.takeLast(KitGate.KEEP)).joinToString("、").ifEmpty { "无" }
-                }）")
+                }）") +
+                // 开着的工具包要求至少想到哪一档（§8.4）；没写就照选的
+                (request.effortFloor?.let { " · 至少想 ${it.wire}" } ?: "")
             val name = if (agent.info.id == AssistantAgent.id) FILE else "trace_${agent.info.id}.txt"
             val file = File(context.applicationContext.filesDir, name)
             if (file.length() > MAX_BYTES) file.delete()

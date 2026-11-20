@@ -73,6 +73,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -448,18 +449,29 @@ fun ConversationScreen(
     SideEffect { placedKeys = itemKeys }
 
     val running by vm.running.collectAsState()
+    // 想多久：按住顶栏的印往下拉（§8.4）。手势在印上，轨道画在下面那个盒子的最上层
+    val sealTrack = rememberSealTrack(onPick = vm::setEffort)
     val manualEntry = remember { AssistantPlugins.manualEntry }
 
     Column(Modifier.fillMaxSize().background(colors.paper)) {
 
         // 顶栏和对话包在一起：按住说话时那一层盖住它们俩，输入条留在外面
-        Box(Modifier.weight(1f)) {
+        Box(
+            Modifier
+                .weight(1f)
+                .onGloballyPositioned {
+                    sealTrack.host = it
+                    sealTrack.relayout()
+                }
+        ) {
             Column(Modifier.fillMaxSize()) {
 
                 ConversationTopBar(
                     profile = profile,
                     api = apiState,
                     running = running,
+                    track = sealTrack,
+                    inUse = vm.effortInUse,
                     onOpenDrawer = {
                         focus.clearFocus()
                         onOpenDrawer()
@@ -572,6 +584,8 @@ fun ConversationScreen(
                     modifier = Modifier.fillMaxSize()
                 )
             }
+
+            SealTrackOverlay(sealTrack, lookOf(profile, apiState), apiState, onOpenProvider)
         }
 
         Column(

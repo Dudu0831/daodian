@@ -47,8 +47,9 @@ internal class ChatCompletionsClient(profile: ProviderProfile) :
             .addSystemMessage(request.system)
         request.background?.let { builder.addUserMessage("${Preamble.MARK}\n$it") }
         wire(builder, request.input)
-        // 关的时候不带这个字段：只认 chat 的网关里不少不认 effort=none，带了直接 400。代价是推理模型关了照样想
-        if (profile.thinking) builder.reasoningEffort(ReasoningEffort.MEDIUM)
+        // 快答时不带这个字段：只认 chat 的网关里不少不认 effort=none，带了直接 400。代价是推理模型选了快答照样想
+        val effort = Effort.of(profile.effort, request.effortFloor)
+        if (effort != Effort.NONE) builder.reasoningEffort(ReasoningEffort.of(effort.wire))
         if (request.tools.isNotEmpty()) {
             request.tools.forEach { builder.addTool(wire(it)) }
             builder.toolChoice(ChatCompletionToolChoiceOption.Auto.AUTO)

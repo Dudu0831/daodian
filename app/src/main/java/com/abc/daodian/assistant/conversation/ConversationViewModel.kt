@@ -29,6 +29,7 @@ import com.abc.daodian.runtime.ask.Pick
 import com.abc.daodian.runtime.engine.AgentEvent
 import com.abc.daodian.runtime.engine.Session
 import com.abc.daodian.runtime.model.ApiHealth
+import com.abc.daodian.runtime.model.Effort
 import com.abc.daodian.runtime.model.PingResult
 import com.abc.daodian.runtime.model.ProviderProfile
 import java.io.File
@@ -63,10 +64,10 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     val profile = ProviderStore.flow(app)
         .stateIn(viewModelScope, SharingStarted.Eagerly, ProviderStore.seed)
 
-    /** 上一次调用顺不顺，给印和纸签用。见 [ApiHealth] */
+    /** 上一次调用顺不顺，给印和连不上时的告警带用。见 [ApiHealth] */
     val apiState = ApiHealth.state
 
-    /** 后台正在跑的 agent：印外面转一圈细线 */
+    /** 后台正在跑的 agent：印一明一暗 */
     val running = AgentRuntime.running
 
     /** 会在对话里留痕的工具（写操作）。模块清单启动时就装好了，取一次就够 */
@@ -109,6 +110,12 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     var aiBusy by mutableStateOf(false)
+        private set
+
+    /**
+     * 这一轮实际在用的想多久，和选的不一样时才有（开着桌面卡片的包，至少多想）。印照它显示浓淡，答完回到选的那档（§8.4）
+     */
+    var effortInUse by mutableStateOf<Effort?>(null)
         private set
 
     /** 点了「停」之后要退回输入框的原话。界面取走后调 [consumeRestoredInput] */
@@ -387,6 +394,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                 val app = getApplication<Application>()
                 AgentRuntime.run(AssistantAgent.build(app), session, Input(text, ZonedDateTime.now(), trigger, images, audio), asker, Recall.conversation(app))
                     .collect { event ->
+                        if (event is AgentEvent.Model) effortInUse = event.effort?.takeIf { it != profile.value.effort }
                         patchTurn(turnId, event)
                         if (event is AgentEvent.Finished) finished = true
                     }
@@ -440,6 +448,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                 throw t
             } finally {
                 aiBusy = false
+                effortInUse = null
                 Tidy.conversationBusy = false
                 stoppedByUser = false
                 pendingAsk = null
@@ -544,12 +553,15 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
     }
 
 
-    // ---------------- 供应商配置（顶栏印章 → 纸签 → 配置页）----------------
+    // ---------------- 供应商配置（抽屉 → 设置 → 模型服务）、想多久（顶栏的印）----------------
+
+    /** 按住印往下拉选定的那一档（§8.4）。正在答的这一轮不变，下一步请求起用新的 */
+    fun setEffort(effort: Effort) = viewModelScope.launch { ProviderStore.setEffort(getApplication(), effort) }
 
     /** 存完下一句话就用新的；上一家的成绩不算到新一家头上，所以状态清空 */
-    fun saveProvider(baseUrl: String, apiKey: String, model: String, thinking: Boolean, api: ProviderProfile.Api) =
+    fun saveProvider(baseUrl: String, apiKey: String, model: String, api: ProviderProfile.Api) =
         viewModelScope.launch {
-            ProviderStore.save(getApplication(), baseUrl, apiKey, model, thinking, api)
+            ProviderStore.save(getApplication(), baseUrl, apiKey, model, api)
             ApiHealth.reset()
         }
 
@@ -563,7 +575,7 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
      * 测一下框里正在填的这份，不用先保存。发的是这段对话下一句真要发的请求：
      * 同样的 system、工具、垫的记忆和摘要、最近的历史（`AgentRuntime.test`）—— 聊天里会出的错，这里就会出
      */
-    suspend fun testProvider(baseUrl: String, apiKey: String, model: String, thinking: Boolean, api: ProviderProfile.Api): PingResult {
+    suspend fun testProvider(baseUrl: String, apiKey: String, model: String, api: ProviderProfile.Api): PingResult {
         val app = getApplication<Application>()
         return AgentRuntime.test(
             AssistantAgent.build(app),
@@ -571,7 +583,6 @@ class ConversationViewModel(app: Application) : AndroidViewModel(app) {
                 baseUrl = ProviderStore.normalizeBaseUrl(baseUrl),
                 apiKey = ProviderStore.firstLine(apiKey),
                 model = ProviderStore.firstLine(model),
-                thinking = thinking,
                 api = api
             ),
             session.await(),

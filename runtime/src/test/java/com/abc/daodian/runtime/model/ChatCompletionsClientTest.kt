@@ -50,9 +50,25 @@ class ChatCompletionsClientTest {
         assertTrue("背景打了标记", messages[1].asUser().content().asText().startsWith(com.abc.daodian.runtime.context.Preamble.MARK))
     }
 
+    private fun chat(effort: Effort) =
+        ChatCompletionsClient(ProviderProfile("https://example.test/v1", "key", "m", effort = effort, api = ProviderProfile.Api.CHAT))
+
+    private fun request(floor: Effort? = null) = LlmRequest("系统", listOf(Item.UserMessage("你好", now)), emptyList(), effortFloor = floor)
+
     @Test
-    fun `thinking off sends no reasoning effort`() {
-        val params = client.params(LlmRequest("系统", listOf(Item.UserMessage("你好", now)), emptyList()))
-        assertFalse(params.reasoningEffort().isPresent)
+    fun `quick answer sends no reasoning effort`() {
+        assertFalse(chat(Effort.NONE).params(request()).reasoningEffort().isPresent)
+    }
+
+    @Test
+    fun `chosen effort goes out as is, max included`() {
+        assertEquals("medium", chat(Effort.MEDIUM).params(request()).reasoningEffort().get().asString())
+        assertEquals("max", chat(Effort.MAX).params(request()).reasoningEffort().get().asString())
+    }
+
+    @Test
+    fun `an open kit lifts the effort but never lowers it`() {
+        assertEquals("high", chat(Effort.NONE).params(request(Effort.HIGH)).reasoningEffort().get().asString())
+        assertEquals("max", chat(Effort.MAX).params(request(Effort.HIGH)).reasoningEffort().get().asString())
     }
 }

@@ -153,7 +153,7 @@ data class ChangeLog(
     val at: Long
 )
 
-/** 后台 agent 每跑一次记一行：什么时候、看了几条、记了几笔、出了什么错。设置页和印章纸签上看 */
+/** 后台 agent 每跑一次记一行：什么时候、看了几条、记了几笔、出了什么错。设置页上看 */
 @Entity(tableName = "agent_run", indices = [Index("startedAt")])
 data class AgentRun(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

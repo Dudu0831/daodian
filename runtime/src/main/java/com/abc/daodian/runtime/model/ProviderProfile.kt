@@ -11,10 +11,10 @@ data class ProviderProfile(
     val apiKey: String,
     val model: String,
     /**
-     * 让模型先想再答。开：`reasoning.effort=medium` + `summary=auto`（要了摘要才会发思考流）；
-     * 关：`effort=none`。默认关 —— 建提醒这种短句，多想一轮换来的是多等几秒。
+     * 想多久（[Effort]），对话页按住印往下拉选。Responses 上不是 none 时还要 `summary=auto`（要了摘要才会发思考流）。
+     * 打开的工具包可以要求更深（[LlmRequest.effortFloor]），取深的那个。
      */
-    val thinking: Boolean = false,
+    val effort: Effort = Effort.DEFAULT,
     /** 走哪种协议。默认 Responses：以前只有它，存过的配置没这个字段时照旧 */
     val api: Api = Api.RESPONSES
 ) {
@@ -33,6 +33,6 @@ data class ProviderProfile(
 
     /** 日志/界面上展示用，绝不能打印完整 key */
     fun redacted(): String =
-        "ProviderProfile(baseUrl=$baseUrl, api=$api, model=$model, thinking=$thinking, " +
+        "ProviderProfile(baseUrl=$baseUrl, api=$api, model=$model, effort=${effort.wire}, " +
             "key=${if (apiKey.isBlank()) "<未填>" else "***" + apiKey.takeLast(4)})"
 }

@@ -2,6 +2,7 @@ package com.abc.daodian.runtime.kit
 
 import com.abc.daodian.runtime.context.Compaction
 import com.abc.daodian.runtime.engine.Turn
+import com.abc.daodian.runtime.model.Effort
 import com.abc.daodian.runtime.tool.Tool
 import com.abc.daodian.runtime.tool.ToolSelector
 
@@ -22,6 +23,11 @@ class KitGate(private val kits: List<Kit>, private val keep: Int = KEEP) : ToolS
     override fun select(all: Collection<Tool>, sent: List<Turn>): Collection<Tool> {
         val open = OpenKitTool.opened(sent.takeLast(keep))
         return all.filter { tool -> home[tool.name]?.let { it in open } ?: true }
+    }
+
+    override fun effortFloor(sent: List<Turn>): Effort? {
+        val open = OpenKitTool.opened(sent.takeLast(keep))
+        return kits.filter { it.name in open }.mapNotNull { it.effort }.maxOrNull()
     }
 
     override fun whyHidden(name: String): String = home[name]?.let {

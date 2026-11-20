@@ -7,6 +7,7 @@ import com.abc.daodian.runtime.engine.FakeWriteTool
 import com.abc.daodian.runtime.engine.Item
 import com.abc.daodian.runtime.engine.Session
 import com.abc.daodian.runtime.engine.Turn
+import com.abc.daodian.runtime.model.Effort
 import com.abc.daodian.runtime.model.LlmClient
 import com.abc.daodian.runtime.model.LlmEvent
 import com.abc.daodian.runtime.model.LlmException
@@ -55,7 +56,7 @@ class KitTest {
     private val ran = mutableListOf<String>()
     private val guide = "先 list_apps 查包名，再 add_rule。" + "规矩".repeat(150)
     private val notice = Kit("notice", "他想让你盯着手机通知时开", guide, listOf(tool("list_apps", ran), tool("add_rule", ran)))
-    private val draw = Kit("draw", "他想看图时开", "写一个 html 代码块。")
+    private val draw = Kit("draw", "他想看图时开", "写一个 html 代码块。", effort = Effort.HIGH)
     private val kits = listOf(notice, draw)
 
     /** 和 `AgentRuntime.loopOf` 拼的一样 */
@@ -138,5 +139,18 @@ class KitTest {
             Item.UserMessage("x", now), open("a", "notice"), Item.ToolResult("a", "ok", ok = true),
             open("b", "draw"), Item.ToolResult("b", "没打开", ok = false)
         )))))
+    }
+
+    @Test
+    fun `an open kit asks for at least its effort, only while it stays open`() = runBlocking {
+        val llm = ScriptedLlm(calls(open("c1", "draw")), answer("画好了"), answer("在"))
+        val session = Session()
+
+        loop(llm, keep = 1).run(session, "画个图", now).toList()
+        loop(llm, keep = 1).run(session, "还在吗", now).toList()
+
+        assertEquals(null, llm.requests[0].effortFloor)
+        assertEquals(Effort.HIGH, llm.requests[1].effortFloor)
+        assertEquals("下一轮包收了，照配置", null, llm.requests[2].effortFloor)
     }
 }

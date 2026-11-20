@@ -6,6 +6,7 @@ import com.abc.daodian.runtime.context.Background
 import com.abc.daodian.runtime.context.ContextPolicy
 import com.abc.daodian.runtime.context.LastTurns
 import com.abc.daodian.runtime.context.Preamble
+import com.abc.daodian.runtime.model.Effort
 import com.abc.daodian.runtime.model.LlmClient
 import com.abc.daodian.runtime.model.LlmEvent
 import com.abc.daodian.runtime.model.LlmException
@@ -126,7 +127,8 @@ internal class AgentLoop(
             system = system,
             input = sent.flatMap { it.items },
             tools = selector.select(tools.all, sent),
-            background = preamble?.text
+            background = preamble?.text,
+            effortFloor = selector.effortFloor(sent)
         )
         return Fed(preamble, sent, request)
     }
@@ -139,9 +141,10 @@ internal class AgentLoop(
         fed.request.tools.mapTo(offered) { it.name }
         onRequest(fed.preamble, fed.sent, fed.request)
         var output: StepOutput? = null
+        val effort = llm.effort?.let { Effort.of(it, fed.request.effortFloor) }
         llm.step(fed.request).collect { event ->
             if (event is LlmEvent.Done) output = event.output
-            emit(AgentEvent.Model(step, event))
+            emit(AgentEvent.Model(step, event, effort))
         }
         return output ?: throw LlmException("模型调用结束了，但没有给出结果")
     }

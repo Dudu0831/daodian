@@ -72,7 +72,7 @@ object Diagnostics {
         val profile = runCatching { ProviderStore.flow(context).first() }.getOrNull()
         if (profile == null) appendLine("读不到")
         else appendLine(
-            if (profile.isConfigured) "${profile.model} · ${Format.host(profile.baseUrl)} · ${if (profile.api == ProviderProfile.Api.CHAT) "chat" else "responses"} · key 已填 · 思考${if (profile.thinking) "开" else "关"}"
+            if (profile.isConfigured) "${profile.model} · ${Format.host(profile.baseUrl)} · ${if (profile.api == ProviderProfile.Api.CHAT) "chat" else "responses"} · key 已填 · 想多久 ${profile.effort.wire}"
             else "没配好（网关、key、模型有一项空着）"
         )
 

@@ -45,14 +45,13 @@ import com.abc.daodian.runtime.model.PingResult
 import com.abc.daodian.runtime.model.ProviderProfile
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
-import com.abc.daodian.shared.ui.PaperSwitch
 import com.abc.daodian.shared.ui.ScreenTopBar
 import kotlinx.coroutines.launch
 
 /**
- * 模型服务配置页 —— 顶栏那枚印 → 纸签末行「改配置」进来的地方。见 DESIGN.md 决策 8.4
+ * 模型服务配置页 —— 抽屉 → 设置 → 模型服务进来；连不上时点顶上的告警带、没接模型时点印，也到这里。见 DESIGN.md 决策 8.4
  *
- * 三格 + 两样选择：网关地址、走哪种接口（[ProviderProfile.Api]）、key、模型，外加「先想一想再答」（[ProviderProfile.thinking]）。
+ * 网关地址、走哪种接口（[ProviderProfile.Api]）、key、模型。想多久不在这里，在对话页按住印往下拉（§8.4）。
  *
  * 「测一下」用框里**正在填**的值，不用先保存；发的是这段对话下一句真要发的请求，聊天里会出的错这里就会出。测没过也能存 ——
  * 有些网关对这句测试话会挑刺，正式调用反而是通的，拦死了就没法绕过去了。
@@ -67,7 +66,6 @@ fun ProviderScreen(vm: ConversationViewModel, onBack: () -> Unit) {
     var baseUrl by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
     var model by remember { mutableStateOf("") }
-    var thinking by remember { mutableStateOf(false) }
     var api by remember { mutableStateOf(ProviderProfile.Api.RESPONSES) }
     var keyShown by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
@@ -80,18 +78,16 @@ fun ProviderScreen(vm: ConversationViewModel, onBack: () -> Unit) {
             baseUrl = profile.baseUrl
             apiKey = profile.apiKey
             model = profile.model
-            thinking = profile.thinking
             api = profile.api
             loaded = true
         }
     }
 
     val dirty = loaded &&
-        (baseUrl != profile.baseUrl || apiKey != profile.apiKey || model != profile.model ||
-            thinking != profile.thinking || api != profile.api)
+        (baseUrl != profile.baseUrl || apiKey != profile.apiKey || model != profile.model || api != profile.api)
 
     fun save() {
-        vm.saveProvider(baseUrl, apiKey, model, thinking, api)
+        vm.saveProvider(baseUrl, apiKey, model, api)
         onBack()
     }
 
@@ -154,22 +150,6 @@ fun ProviderScreen(vm: ConversationViewModel, onBack: () -> Unit) {
             FieldLabel("模型")
             Field(model, { model = it; ping = null }, "gpt-4.1-mini")
             Help("照网关里的名字填")
-            Spacer(Modifier.height(22.dp))
-
-            Row(
-                Modifier.fillMaxWidth().clickable { thinking = !thinking; ping = null },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("先想一想再答", style = DaodianType.body, color = colors.ink)
-                    Help(
-                        if (thinking) "会多等几秒，想的过程在对话里能展开看；模型不支持就会报错"
-                        else "直接答，最快。说得绕的句子可能推错时间"
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                PaperSwitch(checked = thinking, onCheckedChange = { thinking = it; ping = null })
-            }
             Spacer(Modifier.height(26.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -180,7 +160,7 @@ fun ProviderScreen(vm: ConversationViewModel, onBack: () -> Unit) {
                             testing = true
                             ping = null
                             scope.launch {
-                                ping = vm.testProvider(baseUrl, apiKey, model, thinking, api)
+                                ping = vm.testProvider(baseUrl, apiKey, model, api)
                                 testing = false
                             }
                         }
@@ -229,7 +209,6 @@ fun ProviderScreen(vm: ConversationViewModel, onBack: () -> Unit) {
                     baseUrl = seed.baseUrl
                     apiKey = seed.apiKey
                     model = seed.model
-                    thinking = seed.thinking
                     api = seed.api
                     ping = null
                 }

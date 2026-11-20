@@ -78,7 +78,7 @@ object Format {
         else -> "晚上好——"
     }
 
-    /** 网关地址只留主机名：「ark.cn-beijing.volces.com」。顶栏纸签、设置页共用 */
+    /** 网关地址只留主机名：「ark.cn-beijing.volces.com」。设置页用 */
     fun host(baseUrl: String): String =
         baseUrl.substringAfter("://").substringBefore('/').trim()
 }

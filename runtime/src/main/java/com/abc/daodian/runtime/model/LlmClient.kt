@@ -12,7 +12,9 @@ data class LlmRequest(
     val system: String,
     val input: List<Item>,
     val tools: Collection<Tool>,
-    val background: String? = null
+    val background: String? = null,
+    /** 这一步至少想到这一档：开着的工具包要求的（[com.abc.daodian.runtime.kit.Kit.effort]）。没有就照配置 */
+    val effortFloor: Effort? = null
 )
 
 /** 一次调用的产出 */
@@ -50,6 +52,9 @@ class ImagesRejectedException(message: String, cause: Throwable? = null) : LlmEx
 interface LlmClient {
     /** 用的是哪个模型。工具落库时记成「谁解析的」，不影响调用 */
     val model: String get() = ""
+
+    /** 配置里选的想多久。界面据此显示这一步实际用的那一档（[Effort.of]），不影响调用 */
+    val effort: Effort? get() = null
 
     fun step(request: LlmRequest): Flow<LlmEvent>
 }

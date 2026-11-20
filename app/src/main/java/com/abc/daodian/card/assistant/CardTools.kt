@@ -5,6 +5,7 @@ import com.abc.daodian.card.spec.CardSize
 import com.abc.daodian.card.spec.CardSpec
 import com.abc.daodian.card.spec.CardSpecs
 import com.abc.daodian.runtime.kit.Kit
+import com.abc.daodian.runtime.model.Effort
 import com.abc.daodian.runtime.tool.Tool
 import com.abc.daodian.runtime.tool.ToolContext
 import com.abc.daodian.runtime.tool.ToolEffect
@@ -46,7 +47,9 @@ object CardTools {
 
     fun kit(desk: CardDesk): Kit = Kit(
         KIT, SUMMARY, CardGuide.guide(desk.vocabulary.sources),
-        listOf(DesignCardTool(desk), ListCardsTool(desk))
+        listOf(DesignCardTool(desk), ListCardsTool(desk)),
+        // 画得好不好看差在想没想：开着这个包的几轮至少多想，选了深想照深想（§8.5）
+        effort = Effort.HIGH
     )
 
     const val KIT = "card"

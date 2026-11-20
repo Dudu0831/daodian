@@ -29,6 +29,7 @@ import kotlinx.coroutines.withContext
 internal abstract class StreamingClient<P, E>(protected val profile: ProviderProfile) : LlmClient {
 
     override val model: String get() = profile.model
+    override val effort: Effort get() = profile.effort
 
     protected val client: OpenAIClient by lazy {
         OpenAIOkHttpClient.builder()

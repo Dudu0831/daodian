@@ -41,7 +41,7 @@ internal class ResponsesClient(profile: ProviderProfile) :
             .model(profile.model)
             .instructions(request.system)
             .inputOfResponse(listOfNotNull(request.background?.let(::background)) + request.input.map(::wire))
-            .reasoning(reasoning())
+            .reasoning(reasoning(Effort.of(profile.effort, request.effortFloor)))
         if (request.tools.isNotEmpty()) {
             request.tools.forEach { builder.addTool(wire(it)) }
             builder.toolChoice(ToolChoiceOptions.AUTO)
@@ -49,12 +49,12 @@ internal class ResponsesClient(profile: ProviderProfile) :
         return builder.build()
     }
 
-    /** 见 [ProviderProfile.thinking] */
-    private fun reasoning(): Reasoning =
-        if (profile.thinking) {
-            Reasoning.builder().effort(ReasoningEffort.MEDIUM).summary(Reasoning.Summary.AUTO).build()
-        } else {
+    /** 见 [ProviderProfile.effort]。不想的时候不要摘要 */
+    private fun reasoning(effort: Effort): Reasoning =
+        if (effort == Effort.NONE) {
             Reasoning.builder().effort(ReasoningEffort.NONE).build()
+        } else {
+            Reasoning.builder().effort(ReasoningEffort.of(effort.wire)).summary(Reasoning.Summary.AUTO).build()
         }
 
     /** 完整的 Response 优先；网关不发 completed 时退而用逐条收全的 output item（收全了的才在里面，断在半路也照用） */
