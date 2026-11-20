@@ -252,6 +252,18 @@ fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) 
                 }
 
                 var prevBody: TurnBlock? = null
+                // 同一样东西这一轮交了几版：只挂最后那版（AssistantPlugin.traceBodyKey）
+                val superseded = remember(msg.blocks) {
+                    val last = HashMap<String, Any>()
+                    msg.blocks.filterIsInstance<TurnBlock.Trace>().forEach { t ->
+                        val c = ToolTrace(t.tool, t.arguments, t.state, t.output, t.ref)
+                        AssistantPlugins.traceBodyOf(c)?.traceBodyKey(c)?.let { last[it] = t.key }
+                    }
+                    msg.blocks.filterIsInstance<TurnBlock.Trace>().filter { t ->
+                        val c = ToolTrace(t.tool, t.arguments, t.state, t.output, t.ref)
+                        AssistantPlugins.traceBodyOf(c)?.traceBodyKey(c)?.let { last[it] != t.key } ?: false
+                    }.map { it.key }.toSet()
+                }
                 blocks.forEach { b ->
                     when (b) {
                         is TurnBlock.Prose -> {
@@ -272,7 +284,7 @@ fun AssistantTurnRow(msg: ConversationItem.AssistantTurn, actions: TurnActions) 
                                 }
                             }
                         }
-                        is TurnBlock.Trace -> {
+                        is TurnBlock.Trace -> if (b.key !in superseded) {
                             // 模块在正文里挂的一块（桌面卡片的预览）。痕本身收在抬头的伴随印里
                             val call = ToolTrace(b.tool, b.arguments, b.state, b.output, b.ref)
                             val owner = remember(b.tool, b.state, b.arguments) { AssistantPlugins.traceBodyOf(call) }

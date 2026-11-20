@@ -49,6 +49,12 @@ interface AssistantPlugin {
      */
     fun hasTraceBody(call: ToolTrace): Boolean = false
 
+    /**
+     * 同一个回合里 [TraceBody] 撞了这个键的，只画最后那一块。模型一轮里把同一样东西交了几版
+     * （桌面卡片先画 4×2 又改 4×4）时，前面几版是它试的，不该都挂在对话里。null 就每块都画
+     */
+    fun traceBodyKey(call: ToolTrace): String? = null
+
     /** [hasTraceBody] 是 true 时画的那一块。重建历史时也画：参数和结果都随对话存着 */
     @Composable
     fun TraceBody(call: ToolTrace) {}

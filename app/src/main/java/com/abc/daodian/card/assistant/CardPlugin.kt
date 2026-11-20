@@ -53,6 +53,10 @@ object CardPlugin : AssistantPlugin {
     /** 画好的那一步，正文里挂一张预览：照那一轮交的说明画（不是最新的那版），数是现在的 */
     override fun hasTraceBody(call: ToolTrace): Boolean = call.tool == CardTools.DESIGN && call.ok && call.ref != null && specOf(call) != null
 
+    /** 一轮里同一张卡片（同一个编号，或同一个名字：模型改大小时常新建一张）画了几版，只留最后那版的预览 */
+    override fun traceBodyKey(call: ToolTrace): String? = specOf(call)?.name?.takeIf { it.isNotBlank() }?.let { "card:$it" }
+        ?: call.ref?.let { "card#$it" }
+
     @Composable
     override fun TraceBody(call: ToolTrace) {
         val spec = specOf(call) ?: return
