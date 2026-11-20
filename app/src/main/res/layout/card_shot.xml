@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  桌面卡片：模型写的网页截成的图，上面盖能点的透明按钮。见 DESIGN.md §8.5（card/render/CardViews）
+  根 id 用 @android:id/background：桌面按它裁系统圆角，图跟着裁。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipToOutline="true"
+    android:background="@drawable/widget_bg">
+
+    <ImageView
+        android:id="@+id/card_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:importantForAccessibility="no" />
+
+    <FrameLayout
+        android:id="@+id/card_taps"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+</FrameLayout>

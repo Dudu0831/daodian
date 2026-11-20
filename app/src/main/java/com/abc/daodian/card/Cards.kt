@@ -41,17 +41,17 @@ object Cards {
     suspend fun byId(context: Context, id: Long): Card? = dao(context).byId(id)
 
     /** 新画一张（过了闸门的说明）。还不在桌面上 */
-    suspend fun create(context: Context, raw: String, spec: CardSpec): Card {
+    suspend fun create(context: Context, spec: CardSpec): Card {
         val now = System.currentTimeMillis()
-        val draft = Card(name = spec.name, size = spec.size.key, spec = raw, createdAt = now, updatedAt = now)
+        val draft = Card(name = spec.name, size = spec.size.key, spec = CardSpecs.write(spec), createdAt = now, updatedAt = now)
         return draft.copy(id = dao(context).insert(draft))
     }
 
     /** 换掉一张的说明，在桌面上的跟着重画。没有这张是 null */
-    suspend fun redraw(context: Context, id: Long, raw: String, spec: CardSpec): Card? {
+    suspend fun redraw(context: Context, id: Long, spec: CardSpec): Card? {
         val dao = dao(context)
         dao.byId(id) ?: return null
-        dao.redraw(id, spec.name, spec.size.key, raw, System.currentTimeMillis())
+        dao.redraw(id, spec.name, spec.size.key, CardSpecs.write(spec), System.currentTimeMillis())
         refresh(context)
         return dao.byId(id)
     }
@@ -87,21 +87,42 @@ object Cards {
         return Pinned(card, asked)
     }
 
-    /** 桌面上点了 [action]（`reminder.done #7`、清单一行的 `reminder.check #12 3`）：交给那个模块办 */
-    suspend fun act(context: Context, action: String) {
+    /** 桌面上点了 [action]（`reminder.done #7`、清单一行的 `reminder.check #12 3`）：交给那个模块办。[on] 见 `CardSource.act` */
+    suspend fun act(context: Context, action: String, on: Boolean? = null) {
         val app = context.applicationContext
         val ref = Ref.parse(action) ?: return
-        val done = runCatching { CardHub.source(ref.source)?.act(app, ref.name, ref.args) == true }
+        val done = runCatching { CardHub.source(ref.source)?.act(app, ref.name, ref.args, on) == true }
             .onFailure { Log.e(TAG, "卡片上的动作没办成：$action", it) }.getOrDefault(false)
         // 模块办完多半自己喊过重画了；没喊的这里补一次
         if (done) refresh(app)
     }
 
-    /** 对话里预览：照 [raw] 这份说明（那一轮交的那一版）、按它那种大小的标准尺寸画，数是现在的。按钮点不了 */
-    suspend fun preview(context: Context, raw: String): RemoteViews? {
-        val spec = CardSpecs.read(raw) ?: return null
+    /** 对话里预览：照 [spec] 这份说明（那一轮交的那一版）、按它那种大小的标准尺寸画，数是现在的。点不了 */
+    suspend fun preview(context: Context, spec: CardSpec): RemoteViews {
         val space = Space(spec.size.widthDp.toFloat(), spec.size.heightDp.toFloat())
-        return CardViews.build(context, spec, cardId = null, spaces = listOf(space)).getValue(space)
+        return CardViews.build(context, spec, cardId = null, spaces = listOf(space)).views.getValue(space)
+    }
+
+    /**
+     * 存之前先照标准尺寸截一次（只截系统此刻那种颜色）：画没画出来、裁没裁边、脚本报没报错，有就退回给模型改（§8.5）。
+     * [filled] 是这一刻绑上的值（「reminder.days_left #1 = 35」），让它对一眼绑对了没有
+     */
+    class Trial(val problems: List<String>, val filled: List<String>, val text: String)
+
+    suspend fun trial(context: Context, spec: CardSpec): Trial {
+        val app = context.applicationContext
+        val space = Space(spec.size.widthDp.toFloat(), spec.size.heightDp.toFloat())
+        val built = CardViews.build(app, spec, cardId = null, spaces = listOf(space), both = false)
+        val reader = CardReader(app, CardHub.sources)
+        val filled = CardSpecs.refs(spec.html).map { ref ->
+            val v = reader.value(ref)
+            "$ref = " + when (v) {
+                null -> "取不到"
+                is com.abc.daodian.card.plugin.CardValue.Rows -> "${v.total} 行：" + v.rows.take(4).joinToString("、") { it.title } + if (v.total > 4) "…" else ""
+                else -> v.asText().take(60)
+            }
+        }
+        return Trial(built.problems, filled, built.text)
     }
 
     /** 桌面上所有卡片重画一次。一张都没放就什么都不查 */

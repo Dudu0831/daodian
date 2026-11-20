@@ -61,8 +61,8 @@ object ReminderCards : CardSource {
         CardField("items_checked", CardKind.NUMBER, "清单勾了几样", ID_ARG),
         CardField("items_total", CardKind.NUMBER, "清单一共几样", ID_ARG),
         CardField("items_done", CardKind.FLAG, "清单全勾完了没", ID_ARG),
-        CardField("today", CardKind.ROWS, "今天要做的几件：标题、几点（不定钟点的写「当天」），行尾的圈点了就完成"),
-        CardField("upcoming", CardKind.ROWS, "接下来几条，按先后：标题、什么时候，行尾的圈点了就完成"),
+        CardField("today", CardKind.ROWS, "今天要做的几件：标题、几点（不定钟点的写「当天」），行尾的圈点了就完成；value 是 0"),
+        CardField("upcoming", CardKind.ROWS, "接下来几条，按先后：标题、什么时候，行尾的圈点了就完成；value 是离那天还有几天"),
         CardField("count", CardKind.NUMBER, "一共几条还没响的"),
         CardField("today_count", CardKind.NUMBER, "今天还有几件"),
         CardField("overdue", CardKind.NUMBER, "过了点还没点完成的几条"),
@@ -105,12 +105,14 @@ object ReminderCards : CardSource {
         }
     }
 
-    override suspend fun act(context: Context, name: String, args: List<String>): Boolean {
+    override suspend fun act(context: Context, name: String, args: List<String>, on: Boolean?): Boolean {
         val id = idOf(args.firstOrNull()) ?: return false
         val db = ReminderDatabase.get(context)
         val r = db.reminderDao().byId(id) ?: return false
         return when (name) {
             "done" -> {
+                // 卡片上取消「完成」的勾不算数：完成撤不回，下一张图会把勾画回去
+                if (on == false) return false
                 if (r.status != ReminderStatus.SCHEDULED && r.status != ReminderStatus.FIRED) return false
                 Reminders.complete(context, r)
                 true
@@ -118,7 +120,8 @@ object ReminderCards : CardSource {
             "check" -> {
                 val n = args.getOrNull(1)?.toIntOrNull() ?: return false
                 val item = db.itemDao().of(id).getOrNull(n - 1) ?: return false
-                Reminders.setItemDone(context, item, !item.done)
+                val done = on ?: !item.done
+                if (item.done != done) Reminders.setItemDone(context, item, done)
                 true
             }
             else -> false
@@ -193,13 +196,14 @@ object ReminderCards : CardSource {
 
     private fun row(r: Reminder, today: LocalDate, zone: ZoneId): CardRow {
         val day = maxOf(dayOf(r), if (r.untimed) today else LocalDate.MIN)
-        val dayWord = when (ChronoUnit.DAYS.between(today, day)) {
+        val days = ChronoUnit.DAYS.between(today, day)
+        val dayWord = when (days) {
             0L -> ""
             1L -> "明天"
             else -> "${day.monthValue}月${day.dayOfMonth}日"
         }
         val clock = r.slotTime()?.toString() ?: Format.clock(r.nextTriggerAt, zone)
         val note = if (r.untimed) dayWord.ifEmpty { "当天" } else listOf(dayWord, clock).filter { it.isNotEmpty() }.joinToString(" ")
-        return CardRow(r.title, note, accent = r.untimed && day == today, action = "${ReminderModule.ID}.done #${r.id}")
+        return CardRow(r.title, note, accent = r.untimed && day == today, action = "${ReminderModule.ID}.done #${r.id}", value = days.coerceAtLeast(0))
     }
 }

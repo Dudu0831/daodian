@@ -40,8 +40,8 @@ object LedgerCards : CardSource {
         CardField("count", CardKind.NUMBER, "花了几笔", RANGE),
         CardField("per_day", CardKind.NUMBER, "平均每天花多少元（这周 / 这个月按到今天的天数算）", RANGE),
         CardField("daily", CardKind.SERIES, "每天各花多少（柱子用；周的是周一到周日，月的是那个月每一天）", RANGE),
-        CardField("by_category", CardKind.ROWS, "各类别花了多少，多的在前「餐饮 ¥2,036」", RANGE),
-        CardField("biggest", CardKind.ROWS, "最大的几笔「山姆 ¥368」", RANGE),
+        CardField("by_category", CardKind.ROWS, "各类别花了多少，多的在前「餐饮 ¥2,036」；每行的 value 是元数，画比例用", RANGE),
+        CardField("biggest", CardKind.ROWS, "最大的几笔「山姆 ¥368」；每行的 value 是元数", RANGE),
         CardField("last", CardKind.TEXT, "最近一笔「瑞幸 ¥18 · 10:42」"),
         CardField("pending", CardKind.NUMBER, "还等你对的几笔")
     )
@@ -95,10 +95,10 @@ object LedgerCards : CardSource {
                 val rows = dao.observeByTop(f, t, income = false).first()
                     .filter { it.amount > 0 }
                     .sortedByDescending { it.amount }
-                    .map { CardRow(it.key?.let(names::get) ?: "未归类", money(it.amount)) }
+                    .map { CardRow(it.key?.let(names::get) ?: "未归类", money(it.amount), value = yuan(it.amount)) }
                 CardValue.Rows(rows)
             }
-            "biggest" -> CardValue.Rows(store.briefs(dao.biggestOut(f, t, 8)).map { CardRow(nameOf(it), money(it.amount)) })
+            "biggest" -> CardValue.Rows(store.briefs(dao.biggestOut(f, t, 8)).map { CardRow(nameOf(it), money(it.amount), value = yuan(it.amount)) })
             else -> null
         }
     }

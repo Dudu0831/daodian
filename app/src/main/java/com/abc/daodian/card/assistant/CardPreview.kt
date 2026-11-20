@@ -28,23 +28,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.abc.daodian.card.Cards
-import com.abc.daodian.card.spec.CardSize
-import com.abc.daodian.card.spec.CardSpecs
+import com.abc.daodian.card.spec.CardSpec
 import com.abc.daodian.shared.theme.DaodianColors
 import com.abc.daodian.shared.theme.DaodianType
 import kotlinx.coroutines.launch
 
 /**
- * 对话里那张卡片的预览（设计稿「在对话里设计、预览、放上桌面」）：就是桌面上那份 RemoteViews，原样铺进来，
- * 不另画一张 —— 预览和桌面不会对不上。按钮在这里点不了。底下一行「放到桌面 ›」，点了直接请桌面加，不用再跟模型说一句。
+ * 对话里那张卡片的预览（设计稿「在对话里设计、预览、放上桌面」）：就是桌面上那份 RemoteViews（网页截成的图），原样铺进来，
+ * 不另画一张 —— 预览和桌面不会对不上。图上的按钮在这里点不了。底下一行「放到桌面 ›」，点了直接请桌面加，不用再跟模型说一句。
  */
 @Composable
-internal fun CardPreview(cardId: Long, raw: String) {
+internal fun CardPreview(cardId: Long, spec: CardSpec) {
     val context = LocalContext.current
     val colors = DaodianColors.current
     val scope = rememberCoroutineScope()
-    val size = remember(raw) { CardSpecs.read(raw)?.size ?: CardSize.S2X2 }
-    val views by produceState<RemoteViews?>(null, raw) { value = Cards.preview(context, raw) }
+    val size = spec.size
+    val views by produceState<RemoteViews?>(null, spec) { value = Cards.preview(context, spec) }
     val placed by produceState(false, cardId) { value = Cards.byId(context, cardId)?.widgetId != null }
     var note by remember { mutableStateOf<String?>(null) }
 

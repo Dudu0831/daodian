@@ -14,7 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * 桌面卡片：一种大小一个（[Card2x2Widget] …），桌面上可以放好几块。画什么看登记、照说明拼（`render/`）。见 DESIGN.md §8.5
+ * 桌面卡片：一种大小一个（[Card2x2Widget] …），桌面上可以放好几块。画什么看登记、照说明截图（`render/`）。见 DESIGN.md §8.5
  *
  * **这几个类的全类名记在桌面上，发出去之后不能挪、不能改名**（§2.2）。
  *
@@ -26,7 +26,7 @@ abstract class CardWidget(private val size: CardSize) : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) =
         async(this, context) { CardRenderer.render(it, AppWidgetManager.getInstance(it), size, appWidgetIds) }
 
-    /** 他在桌面上拖了这一块的大小：照新的大小重排（列表几行、数字多大，`render/CardFit`） */
+    /** 他在桌面上拖了这一块的大小：网页照新的大小重截 */
     override fun onAppWidgetOptionsChanged(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int, newOptions: android.os.Bundle) =
         async(this, context) { CardRenderer.render(it, AppWidgetManager.getInstance(it), size, intArrayOf(appWidgetId)) }
 
@@ -88,7 +88,9 @@ class CardActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION) return
         val action = intent.getStringExtra(EXTRA_DO) ?: return
-        CardWidget.async(this, context) { Cards.act(it, action) }
+        // 图上的勾是 CheckBox：桌面带回点完之后勾没勾（§8.5）
+        val on = if (intent.hasExtra(android.widget.RemoteViews.EXTRA_CHECKED)) intent.getBooleanExtra(android.widget.RemoteViews.EXTRA_CHECKED, false) else null
+        CardWidget.async(this, context) { Cards.act(it, action, on) }
     }
 
     companion object {

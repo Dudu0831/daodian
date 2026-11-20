@@ -32,8 +32,12 @@ interface CardSource {
      */
     suspend fun read(context: Context, name: String, args: List<String>): CardValue?
 
-    /** 桌面上点了 [name] 这个动作。办成了 true。办完要不要让卡片重画，模块自己喊 [CardBoard.changed] */
-    suspend fun act(context: Context, name: String, args: List<String>): Boolean = false
+    /**
+     * 桌面上点了 [name] 这个动作。办成了 true。办完要不要让卡片重画，模块自己喊 [CardBoard.changed]。
+     * [on]：卡片上那一块是个勾，点完它在桌面上是勾着（true）还是没勾（false）—— 照它设，不要照库里的反过来切：
+     * 桌面重建、连点两下时同一个状态可能来两遍，照「要成什么样」办才不会切错。不是勾的按钮是 null
+     */
+    suspend fun act(context: Context, name: String, args: List<String>, on: Boolean? = null): Boolean = false
 
     /**
      * [name] 指着的那一条没了（提醒删了）：整张卡画成一行灰字「绑的那条提醒没了」（§8.5）。
@@ -88,14 +92,17 @@ sealed interface CardValue {
 
 /**
  * 列表的一行：左边一句、右边一句。[accent] 右边那句用朱砂（「当天」）；[done] 办完了，整行变灰。
- * [action] 是行尾那个圈（清单里是行首的方框）点下去做什么（`reminder.done #12`、`reminder.check #12 3`），没有就不画圈
+ * [action] 是行尾那个圈（清单里是行首的方框）点下去做什么（`reminder.done #12`、`reminder.check #12 3`），没有就不画圈。
+ * [value] 是这一行能拿来比长短的那个数（一类花了多少元、离那天还有几天）：[note] 是写给人看的字（「¥2,036」），
+ * 卡片要画比例条、排时间线得有个纯数字。没有就是 null
  */
 data class CardRow(
     val title: String,
     val note: String = "",
     val accent: Boolean = false,
     val done: Boolean = false,
-    val action: String? = null
+    val action: String? = null,
+    val value: Long? = null
 )
 
 /**

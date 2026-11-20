@@ -10,9 +10,7 @@ import com.abc.daodian.card.CardReader
 import com.abc.daodian.card.Cards
 import com.abc.daodian.card.spec.CardSize
 import com.abc.daodian.card.spec.CardSpecs
-import com.abc.daodian.card.spec.actions
-import com.abc.daodian.card.spec.bindings
-import com.abc.daodian.card.spec.count
+import com.abc.daodian.card.spec.Ref
 import com.abc.daodian.shell.entry.AppNav
 import com.abc.daodian.shell.entry.ShellEntry
 import kotlinx.coroutines.Dispatchers
@@ -43,15 +41,15 @@ object CardShell : ShellEntry {
             cards.forEach { c ->
                 val spec = CardSpecs.read(c.spec)
                 if (spec == null) {
-                    appendLine("  c${c.id} ${c.size} · 说明读不出")
+                    appendLine("  c${c.id} ${c.size} · 说明读不出（旧的零件拼法）")
                     return@forEach
                 }
                 val reader = CardReader(context, CardHub.sources)
-                val refs = spec.body.bindings().distinctBy { it.toString() }
-                val gone = reader.gone(refs + spec.body.actions())
+                val refs = CardSpecs.refs(spec.html)
+                val gone = reader.gone(refs + CardSpecs.taps(spec.html).mapNotNull(Ref::parse))
                 val missing = refs.count { reader.value(it) == null }
                 appendLine(
-                    "  c${c.id} ${spec.size.label} · ${if (c.widgetId != null) "在桌面上" else "没放"} · 零件 ${spec.body.count()} 个 · " +
+                    "  c${c.id} ${spec.size.label} · ${if (c.widgetId != null) "在桌面上" else "没放"} · 网页 ${spec.html.length} 字 · " +
                         "绑了 ${refs.map { it.source }.distinct().joinToString("、").ifEmpty { "无" }}" +
                         (gone?.let { " · 绑的那条${it}没了" } ?: if (missing > 0) " · $missing 个取不到" else "")
                 )

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 原来勾着的（checked=true 开场）：点了变成没勾，桌面当场画一个空方框盖住 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_checked="true" android:drawable="@drawable/card_mark_none" />
+    <item android:drawable="@drawable/card_mark_off" />
+</selector>

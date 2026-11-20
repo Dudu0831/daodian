@@ -9,6 +9,7 @@ import com.abc.daodian.assistant.plugin.TraceView
 import com.abc.daodian.card.CardHub
 import com.abc.daodian.card.CardModule
 import com.abc.daodian.card.Cards
+import com.abc.daodian.card.spec.CardSize
 import com.abc.daodian.card.spec.CardSpec
 import com.abc.daodian.runtime.kit.Kit
 import com.abc.daodian.runtime.tool.Tool
@@ -28,8 +29,9 @@ object CardPlugin : AssistantPlugin {
         return listOf(CardTools.kit(object : CardDesk {
             override val vocabulary get() = CardHub.vocabulary
             override suspend fun cards() = Cards.all(app)
-            override suspend fun create(raw: String, spec: CardSpec) = Cards.create(app, raw, spec)
-            override suspend fun redraw(id: Long, raw: String, spec: CardSpec) = Cards.redraw(app, id, raw, spec)
+            override suspend fun trial(spec: CardSpec) = Cards.trial(app, spec).let { CardTrial(it.problems, it.filled, it.text) }
+            override suspend fun create(spec: CardSpec) = Cards.create(app, spec)
+            override suspend fun redraw(id: Long, spec: CardSpec) = Cards.redraw(app, id, spec)
         }))
     }
 
@@ -49,11 +51,19 @@ object CardPlugin : AssistantPlugin {
     }
 
     /** 画好的那一步，正文里挂一张预览：照那一轮交的说明画（不是最新的那版），数是现在的 */
-    override fun hasTraceBody(call: ToolTrace): Boolean = call.tool == CardTools.DESIGN && call.ok && call.ref != null
+    override fun hasTraceBody(call: ToolTrace): Boolean = call.tool == CardTools.DESIGN && call.ok && call.ref != null && specOf(call) != null
 
     @Composable
     override fun TraceBody(call: ToolTrace) {
-        val raw = CardTools.parse(call.arguments)?.get("spec")?.asText() ?: return
-        CardPreview(cardId = call.ref ?: return, raw = raw)
+        val spec = specOf(call) ?: return
+        CardPreview(cardId = call.ref ?: return, spec = spec)
+    }
+
+    /** 那一轮交的网页。11-19 以前零件拼的那版（参数里是 spec）读不出，不挂预览 */
+    private fun specOf(call: ToolTrace): CardSpec? {
+        val o = CardTools.parse(call.arguments) ?: return null
+        val html = o.get("html")?.asText()?.takeIf { it.isNotBlank() } ?: return null
+        val size = CardSize.of(o.get("size")?.asText()) ?: return null
+        return CardSpec(o.get("name")?.asText().orEmpty(), size, html)
     }
 }

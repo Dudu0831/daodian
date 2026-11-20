@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 超过 8 个点时小一号，12 个也放得进 2×2 -->
-<ImageView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/card_dot"
-    android:layout_width="7dp"
-    android:layout_height="7dp"
-    android:layout_marginEnd="4dp"
-    android:importantForAccessibility="no" />

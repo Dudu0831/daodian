@@ -3,70 +3,117 @@ package com.abc.daodian.card.render
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.Icon
 import android.net.Uri
-import android.os.SystemClock
 import android.util.TypedValue
-import android.view.Gravity
-import android.view.View
 import android.widget.RemoteViews
 import com.abc.daodian.R
 import com.abc.daodian.card.CardActionReceiver
 import com.abc.daodian.card.CardHub
 import com.abc.daodian.card.CardReader
-import com.abc.daodian.card.plugin.CardValue
-import com.abc.daodian.card.spec.Align
-import com.abc.daodian.card.spec.Block
-import com.abc.daodian.card.spec.ButtonIcon
 import com.abc.daodian.card.spec.CardSpec
-import com.abc.daodian.card.spec.NumberSize
-import com.abc.daodian.card.spec.Paint
-import com.abc.daodian.card.spec.TextStyle
-import com.abc.daodian.card.spec.Tone
-import com.abc.daodian.card.spec.actions
-import com.abc.daodian.card.spec.bindings
-import kotlin.math.roundToInt
+import com.abc.daodian.card.spec.CardSpecs
+import com.abc.daodian.card.spec.Ref
+
+/** 桌面上一块的实际大小，dp */
+data class Space(val width: Float, val height: Float)
 
 /**
- * 照说明把零件拼成 RemoteViews。见 DESIGN.md §8.5
+ * 照说明画成 RemoteViews：网页填上这一刻的数（[CardPage]），浅色、深色各截一张（[CardShot]），
+ * 交给桌面一张图（`setIcon` 带深浅两张，桌面切深色时自己换），能点的地方在图上盖透明的按钮。见 DESIGN.md §8.5
  *
- * 每个零件一份布局（`res/layout/card_*.xml`），外面套一层格子（`card_cell_*`）管「撑不撑满」—— RemoteViews 改不了
- * layout_weight，撑满和不撑满只好是两份格子。颜色一律 `setColor` 交 `@color`，桌面切深浅色时才跟着变（§8.2 第 3 条）。
- *
- * 跟着大小变（§8.5）：桌面给的每一种实际大小各画一份（[CardFit] 先收放：列表几行、数字多大、放不下先收哪块），
- * 交给桌面一个「大小 → 画法」的表，拖大拖小时桌面自己挑。RemoteViews 量不了里面的东西，[CardFit] 是估的，偶尔会裁掉一点。
+ * 跟着大小变：桌面给的每一种实际大小各截一份，交成「大小 → 画法」的表（Android 12 起），拖大拖小时桌面自己挑；
+ * 网页按实际大小排（CSS 里 100% 就是那么大），不用代码估。荣耀桌面只给一种，拖完叫一次重画。
  */
 object CardViews {
 
-    /** 列表、清单放不下时最后那一行：不写数，免得和模型写的「还剩 N 样」两个数打架 */
-    private const val MORE = "⋯"
+    /** 一张卡片最多盖几块能点的 */
+    private const val MAX_TAPS = 24
+
+    /** 桌面给的大小太多时只截前两种（竖屏、横屏）：每种两张图，再多桌面那边的图片内存放不下 */
+    private const val MAX_SPACES = 2
+
+    /** 画出来的结果：每种大小一份，和画的时候碰到的问题（脚本报错、裁边、没画出来） */
+    class Built(val views: Map<Space, RemoteViews>, val problems: List<String>, val text: String = "")
+
+    /** 系统此刻是不是深色（桌面跟系统走，不跟 app 自己的深色设置） */
+    fun nightNow(): Boolean =
+        (android.content.res.Resources.getSystem().configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
 
     /**
-     * 照 [spaces] 里每一种大小各画一份（同一次取的数）。[cardId] = 桌面上那一块是哪张卡片，按钮点了发给它；预览是 null，按钮不接。
-     * 绑的那条没了（提醒删了）：整张卡画成一行灰字，长按移除 —— 代码删不了桌面上的组件（§8.5）。
-     * 返回的每一份都还没挂「点空白处」，由调的一方挂
+     * 照 [spaces] 里每一种大小各画一份（同一次取的数）。[cardId] = 桌面上那一块是哪张卡片，点了发给它；预览是 null，点不了。
+     * [both] = 浅色、深色都截；false 只截系统此刻那一种，两个槽填同一张 —— 点了勾先这样交，快；另一种随后再补（`CardRenderer`）。
+     * 绑的那条没了（提醒删了）：整张卡画成一行灰字，长按移除（§8.5）。返回的每一份都还没挂「点空白处」，由调的一方挂
      */
-    suspend fun build(context: Context, spec: CardSpec, cardId: Long?, spaces: List<Space>): Map<Space, RemoteViews> {
+    suspend fun build(context: Context, spec: CardSpec, cardId: Long?, spaces: List<Space>, both: Boolean = true): Built {
         val reader = CardReader(context, CardHub.sources)
-        reader.gone(spec.body.bindings() + spec.body.actions())?.let { what -> return spaces.associateWith { gone(context, what) } }
-        val look = object : CardFit.Look {
-            override suspend fun text(template: String) = reader.text(template)
-            override suspend fun rows(ref: com.abc.daodian.card.spec.Ref) = (reader.value(ref) as? CardValue.Rows)?.total ?: 0
-        }
-        return spaces.associateWith { space ->
-            val root = root(context)
-            val b = Builder(context, reader, cardId)
-            when (val body = CardFit.fit(spec.body, space, look, Space(spec.size.widthDp.toFloat(), spec.size.heightDp.toFloat()))) {
-                is Block.Column -> body.children.forEachIndexed { i, c -> b.add(root, android.R.id.background, c, inRow = false, last = i == body.children.lastIndex) }
-                // 最外面就一排（或一块）：铺满整张卡片，里面的 grow 才有地方撑
-                else -> b.add(root, android.R.id.background, body, inRow = false, last = true, fill = true)
+        val actions = CardSpecs.taps(spec.html).mapNotNull(Ref::parse)
+        reader.gone(CardSpecs.refs(spec.html) + actions)?.let { what -> return Built(spaces.associateWith { gone(context, what) }, emptyList()) }
+        val problems = mutableListOf<String>()
+        var text = ""
+        val night = nightNow()
+        suspend fun shot(space: Space, dark: Boolean) =
+            CardShot.shoot(context, CardPage.build(spec.html, space.width, space.height, if (dark) CardPage.DARK else CardPage.LIGHT) { reader.value(it) }, space.width, space.height)
+        val views = spaces.take(MAX_SPACES).associateWith { space ->
+            val now = shot(space, night)
+            problems += now.problems
+            if (text.isEmpty()) text = now.text
+            val bitmap = now.bitmap ?: return@associateWith blank(context, spec.name, "这张没画出来，在对话里让它重画")
+            val other = if (both) shot(space, !night).bitmap ?: bitmap else bitmap
+            val (light, dark) = if (night) other to bitmap else bitmap to other
+            RemoteViews(context.packageName, R.layout.card_shot).apply {
+                setIcon(R.id.card_image, "setImageIcon", Icon.createWithBitmap(light), Icon.createWithBitmap(dark))
+                // 桌面常常是在原来那层上重放（reapply），addView 会接着往后叠：先清空
+                removeAllViews(R.id.card_taps)
+                if (cardId != null) taps(context, this, cardId, now.taps, reader)
             }
-            root
         }
+        return Built(views, problems.distinct(), text)
     }
 
     /** 几份按大小画的交给桌面：一份就直接给，几份给成「大小 → 画法」的表（Android 12 起），桌面拖到哪挑哪份 */
     fun responsive(views: Map<Space, RemoteViews>): RemoteViews =
         views.values.singleOrNull() ?: RemoteViews(views.mapKeys { (s, _) -> android.util.SizeF(s.width, s.height) })
+
+    /** 勾画在离方框中心多远的左边（勾是 14dp 见方，画在 CheckBox 的最左边） */
+    private const val MARK_HALF = 7f
+
+    /**
+     * 图上盖按钮：网页里 `data-tap` 那几块在哪，就盖在哪。只认模块交的动作（点了还会再查一次）。
+     * 盖的是真的 CheckBox（Android 12 起小组件的有状态按钮）：点下去桌面自己当场画上勾（或画回空框），
+     * 不等存库、重截图；同时把动作交给 app，存完重截一张，新图里已经是勾上的，CheckBox 也复位。
+     * 勾画在 CheckBox 的最左边，所以把它的左边挪到方框那儿（方框左边那一小段就点不到了）
+     */
+    private suspend fun taps(context: Context, views: RemoteViews, cardId: Long, taps: List<CardShot.Tap>, reader: CardReader) {
+        val vocab = CardHub.vocabulary
+        taps.filter { t -> Ref.parse(t.action)?.let { vocab.action(it) } != null }.take(MAX_TAPS).forEachIndexed { n, t ->
+            val on = reader.on(t.action)
+            val left = (t.boxX - MARK_HALF).coerceIn(t.x, t.x + t.w - 2 * MARK_HALF)
+            views.addView(R.id.card_taps, RemoteViews(context.packageName, if (on) R.layout.card_check_from_on else R.layout.card_check_from_off).apply {
+                setViewLayoutMargin(R.id.card_tap, RemoteViews.MARGIN_LEFT, left, TypedValue.COMPLEX_UNIT_DIP)
+                setViewLayoutMargin(R.id.card_tap, RemoteViews.MARGIN_TOP, t.y, TypedValue.COMPLEX_UNIT_DIP)
+                setViewLayoutWidth(R.id.card_tap, t.x + t.w - left, TypedValue.COMPLEX_UNIT_DIP)
+                setViewLayoutHeight(R.id.card_tap, t.h, TypedValue.COMPLEX_UNIT_DIP)
+                // 每次画都从「和图一致」开始：勾着的那样是 checked
+                setCompoundButtonChecked(R.id.card_tap, on)
+                // 每块一条不同的 data，PendingIntent 才不会互相盖掉
+                setOnCheckedChangeResponse(
+                    R.id.card_tap,
+                    RemoteViews.RemoteResponse.fromPendingIntent(
+                        PendingIntent.getBroadcast(
+                            context, 0,
+                            Intent(context, CardActionReceiver::class.java)
+                                .setAction(CardActionReceiver.ACTION)
+                                .setData(Uri.parse("daodian-card://$cardId/$n"))
+                                .putExtra(CardActionReceiver.EXTRA_DO, t.action),
+                            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                        )
+                    )
+                )
+            })
+        }
+    }
 
     /**
      * 外壳。桌面刷新时不一定重新铺一遍布局，常常是把这份 RemoteViews 在原来那层上重放一遍（reapply），
@@ -87,211 +134,11 @@ object CardViews {
         return root
     }
 
-    /** 桌面上还没钉东西、钉的那张不在了：两行字 */
+    /** 桌面上还没钉东西、钉的那张不在了、没画出来：两行字 */
     fun blank(context: Context, title: String, hint: String): RemoteViews {
         val root = root(context)
         root.addView(android.R.id.background, RemoteViews(context.packageName, R.layout.card_text_title).apply { setTextViewText(R.id.card_text, title) })
         root.addView(android.R.id.background, RemoteViews(context.packageName, R.layout.card_text_caption).apply { setTextViewText(R.id.card_text, hint) })
         return root
-    }
-
-    private class Builder(val context: Context, val reader: CardReader, val cardId: Long?) {
-
-        private val pkg = context.packageName
-        private var clicks = 0
-
-        fun views(layout: Int) = RemoteViews(pkg, layout)
-
-        /**
-         * 把 [block] 套进格子，加到 [parent] 的 [into] 里。[fill] = 撑满（说明里写了 grow，或者它是整张卡片唯一的一块）。
-         * 竖排里的字写了 grow 不算：几格撑满的平分多出来的高，字会被推到半中间（真机上日期飘在数字和底边之间）
-         */
-        suspend fun add(parent: RemoteViews, into: Int, block: Block, inRow: Boolean, last: Boolean, fill: Boolean = block.grow && (inRow || block !is Block.Text)) {
-            val cell = views(
-                when {
-                    inRow && fill -> R.layout.card_cell_row_grow
-                    inRow -> R.layout.card_cell_row
-                    fill -> R.layout.card_cell_col_grow
-                    else -> R.layout.card_cell_col
-                }
-            )
-            // 横排里零件之间留 8dp
-            if (inRow && !last) cell.setViewPadding(R.id.card_cell, 0, 0, dp(8), 0)
-            cell.addView(R.id.card_cell, block(block))
-            parent.addView(into, cell)
-        }
-
-        suspend fun block(b: Block): RemoteViews = when (b) {
-            is Block.Column -> views(R.layout.card_column).also { v -> b.children.forEachIndexed { i, c -> add(v, R.id.card_box, c, false, i == b.children.lastIndex) } }
-            is Block.Row -> views(R.layout.card_row).also { v -> b.children.forEachIndexed { i, c -> add(v, R.id.card_box, c, true, i == b.children.lastIndex) } }
-            is Block.Text -> text(b)
-            is Block.Number -> number(b)
-            is Block.Bar -> bar(b)
-            is Block.ListRows -> list(b)
-            is Block.Bars -> bars(b)
-            is Block.Checklist -> checklist(b)
-            is Block.Dots -> dots(b)
-            is Block.Timer -> timer(b)
-            is Block.Button -> button(b)
-            is Block.Rule -> views(R.layout.card_rule)
-        }
-
-        suspend fun text(b: Block.Text): RemoteViews = views(
-            when (b.style) { TextStyle.TITLE -> R.layout.card_text_title; TextStyle.CAPTION -> R.layout.card_text_caption; TextStyle.BODY -> R.layout.card_text_body }
-        ).apply {
-            setTextViewText(R.id.card_text, reader.text(b.text))
-            setInt(R.id.card_text, "setGravity", Gravity.CENTER_VERTICAL or when (b.align) { Align.START -> Gravity.START; Align.CENTER -> Gravity.CENTER_HORIZONTAL; Align.END -> Gravity.END })
-            setColor(R.id.card_text, "setTextColor", color(b.paint, if (b.style == TextStyle.CAPTION) Tone.MUTED else Tone.INK))
-        }
-
-        suspend fun number(b: Block.Number): RemoteViews = views(R.layout.card_number).apply {
-            setTextViewText(R.id.card_value, reader.text(b.value))
-            // 字号由 CardFit 按实际大小挑好了
-            setTextViewTextSize(R.id.card_value, TypedValue.COMPLEX_UNIT_SP, (b.size ?: NumberSize.M).sp)
-            setColor(R.id.card_value, "setTextColor", color(b.paint, Tone.INK))
-            label(this, R.id.card_before, reader.text(b.before))
-            label(this, R.id.card_after, reader.text(b.after))
-        }
-
-        suspend fun bar(b: Block.Bar): RemoteViews = views(R.layout.card_bar).apply {
-            setProgressBar(R.id.card_ink, 100, (reader.number(b.value) ?: 0).toInt().coerceIn(0, 100), false)
-            val left = reader.text(b.left)
-            val right = reader.text(b.right)
-            setViewVisibility(R.id.card_ends, if (left.isEmpty() && right.isEmpty()) View.GONE else View.VISIBLE)
-            setTextViewText(R.id.card_left, left)
-            setTextViewText(R.id.card_right, right)
-        }
-
-        suspend fun list(b: Block.ListRows): RemoteViews {
-            val box = views(R.layout.card_list)
-            val value = reader.value(b.rows) as? CardValue.Rows
-            val rows = value?.rows.orEmpty()
-            rows.take(b.max).forEach { r ->
-                box.addView(R.id.card_box, views(R.layout.card_list_row).apply {
-                    setTextViewText(R.id.card_row_title, r.title)
-                    setTextViewText(R.id.card_row_note, r.note)
-                    setViewVisibility(R.id.card_row_note, if (r.note.isEmpty()) View.GONE else View.VISIBLE)
-                    setColor(R.id.card_row_title, "setTextColor", if (r.done) R.color.widget_muted else R.color.widget_ink)
-                    setColor(R.id.card_row_note, "setTextColor", if (r.accent && !r.done) R.color.widget_accent else R.color.widget_muted)
-                    if (r.action != null) {
-                        setViewVisibility(R.id.card_row_check, View.VISIBLE)
-                        setImageViewResource(R.id.card_row_ring, if (r.done) R.drawable.card_ring_done else R.drawable.widget_done_ring)
-                        click(this, R.id.card_row_check, r.action)
-                    }
-                })
-            }
-            val more = (value?.total ?: rows.size) - minOf(rows.size, b.max)
-            if (rows.isEmpty() || more > 0) {
-                box.addView(R.id.card_box, views(R.layout.card_text_caption).apply {
-                    setTextViewText(R.id.card_text, if (rows.isEmpty()) "没有" else MORE)
-                })
-            }
-            return box
-        }
-
-        suspend fun bars(b: Block.Bars): RemoteViews {
-            val box = views(R.layout.card_bars)
-            val s = reader.value(b.values) as? CardValue.Series ?: return box
-            val top = s.values.maxOrNull()?.takeIf { it > 0 } ?: 1
-            s.values.forEachIndexed { i, v ->
-                box.addView(R.id.card_box, views(R.layout.card_bar_col).apply {
-                    setViewLayoutHeight(R.id.card_bar_area, b.height.toFloat(), TypedValue.COMPLEX_UNIT_DIP)
-                    val future = s.current >= 0 && i > s.current
-                    val h = if (future || v <= 0) 1f else (b.height * v.toFloat() / top).coerceAtLeast(2f)
-                    setViewLayoutHeight(R.id.card_bar_fill, h, TypedValue.COMPLEX_UNIT_DIP)
-                    setInt(
-                        R.id.card_bar_fill, "setBackgroundResource",
-                        when { future || v <= 0 -> R.drawable.card_fill_line; i == s.current -> R.drawable.card_fill_ink; else -> R.drawable.card_fill_soft }
-                    )
-                    val label = s.labels.getOrNull(i).orEmpty()
-                    setTextViewText(R.id.card_bar_label, label)
-                    setViewVisibility(R.id.card_bar_label, if (b.labels && label.isNotEmpty()) View.VISIBLE else View.GONE)
-                })
-            }
-            return box
-        }
-
-        suspend fun checklist(b: Block.Checklist): RemoteViews {
-            val box = views(R.layout.card_list)
-            val rows = (reader.value(b.rows) as? CardValue.Rows)?.rows.orEmpty()
-            rows.take(b.max).forEach { r ->
-                box.addView(R.id.card_box, views(R.layout.card_check_row).apply {
-                    setImageViewResource(R.id.card_check_box, if (r.done) R.drawable.card_box_on else R.drawable.card_box_off)
-                    setTextViewText(R.id.card_check_text, r.title)
-                    setColor(R.id.card_check_text, "setTextColor", if (r.done) R.color.widget_muted else R.color.widget_ink)
-                    r.action?.let { click(this, R.id.card_check_row, it) }
-                })
-            }
-            if (rows.size > b.max) box.addView(R.id.card_box, views(R.layout.card_text_caption).apply { setTextViewText(R.id.card_text, MORE) })
-            return box
-        }
-
-        suspend fun dots(b: Block.Dots): RemoteViews {
-            val box = views(R.layout.card_dots)
-            val n = (reader.number(b.value) ?: 0).toInt()
-            val small = b.of > 8
-            repeat(b.of) { i ->
-                box.addView(R.id.card_box, views(if (small) R.layout.card_dot_small else R.layout.card_dot).apply {
-                    setImageViewResource(R.id.card_dot, if (i < n) R.drawable.card_dot_on else R.drawable.card_dot_off)
-                })
-            }
-            return box
-        }
-
-        suspend fun timer(b: Block.Timer): RemoteViews = views(R.layout.card_timer).apply {
-            val now = System.currentTimeMillis()
-            val until = (reader.value(b.at) as? CardValue.Moment)?.at
-            if (until != null && until > now) {
-                // 系统自己一秒一秒往下数，我们不用每秒重画。数到 0 那一刻提醒自己响，响完喊重画收掉（在那之前会接着数成负的）
-                setChronometer(R.id.card_chrono, SystemClock.elapsedRealtime() + (until - now), null, true)
-                setChronometerCountDown(R.id.card_chrono, true)
-                setViewVisibility(R.id.card_chrono, View.VISIBLE)
-                setViewVisibility(R.id.card_timer_idle, View.GONE)
-            } else {
-                setTextViewText(R.id.card_timer_idle, "0:00")
-                setViewVisibility(R.id.card_chrono, View.GONE)
-                setViewVisibility(R.id.card_timer_idle, View.VISIBLE)
-            }
-        }
-
-        suspend fun button(b: Block.Button): RemoteViews = when (b.icon) {
-            ButtonIcon.MIC -> views(R.layout.card_button_mic)
-            ButtonIcon.CHECK -> views(R.layout.card_button_check)
-            ButtonIcon.TEXT -> views(R.layout.card_button).apply { setTextViewText(R.id.card_button, reader.text(b.label)) }
-        }.also { click(it, R.id.card_button, b.action.toString()) }
-
-        suspend fun color(p: Paint, fallback: Tone): Int {
-            val tone = when {
-                reader.flag(p.accentWhen) -> Tone.ACCENT
-                reader.flag(p.mutedWhen) -> Tone.MUTED
-                p.base == Tone.INK -> fallback
-                else -> p.base
-            }
-            return when (tone) { Tone.INK -> R.color.widget_ink; Tone.MUTED -> R.color.widget_muted; Tone.ACCENT -> R.color.widget_accent }
-        }
-
-        fun label(v: RemoteViews, id: Int, text: String) {
-            v.setTextViewText(id, text)
-            v.setViewVisibility(id, if (text.isEmpty()) View.GONE else View.VISIBLE)
-        }
-
-        /** 点 [id] 做 [action]。每个点击一条不同的 data，PendingIntent 才不会互相盖掉 */
-        fun click(v: RemoteViews, id: Int, action: String) {
-            val card = cardId ?: return
-            val n = clicks++
-            v.setOnClickPendingIntent(
-                id,
-                PendingIntent.getBroadcast(
-                    context, 0,
-                    Intent(context, CardActionReceiver::class.java)
-                        .setAction(CardActionReceiver.ACTION)
-                        .setData(Uri.parse("daodian-card://$card/$n"))
-                        .putExtra(CardActionReceiver.EXTRA_DO, action),
-                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-                )
-            )
-        }
-
-        fun dp(v: Int): Int = (v * context.resources.displayMetrics.density).roundToInt()
     }
 }

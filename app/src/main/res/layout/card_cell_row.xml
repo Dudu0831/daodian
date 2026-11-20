@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 横排里的一格：宽度看内容 -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/card_cell"
-    android:layout_width="wrap_content"
-    android:layout_height="match_parent" />

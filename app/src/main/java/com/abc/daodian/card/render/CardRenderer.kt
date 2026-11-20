@@ -20,8 +20,14 @@ object CardRenderer {
     /** 和别的小组件的 PendingIntent 错开：提醒小组件拿提醒 id 当 requestCode */
     private const val RC_BASE = 2_000_000
 
+    /**
+     * 分两遍交：先每块只截系统此刻那一种颜色（点了勾等的就是这一遍），都交完了再回头把另一种颜色补上。
+     * 数没变的那几块两遍都命中 `CardShot` 的缓存，不重截
+     */
     suspend fun render(context: Context, manager: AppWidgetManager, size: CardSize, widgetIds: IntArray) {
         val dao = CardDatabase.get(context).cardDao()
+        val pending = mutableListOf<suspend () -> Unit>()
+        val started = android.os.SystemClock.uptimeMillis()
         widgetIds.forEach { widgetId ->
             // 这一块还没登记：桌面没回话、或者他自己从小组件列表里加的 —— 认领请得最晚的那张没放的
             val card = dao.byWidget(widgetId) ?: dao.claimable(size.key)?.also { dao.place(it.id, widgetId) }
@@ -31,17 +37,23 @@ object CardRenderer {
                 context, RC_BASE + widgetId, Launch.intent(context, route = Launch.HOME),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
-            val views = when {
-                card == null -> CardViews.blank(context, "还没钉东西", "在对话里说「在桌面放一张……」")
-                spec == null -> CardViews.blank(context, card.name, "这张的说明读不出来，在对话里让它重画")
-                else -> CardViews.responsive(
-                    CardViews.build(context, spec, card.id, spacesOf(manager, widgetId, size).also { trace(context, manager, widgetId, it) })
-                        .onEach { (_, v) -> v.setOnClickPendingIntent(android.R.id.background, open) }
-                )
+            if (card == null || spec == null) {
+                val views = if (card == null) CardViews.blank(context, "还没钉东西", "在对话里说「在桌面放一张……」")
+                else CardViews.blank(context, card.name, "这张是旧的画法，在对话里让它重画")
+                views.setOnClickPendingIntent(android.R.id.background, open)
+                manager.updateAppWidget(widgetId, views)
+                return@forEach
             }
-            if (card == null || spec == null) views.setOnClickPendingIntent(android.R.id.background, open)
-            manager.updateAppWidget(widgetId, views)
+            val spaces = spacesOf(manager, widgetId, size).also { trace(context, manager, widgetId, it) }
+            suspend fun views(both: Boolean) = CardViews.responsive(
+                CardViews.build(context, spec, card.id, spaces, both).views.onEach { (_, v) -> v.setOnClickPendingIntent(android.R.id.background, open) }
+            )
+            manager.updateAppWidget(widgetId, views(both = false))
+            CardShot.trace(context, "#$widgetId 先交一种颜色 ${android.os.SystemClock.uptimeMillis() - started}ms")
+            pending += { manager.updateAppWidget(widgetId, views(both = true)) }
         }
+        pending.forEach { it() }
+        CardShot.trace(context, "两种颜色都交完 ${android.os.SystemClock.uptimeMillis() - started}ms")
     }
 
     /**

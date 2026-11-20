@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  图上能点的一块，用真的 CheckBox（Android 12 起小组件里的有状态按钮）：点下去桌面自己当场切换样子，
+  不等 app 存库、重截图（§8.5）。saveEnabled=false：几个勾同一个 id，桌面切深色重建时会把
+  记下的勾选状态恢复到别的行上，还顺带「点」一下（模拟器上切一次深色多勾了一样）。位置、大小由 CardViews 照网页里 data-tap 那块设；勾画在左边，对着行首的方框。
+-->
+<CheckBox xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/card_tap"
+    android:layout_width="1dp"
+    android:layout_height="1dp"
+    android:layout_gravity="top|start"
+    android:minWidth="0dp"
+    android:minHeight="0dp"
+    android:background="@null"
+    android:saveEnabled="false"
+    android:button="@drawable/card_check_from_off"
+    android:importantForAccessibility="yes" />

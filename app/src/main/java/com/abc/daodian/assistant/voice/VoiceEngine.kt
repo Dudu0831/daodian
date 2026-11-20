@@ -2,6 +2,7 @@ package com.abc.daodian.assistant.voice
 
 import android.content.Context
 import com.abc.daodian.assistant.quick.QuickTrace
+import com.abc.daodian.shared.memory.NativeHeap
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.Vad
 import kotlinx.coroutines.CoroutineScope

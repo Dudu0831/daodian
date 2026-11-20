@@ -32,6 +32,16 @@ class CardReader(private val context: Context, private val sources: List<CardSou
     /** 字里的绑定换成值；取不到的写「—」 */
     suspend fun text(template: String): String = Ref.fill(template) { value(it)?.asText() ?: MISSING }
 
+    /**
+     * 点 [action] 之前那一样是不是勾着的：在这次取过的几组行里找 tap 是它的那一行；不是行里的（「完成」按钮）看那条办完了没。
+     * 桌面当场画勾时要知道是往勾上切还是往没勾切（`render/CardViews`）
+     */
+    suspend fun on(action: String): Boolean {
+        memo.values.forEach { v -> (v as? CardValue.Rows)?.rows?.firstOrNull { it.action == action }?.let { return it.done } }
+        val a = Ref.parse(action) ?: return false
+        return a.name == "done" && flag(Ref(a.source, "done", a.args))
+    }
+
     suspend fun flag(ref: Ref?): Boolean = (value(ref) as? CardValue.Flag)?.on == true
 
     /** 整段是一个绑定的数 */
