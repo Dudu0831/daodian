@@ -18,17 +18,6 @@ object Releases {
 
     val ALL: List<Release> = listOf(
         Release(
-            versionCode = 13,
-            versionName = "0.2.0",
-            pages = listOf(
-                Page(
-                    title = "通知管家",
-                    line = "在对话里面说一句，比如「帮我监听菜鸟和短信的快递」。以前勾的要重新说。",
-                    media = "whatsnew/13/notice.webp"
-                )
-            )
-        ),
-        Release(
             versionCode = 14,
             versionName = "0.2.1",
             pages = listOf(
@@ -46,6 +35,32 @@ object Releases {
                     title = "让它画给你看",
                     line = "「把这周的开销画成图」，图就画在对话里，还能点。",
                     media = "whatsnew/14/widget.webp"
+                )
+            )
+        ),
+        Release(
+            versionCode = 15,
+            versionName = "0.2.2",
+            pages = listOf(
+                Page(
+                    title = "想多久，你定",
+                    line = "点顶上的印，往下滑。印泥越浓，想得越久，答得也越慢。",
+                    media = "whatsnew/15/effort.webp"
+                ),
+                Page(
+                    title = "日子还远，先记下",
+                    line = "「12 月 23 号去旧金山，提前一周提醒我」。正日子之前，那天晚上先轻轻提一下。",
+                    media = "whatsnew/15/remind.webp"
+                ),
+                Page(
+                    title = "要带的，挂在提醒底下",
+                    line = "「照去年那张，列个行李清单」。它先翻以前的清单再列，到点告诉你还剩几样。",
+                    media = "whatsnew/15/list.webp"
+                ),
+                Page(
+                    title = "钉到桌面上",
+                    line = "「做张去旧金山的倒数卡片，带上清单」。看着顺眼就点「放到桌面」，在桌面上直接勾。",
+                    media = "whatsnew/15/card.webp"
                 )
             )
         )
