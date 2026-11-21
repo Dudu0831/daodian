@@ -121,10 +121,16 @@ class SealTrack internal constructor(private val scope: CoroutineScope, private 
     var pending by mutableStateOf<Effort?>(null)
         private set
 
-    /** 现在存着的那档（每次重组由印写进来） */
-    internal var chosen: Effort = Effort.DEFAULT
+    private var chosenState by mutableStateOf(Effort.DEFAULT)
+
+    /**
+     * 现在存着的那档（每次重组由印写进来）。得是状态：从设置页回来对话页重建，新的 track 从默认档起，
+     * 印写进存着的那档之后要再画一遍，不然印一直停在默认的浓淡（11-21 用户撞到的）
+     */
+    internal var chosen: Effort
+        get() = chosenState
         set(value) {
-            field = value
+            chosenState = value
             if (pending == value) pending = null
         }
 
