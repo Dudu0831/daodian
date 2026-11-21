@@ -170,3 +170,4 @@ CLAUDE.md「现状」一节以前按日期记的流水，和功能表里「真�
 - 11-20：`card-html` 快进并进 `main`（`a90719a`）；删了 cleanup.md「0.2.2 删」那三个壳（派活两个旧路由、`TidyWorker` 空壳、速记的 `activity-alias`）；加了冷启动删一次 0.2.0 之前的旧文件（`intake/LegacyFiles`）；单测过；从这份 `main` 打了正式包，荣耀没连上，没装。
 - 11-20：新功能弹窗 0.2.2 四页，设计稿 <https://claude.ai/artifact/Wou4q6ggvyxbiiiV2XfH4X>（用户改了第四页、挪到第一页）；动图用 three.js 场景页导出，每段截关键帧自己看过。
 - 11-21：debug 包临时写成 `versionCode` 15 打了预览包（`build-share/daodian-0.2.2-preview-debug-whatsnew.apk`）装上荣耀：读到旧库里的 `SOON` 一开就崩，用户同意后 `pm clear` 清了数据，重开正常，弹窗第一页弹出来了，后面几页用户自己看。
+- **11-21 发了 0.2.2**（versionCode 15）：提醒重新设计、清单、倒数、桌面卡片网页截图、想多久、新功能弹窗四页、删壳。第一次跑 `publish.sh` 时用户发现想多久进设置回来退回默认档，传蒲公英途中停掉（停在 `upload_started`，`latest.json` 没切），修完（`ccbc458`，`SealTrack.chosen` 改成状态；模拟器上旧包复现、新包验过）用同一句更新说明重跑，新包从头上传。发完核过：`latest.json` 是 0.2.2 / 15、size 309850588（和本地包一致）；`daodian-0.2.2.apk`、`daodian-0.2.1.apk` 都 302 转蒲公英。停掉那次传上蒲公英的旧包留在蒲公英上，没人用。没验：从「版本」那行覆盖升级到 0.2.2。
