@@ -4,27 +4,11 @@
 
 **规矩**：留壳只留手机上按名字记着的；纯代码不留，换掉那一版直接删（DESIGN.md §2.2「挪包 = 改全类名」）。加了新的壳就在这里记一行。删掉之后把那一行挪到最底下「删过的」。
 
-## 0.2.2 删
+## 0.2.4 删
 
-0.2.0 是通知管家切换那一版（派活、订阅者删掉，只剩「听通知」），隔一个版本到 0.2.2 再删下面这些。
-
-| 壳 | 在哪 | 为什么留 | 删的时候连带 |
-|---|---|---|---|
-| 派活的两个路由 `reminder/relay/{id}`、`reminder/relay` | `reminder/ReminderRoutes.kt` 的 `RELAY`、`RELAY_OLD`；`reminder/presentation/ReminderShell.kt` 的两个 `composable` 和 `RelayShim`、`RULES_ROUTE` | 0.1.x 弹的「派的事没接住」通知还挂在通知栏里，PendingIntent 里存着这两个路由；NavHost 找不到会崩。现在进来先退掉自己、再开规则页 | `ReminderShell` 头上注释里的「派活两个旧路由留壳」 |
-| 记忆整理的旧类名 `agent.memory.tidy.TidyWorker` | `app/src/main/java/com/abc/daodian/agent/memory/tidy/TidyWorker.kt`（整个 `agent/` 目录只剩它） | 10-15 记忆挪进 `assistant/` 之前排下的「闲下来整理」，WorkManager 记的是旧类名。那一次最多 10 分钟后就跑完，早该删了 | 删整个 `agent/` 目录 |
-| 速记的旧类名 `.agent.entry.quick.QuickAddActivity` | `app/src/main/AndroidManifest.xml` 里那个 `<activity-alias>` | 10-15 速记挪包之前就摆在桌面上的小组件，墨印的 PendingIntent 指着旧名字；小组件重画一次就换成新名字 | manifest 里 alias 上面那段注释 |
-
-删完：`./gradlew :runtime:test :app:testDebugUnitTest`；装 debug 包从桌面小组件点一下墨印进速记、看一眼 `dumpsys alarm` 里提醒都还在。
-
-## 待定：手机上留着的旧文件
-
-0.2.0 照「旧数据不删」（NOTICE_PLAN 第 6 节）没碰；两个 `.preferences_pb` 以前只有 0.2.0 通知管家页顶上那一组读，0.2.1 删了那一组，现在没有代码读写：
-
-- `databases/relay.db`（派活收到的每一句）
-- `files/datastore/intake.preferences_pb`（以前每个模块勾了哪些 app）、`relay.preferences_pb`（派活名单、暗号）
-- debug 包还有 `notice_routing.preferences_pb`（第 6 步的开关）、`files/trace_relay.txt`
-
-要清就在 0.2.2 加几行冷启动时删（`deleteDatabase("relay.db")`、删 `datastore/` 下那几个文件），再过两个版本把这几行也删掉。不清也没坏处，只占一点空间。
+| 壳 | 在哪 | 为什么留 |
+|---|---|---|
+| 冷启动删旧文件那几行 | `intake/LegacyFiles.kt` 和 `IntakeModule.onAppStart` 里调它那一行 | 0.2.2 起删 0.2.0 之前留下的 `relay.db`、`datastore/` 下的 `intake` / `relay` / `notice_routing.preferences_pb`、`trace_relay.txt`；隔两个版本，手机上的都删过了 |
 
 ## 一直留着，不是壳
 
@@ -37,3 +21,6 @@
 | 壳 | 哪一版删的 |
 |---|---|
 | 通知管家页顶上「以前设置里勾的」那一组（`intake/legacy/OldSetup.kt` 连测试、`StewardScreen.OldSetupGroup`、`IntakeViewModel.oldSetup` / `appName`、传给 `StewardScreen` 的 `say`） | 0.2.1（11-13） |
+| 派活的两个旧路由 `reminder/relay/{id}`、`reminder/relay`（`ReminderRoutes.RELAY` / `RELAY_OLD`、`ReminderShell` 的 `RelayShim`） | 0.2.2（11-20） |
+| 记忆整理的旧类名 `agent.memory.tidy.TidyWorker`（连整个 `agent/` 目录） | 0.2.2（11-20） |
+| 速记的旧类名 `.agent.entry.quick.QuickAddActivity` 的 `activity-alias` | 0.2.2（11-20） |

@@ -24,5 +24,7 @@ object IntakeModule : Module {
         Intake.rebind(context.applicationContext)
         // 上次没办完的待办、没交成的交接接着办
         NoticeHub.start(context)
+        // 0.2.0 之前的旧文件，删一次（0.2.4 删这行）
+        Thread { LegacyFiles.clear(context.applicationContext) }.start()
     }
 }

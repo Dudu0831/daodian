@@ -2,7 +2,6 @@ package com.abc.daodian.reminder.presentation
 
 import android.content.Context
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
@@ -22,7 +21,7 @@ import com.abc.daodian.shell.entry.ShellEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** 提醒给壳的：列表、编辑、响得准不准、设置（派活两个旧路由留壳），抽屉卡、设置行、体检项、诊断那一段 */
+/** 提醒给壳的：列表、编辑、响得准不准、设置，抽屉卡、设置行、体检项、诊断那一段 */
 object ReminderShell : ShellEntry {
 
     override val id = ReminderModule.ID
@@ -51,9 +50,6 @@ object ReminderShell : ShellEntry {
         composable(ReminderRoutes.SETTINGS) {
             ReminderSettingsScreen(onBack = nav::back, open = nav::open)
         }
-        // 派活的两个旧路由留壳：通知栏里旧通知点进来，跳规则页（路由字符串，提醒不 import 通知监听层）
-        composable(ReminderRoutes.RELAY, arguments = listOf(navArgument("id") { type = NavType.LongType })) { RelayShim(nav) }
-        composable(ReminderRoutes.RELAY_OLD) { RelayShim(nav) }
     }
 
     @Composable
@@ -68,15 +64,3 @@ object ReminderShell : ShellEntry {
     override suspend fun diagnostics(context: Context): String =
         withContext(Dispatchers.IO) { ReminderDiagnostics.build(context) }
 }
-
-/** 派活旧路由的壳：先退掉自己，再去规则页 */
-@Composable
-private fun RelayShim(nav: AppNav) {
-    LaunchedEffect(Unit) {
-        nav.back()
-        nav.open(RULES_ROUTE)
-    }
-}
-
-/** 通知监听层的规则页（`intake/IntakeRoutes.RULES`），提醒不 import 它 */
-private const val RULES_ROUTE = "intake/rules"
